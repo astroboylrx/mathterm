@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { --bg: #1a1a2e; --fg: #e0e0e0; }
+    * { margin: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #terminal-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #xterm {
+      width: 100%;
+      height: 100%;
+    }
+
+    #rich-view {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--bg);
+      overflow-y: auto;
+      padding: 16px 20px;
+      font-size: 15px;
+      line-height: 1.8;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      pointer-events: none;
+      user-select: text;
+    }
+    #rich-view.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    #rich-view::-webkit-scrollbar { width: 8px; }
+    #rich-view::-webkit-scrollbar-track { background: transparent; }
+    #rich-view::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+
+    .rline {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      min-height: 1.6em;
+      overflow: hidden;
+    }
+    .rline.prompt-line {
+      background: #12122a;
+      padding: 1px 4px;
+      border-radius: 3px;
+      margin: 2px 0;
+    }
+    .rline .katex { padding: 0 2px; }
+    .display-math {
+      display: block;
+      text-align: center;
+      margin: 14px 0;
+      font-size: 1.3em;
+    }
+    .latex-pending {
+      color: #555;
+      font-style: italic;
+    }
+
+    .ansi-bold { font-weight: bold; }
+    .ansi-dim { opacity: 0.6; }
+    .ansi-italic { font-style: italic; }
+    .ansi-underline { text-decoration: underline; }
+    .ansi-31 { color: #ff6b6b; }
+    .ansi-32 { color: #51cf66; }
+    .ansi-33 { color: #ffd43b; }
+    .ansi-34 { color: #74c0fc; }
+    .ansi-35 { color: #da77f2; }
+    .ansi-36 { color: #66d9e8; }
+    .ansi-37 { color: #e0e0e0; }
+    .ansi-90 { color: #666; }
+    .ansi-91 { color: #ff8787; }
+    .ansi-92 { color: #69db7c; }
+    .ansi-93 { color: #ffe066; }
+    .ansi-94 { color: #91a7ff; }
+    .ansi-95 { color: #e599f7; }
+    .ansi-96 { color: #99e9f2; }
+
+    #rich-hint {
+      position: sticky;
+      bottom: 0;
+      background: var(--bg);
+      border-top: 1px solid #333;
+      padding: 6px 0;
+      text-align: center;
+      font-size: 12px;
+      color: #555;
+    }
+
+    #status-bar {
+      background: #16213e;
+      border-top: 1px solid #333;
+      padding: 2px 12px;
+      font-size: 12px;
+      color: #666;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    #status-bar .active { color: #51cf66; }
+    #status-bar .left { display: flex; align-items: center; gap: 12px; }
+    #status-bar .right { display: flex; align-items: center; gap: 8px; }
+    #math-btn {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      color: #888;
+      padding: 2px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+    #math-btn:hover { border-color: #51cf66; color: #51cf66; }
+    #math-btn.active { background: #16213e; border-color: #51cf66; color: #51cf66; }
+    #auto-indicator { color: #51cf66; }
+    #auto-indicator.off { color: #555; }
+
+    dialog#settings-dialog {
+      background: #16213e;
+      color: var(--fg);
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 24px;
+      width: 520px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+    dialog#settings-dialog::backdrop {
+      background: rgba(0,0,0,0.6);
+    }
+    dialog#settings-dialog h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      color: #51cf66;
+    }
+    dialog#settings-dialog label {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 10px 0;
+      color: #aaa;
+    }
+    dialog#settings-dialog label span { min-width: 160px; }
+    dialog#settings-dialog input[type="number"],
+    dialog#settings-dialog input[type="text"] {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      color: var(--fg);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+      width: 180px;
+      outline: none;
+    }
+    dialog#settings-dialog input:focus { border-color: #51cf66; }
+    dialog#settings-dialog input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #51cf66;
+    }
+    dialog#settings-dialog .dialog-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    dialog#settings-dialog button {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      color: var(--fg);
+      padding: 6px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    dialog#settings-dialog button:hover { border-color: #51cf66; }
+    dialog#settings-dialog button.primary { background: #51cf66; color: #1a1a2e; border-color: #51cf66; font-weight: bold; }
+    dialog#settings-dialog .note { color: #555; font-size: 11px; margin-top: 4px; }
+  
+  </style>
+  <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
+</head>
+<body>
+  <div id="terminal-container">
+    <div id="xterm"></div>
+    <div id="rich-view">
+      <div id="rich-content"></div>
+      <div id="rich-hint">Press any key to return to terminal</div>
+    </div>
+  </div>
+  <div id="status-bar">
+    <div class="left">
+      <span id="mode-indicator">TERMINAL</span>
+      <span id="auto-indicator" title="Auto-render LaTeX">&#x2B50; AUTO</span>
+    </div>
+    <div class="right">
+      <span>Ctrl+Shift+M</span>
+      <button id="math-btn" onclick="toggleMathMode()">&#x2211; Math</button>
+    </div>
+  </div>
+
+  <dialog id="settings-dialog">
+    <h2>Preferences</h2>
+    <label><span>Scrollback lines</span><input type="number" id="s-scrollback" min="100" max="100000" step="1000"></label>
+    <label><span>Font size</span><input type="number" id="s-fontsize" min="8" max="32"></label>
+    <label><span>Font family</span><input type="text" id="s-fontfamily"></label>
+    <label><span>Auto-render LaTeX</span><input type="checkbox" id="s-autorender"></label>
+    <label><span>Auto-render delay (ms)</span><input type="number" id="s-delay" min="500" max="10000" step="250"></label>
+    <label><span>Background color</span><input type="text" id="s-bg"></label>
+    <label><span>Foreground color</span><input type="text" id="s-fg"></label>
+    <label><span>Cursor color</span><input type="text" id="s-cursor"></label>
+    <div class="note">Scrollback and font changes require restart to take full effect.</div>
+    <div class="dialog-buttons">
+      <button onclick="closeSettings()">Cancel</button>
+      <button class="primary" onclick="saveSettings()">Save</button>
+    </div>
+  </dialog>
+
+<script>
+const { Terminal } = require('@xterm/xterm');
+const { FitAddon } = require('@xterm/addon-fit');
+const { ipcRenderer } = require('electron');
+const pty = require('node-pty');
+const katex = require('katex');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+// ══════════════════════════════════════
+//  Settings
+// ══════════════════════════════════════
+const SETTINGS_PATH = path.join(os.homedir(), '.mathterm.json');
+
+const DEFAULTS = {
+  scrollback: 16384,
+  fontSize: 14,
+  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+  autoRender: true,
+  autoRenderDelay: 1500,
+  bg: '#1a1a2e',
+  fg: '#e0e0e0',
+  cursor: '#51cf66'
+};
+
+function loadSettings() {
+  try {
+    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const user = JSON.parse(raw);
+    return { ...DEFAULTS, ...user };
+  } catch {
+    return { ...DEFAULTS };
+  }
+}
+
+function saveSettingsFile(s) {
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2) + '\n');
+}
+
+const settings = loadSettings();
+
+function openSettings() {
+  document.getElementById('s-scrollback').value = settings.scrollback;
+  document.getElementById('s-fontsize').value = settings.fontSize;
+  document.getElementById('s-fontfamily').value = settings.fontFamily;
+  document.getElementById('s-autorender').checked = settings.autoRender;
+  document.getElementById('s-delay').value = settings.autoRenderDelay;
+  document.getElementById('s-bg').value = settings.bg;
+  document.getElementById('s-fg').value = settings.fg;
+  document.getElementById('s-cursor').value = settings.cursor;
+  document.getElementById('settings-dialog').showModal();
+}
+
+function closeSettings() {
+  document.getElementById('settings-dialog').close();
+}
+
+function saveSettings() {
+  settings.scrollback = parseInt(document.getElementById('s-scrollback').value) || DEFAULTS.scrollback;
+  settings.fontSize = parseInt(document.getElementById('s-fontsize').value) || DEFAULTS.fontSize;
+  settings.fontFamily = document.getElementById('s-fontfamily').value || DEFAULTS.fontFamily;
+  settings.autoRender = document.getElementById('s-autorender').checked;
+  settings.autoRenderDelay = parseInt(document.getElementById('s-delay').value) || DEFAULTS.autoRenderDelay;
+  settings.bg = document.getElementById('s-bg').value || DEFAULTS.bg;
+  settings.fg = document.getElementById('s-fg').value || DEFAULTS.fg;
+  settings.cursor = document.getElementById('s-cursor').value || DEFAULTS.cursor;
+
+  saveSettingsFile(settings);
+  applySettings();
+  closeSettings();
+}
+
+function applySettings() {
+  autoRender = settings.autoRender;
+  autoIndicator.textContent = autoRender ? '\u2B50 AUTO' : 'AUTO OFF';
+  autoIndicator.className = autoRender ? '' : 'off';
+
+  term.options.fontSize = settings.fontSize;
+  term.options.fontFamily = settings.fontFamily;
+  term.options.theme = {
+    background: settings.bg,
+    foreground: settings.fg,
+    cursor: settings.cursor
+  };
+  fitAddon.fit();
+  ipcRenderer.send('rebuild-menu', autoRender);
+}
+
+// ══════════════════════════════════════
+//  DOM refs
+// ══════════════════════════════════════
+const richView = document.getElementById('rich-view');
+const richContent = document.getElementById('rich-content');
+const modeIndicator = document.getElementById('mode-indicator');
+const autoIndicator = document.getElementById('auto-indicator');
+const mathBtn = document.getElementById('math-btn');
+
+// ══════════════════════════════════════
+//  xterm.js
+// ══════════════════════════════════════
+const term = new Terminal({
+  fontFamily: settings.fontFamily,
+  fontSize: settings.fontSize,
+  theme: {
+    background: settings.bg,
+    foreground: settings.fg,
+    cursor: settings.cursor
+  },
+  cursorBlink: true,
+  scrollback: settings.scrollback
+});
+const fitAddon = new FitAddon();
+term.loadAddon(fitAddon);
+term.open(document.getElementById('xterm'));
+fitAddon.fit();
+
+// ══════════════════════════════════════
+//  PTY
+// ══════════════════════════════════════
+const shell = process.env.SHELL || '/bin/bash';
+const ptyProc = pty.spawn(shell, ['--login'], {
+  name: 'xterm-256color',
+  cols: term.cols,
+  rows: term.rows,
+  cwd: process.env.HOME,
+  env: process.env
+});
+
+term.onData(data => ptyProc.write(data));
+term.onResize(({ cols, rows }) => ptyProc.resize(cols, rows));
+window.addEventListener('resize', () => fitAddon.fit());
+
+// ══════════════════════════════════════
+//  Rich view management
+// ══════════════════════════════════════
+let mathEnabled = true;
+let autoRender = settings.autoRender;
+let richVisible = false;
+let richAutoTriggered = false;
+
+function showRichView(auto) {
+  if (richVisible) return;
+  richVisible = true;
+  richAutoTriggered = !!auto;
+  richView.classList.add('visible');
+  richView.scrollTop = richView.scrollHeight;
+  const hint = document.getElementById('rich-hint');
+  hint.textContent = auto
+    ? 'Press any key to return to terminal'
+    : 'Esc or Ctrl+Shift+M to return \u00b7 Select & copy freely';
+  modeIndicator.textContent = 'MATH';
+  modeIndicator.classList.add('active');
+  mathBtn.classList.add('active');
+}
+
+function hideRichView() {
+  if (!richVisible) return;
+  richVisible = false;
+  richAutoTriggered = false;
+  richView.classList.remove('visible');
+  modeIndicator.textContent = 'TERMINAL';
+  modeIndicator.classList.remove('active');
+  mathBtn.classList.remove('active');
+  term.focus();
+}
+
+function toggleMathMode() {
+  if (richVisible) {
+    hideRichView();
+  } else {
+    showManualRichView();
+  }
+}
+
+// IPC from menu
+ipcRenderer.on('toggle-math-mode', () => toggleMathMode());
+ipcRenderer.on('set-auto-render', (e, val) => {
+  autoRender = val;
+  autoIndicator.textContent = autoRender ? '\u2B50 AUTO' : 'AUTO OFF';
+  autoIndicator.className = autoRender ? '' : 'off';
+  ipcRenderer.send('rebuild-menu', autoRender);
+});
+ipcRenderer.on('clear-terminal', () => {
+  if (richVisible) hideRichView();
+  term.clear();
+  ptyProc.write('\x0c');
+});
+ipcRenderer.on('open-file', (e, filePath) => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    renderFileContent(content, filePath);
+  } catch (err) {
+    console.error('Failed to open file:', err);
+  }
+});
+ipcRenderer.on('show-shortcuts', () => {
+  // Could show a modal, for now just toggle math view as demo
+});
+ipcRenderer.on('open-settings', () => openSettings());
+
+function renderFileContent(content, filePath) {
+  richContent.innerHTML = '';
+  const lines = content.split('\n');
+  let blankCount = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const text = lines[i];
+
+    if (text.trim() === '$$') {
+      let mathContent = '';
+      let j = i + 1;
+      while (j < lines.length) {
+        if (lines[j].trim() === '$$') {
+          const el = document.createElement('div');
+          el.className = 'rline';
+          const mathSpan = document.createElement('span');
+          mathSpan.className = 'display-math';
+          try { katex.render(mathContent.trim(), mathSpan, { displayMode: true, throwOnError: false }); }
+          catch { mathSpan.textContent = '$$\n' + mathContent + '\n$$'; }
+          el.appendChild(mathSpan);
+          richContent.appendChild(el);
+          i = j;
+          break;
+        }
+        mathContent += (mathContent ? '\n' : '') + lines[j];
+        j++;
+      }
+      if (j >= lines.length && lines[lines.length - 1].trim() !== '$$') {
+        const el = document.createElement('div');
+        el.className = 'rline';
+        const span = document.createElement('span');
+        span.className = 'latex-pending';
+        span.textContent = '$$' + (mathContent ? '\n' + mathContent : '');
+        el.appendChild(span);
+        richContent.appendChild(el);
+        i = lines.length;
+      }
+      continue;
+    }
+
+    if (!text.trim()) {
+      if (blankCount < 1) {
+        blankCount++;
+        const el = document.createElement('div');
+        el.className = 'rline';
+        el.innerHTML = '\u00a0';
+        richContent.appendChild(el);
+      }
+      continue;
+    }
+    blankCount = 0;
+    const el = renderRichLine(text, text);
+    if (isPromptLine(text)) el.classList.add('prompt-line');
+    richContent.appendChild(el);
+  }
+
+  showRichView(false);
+}
+
+// Any key in xterm hides the rich view (auto mode only)
+term.onData(data => {
+  if (richVisible && richAutoTriggered) hideRichView();
+});
+
+document.addEventListener('keydown', e => {
+  if (richVisible) {
+    // Auto mode: any non-modifier, non-clipboard key dismisses
+    if (richAutoTriggered) {
+      const isModifier = ['Shift', 'Control', 'Alt', 'Meta'].includes(e.key);
+      if (isModifier) return;
+      const isClipboard = (e.ctrlKey || e.metaKey) && ['c', 'x', 'v', 'a'].includes(e.key.toLowerCase());
+      if (isClipboard) return;
+      const isMenuShortcut = e.ctrlKey && e.shiftKey && e.key === 'M';
+      if (isMenuShortcut) return; // handled by menu
+      e.preventDefault();
+      hideRichView();
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) ptyProc.write(e.key);
+      else if (e.key === 'Enter') ptyProc.write('\r');
+      else if (e.key === 'Backspace') ptyProc.write('\x7f');
+      else if (e.key === 'Tab') ptyProc.write('\t');
+      else if (e.key === 'Escape') ptyProc.write('\x1b');
+      return;
+    }
+    // Manual mode: only Escape dismisses (Ctrl+Shift+M from menu)
+    if (e.key === 'Escape') { e.preventDefault(); hideRichView(); }
+    return;
+  }
+});
+
+// ══════════════════════════════════════
+//  ANSI
+// ══════════════════════════════════════
+function stripAnsi(text) {
+  return text
+    .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b\][^\x1b]*/g, '')
+    .replace(/\x1b[()][AB012]/g, '')
+    .replace(/\x1b[^[\]][\x20-\x2f]*[\x30-\x7e]/g, '')
+    .replace(/\x1b[^[\]][A-Za-z]/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+}
+
+function parseAnsiToSpans(text) {
+  const fragment = document.createDocumentFragment();
+  let i = 0;
+  let classes = [];
+  let buf = '';
+
+  function flushBuf() {
+    if (!buf) return;
+    const span = document.createElement('span');
+    if (classes.length) span.className = classes.join(' ');
+    span.textContent = buf;
+    fragment.appendChild(span);
+    buf = '';
+  }
+
+  while (i < text.length) {
+    if (text[i] === '\x1b' && text[i + 1] === '[') {
+      const m = text.slice(i).match(/^\x1b\[([0-9;?]*)([a-zA-Z])/);
+      if (m) {
+        flushBuf();
+        const codes = m[1].replace(/\?/g, '').split(';').filter(Boolean).map(Number);
+        for (const c of codes) {
+          if (c === 0) classes = [];
+          else if (c === 1) classes.push('ansi-bold');
+          else if (c === 2) classes.push('ansi-dim');
+          else if (c === 3) classes.push('ansi-italic');
+          else if (c === 4) classes.push('ansi-underline');
+          else if (c >= 30 && c <= 37) { classes = classes.filter(x => !/^ansi-[39]\d$/.test(x)); classes.push('ansi-' + c); }
+          else if (c >= 90 && c <= 97) { classes = classes.filter(x => !/^ansi-[39]\d$/.test(x)); classes.push('ansi-' + c); }
+          else if (c === 39 || c === 49) { classes = classes.filter(x => !/^ansi-[39]\d$/.test(x)); }
+        }
+        i += m[0].length;
+        continue;
+      }
+    }
+    if (text[i] === '\x1b' && text[i + 1] === ']') {
+      flushBuf();
+      const end1 = text.indexOf('\x07', i);
+      const end2 = text.indexOf('\x1b\\', i);
+      if (end1 !== -1 && end2 !== -1) i = Math.min(end1, end2) + 1;
+      else if (end1 !== -1) i = end1 + 1;
+      else if (end2 !== -1) i = end2 + 2;
+      else i = text.length;
+      continue;
+    }
+    if (text[i] === '\x1b') { flushBuf(); i += 2; continue; }
+    if (text.charCodeAt(i) < 0x20 && text[i] !== '\n') { flushBuf(); i++; continue; }
+
+    buf += text[i];
+    i++;
+  }
+  flushBuf();
+  return fragment;
+}
+
+// ══════════════════════════════════════
+//  LaTeX detection & rendering
+// ══════════════════════════════════════
+const LATEX_COMMANDS = /\\(?:frac|sqrt|sum|int|nabla|partial|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Omega|cdot|times|div|mathbb|mathcal|mathrm|mathbf|text|begin|end|left|right|overline|hat|vec|bar|dot|tilde|infty|forall|exists|leq|geq|neq|approx|equiv|sim|propto|subset|supset|cup|cap|emptyset|quad|hbar|to|rightarrow|leftarrow|Rightarrow|iff|binom|pm|mp|circ|angle|ell)/;
+
+function hasLatex(text) {
+  if (/\$\$[\s\S]*?\$\$/.test(text)) return true;
+  if (/\$\$/.test(text) && (text.match(/\$\$/g) || []).length >= 2) return true;
+  const matches = text.match(/\$([^$\n]+)\$/g);
+  if (matches) {
+    for (const m of matches) {
+      const inner = m.slice(1, -1);
+      if (LATEX_COMMANDS.test(inner)) return true;
+      if (/[_^]\{/.test(inner)) return true;
+      if (/[_^][0-9a-zA-Z]/.test(inner)) return true;
+      if (/\\/.test(inner) && inner.length > 2) return true;
+    }
+  }
+  return false;
+}
+
+function splitLatexSmart(text) {
+  const parts = [];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '$' && text[i + 1] === '$') {
+      const end = text.indexOf('$$', i + 2);
+      if (end !== -1) {
+        parts.push({ type: 'display', closed: true, content: text.slice(i + 2, end), raw: text.slice(i, end + 2) });
+        i = end + 2;
+      } else {
+        parts.push({ type: 'display', closed: false, content: text.slice(i + 2), raw: text.slice(i) });
+        i = text.length;
+      }
+    } else if (text[i] === '$') {
+      const end = text.indexOf('$', i + 1);
+      if (end !== -1 && end > i + 1) {
+        parts.push({ type: 'inline', closed: true, content: text.slice(i + 1, end), raw: text.slice(i, end + 1) });
+        i = end + 1;
+      } else if (end === -1) {
+        parts.push({ type: 'inline', closed: false, content: text.slice(i + 1), raw: text.slice(i) });
+        i = text.length;
+      } else {
+        parts.push({ type: 'text', content: '$', raw: '$' });
+        i++;
+      }
+    } else {
+      const next = text.indexOf('$', i);
+      const end = next === -1 ? text.length : next;
+      parts.push({ type: 'text', content: text.slice(i, end), raw: text.slice(i, end) });
+      i = end;
+    }
+  }
+  return parts;
+}
+
+function renderRichLine(cleanText, rawText) {
+  const el = document.createElement('div');
+  el.className = 'rline';
+
+  if (hasLatex(cleanText)) {
+    const parts = splitLatexSmart(cleanText);
+    for (const part of parts) {
+      if (part.type === 'display' && part.closed) {
+        const span = document.createElement('span');
+        span.className = 'display-math';
+        try { katex.render(part.content, span, { displayMode: true, throwOnError: false }); }
+        catch { span.textContent = part.raw; }
+        el.appendChild(span);
+      } else if (part.type === 'inline' && part.closed) {
+        const span = document.createElement('span');
+        try { katex.render(part.content, span, { displayMode: false, throwOnError: false }); }
+        catch { span.textContent = part.raw; }
+        el.appendChild(span);
+      } else if (!part.closed && part.type !== 'text') {
+        const span = document.createElement('span');
+        span.className = 'latex-pending';
+        span.textContent = part.raw;
+        el.appendChild(span);
+      } else {
+        const span = document.createElement('span');
+        span.textContent = part.content;
+        el.appendChild(span);
+      }
+    }
+  } else {
+    el.appendChild(parseAnsiToSpans(rawText));
+  }
+
+  return el;
+}
+
+// ══════════════════════════════════════
+//  Output section tracking
+// ══════════════════════════════════════
+let sectionBuffer = '';
+let sectionTimer = null;
+let currentSectionHasLatex = false;
+let sectionStartY = 0;
+
+function resetSection() {
+  sectionBuffer = '';
+  currentSectionHasLatex = false;
+  sectionStartY = 0;
+}
+
+function flushSection() {
+  if (!currentSectionHasLatex || !mathEnabled) {
+    resetSection();
+    return;
+  }
+
+  const buf = term.buffer.active;
+  const endY = buf.baseY + buf.cursorY;
+
+  richContent.innerHTML = '';
+  let blankCount = 0;
+  let foundContent = false;
+
+  for (let y = sectionStartY; y <= endY; y++) {
+    let line;
+    try { line = buf.getLine(y); } catch { continue; }
+    if (!line) continue;
+    const text = line.translateToString(true);
+
+    if (!text.trim()) {
+      if (foundContent && blankCount < 1) {
+        blankCount++;
+        const el = document.createElement('div');
+        el.className = 'rline';
+        el.innerHTML = '\u00a0';
+        richContent.appendChild(el);
+      }
+      continue;
+    }
+    blankCount = 0;
+    foundContent = true;
+
+    // Multi-line display math: $$ on its own line
+    if (text.trim() === '$$') {
+      let mathContent = '';
+      let j = y + 1;
+      while (j <= endY) {
+        let nextLine;
+        try { nextLine = buf.getLine(j); } catch { break; }
+        if (!nextLine) break;
+        const nextText = nextLine.translateToString(true);
+        if (nextText.trim() === '$$') {
+          const el = document.createElement('div');
+          el.className = 'rline';
+          const mathSpan = document.createElement('span');
+          mathSpan.className = 'display-math';
+          try { katex.render(mathContent.trim(), mathSpan, { displayMode: true, throwOnError: false }); }
+          catch { mathSpan.textContent = '$$\n' + mathContent + '\n$$'; }
+          el.appendChild(mathSpan);
+          richContent.appendChild(el);
+          y = j;
+          break;
+        }
+        mathContent += (mathContent ? '\n' : '') + nextText.trim();
+        j++;
+      }
+      if (j > endY) {
+        const el = document.createElement('div');
+        el.className = 'rline';
+        const span = document.createElement('span');
+        span.className = 'latex-pending';
+        span.textContent = '$$' + (mathContent ? '\n' + mathContent : '');
+        el.appendChild(span);
+        richContent.appendChild(el);
+        y = j;
+      }
+      continue;
+    }
+
+    richContent.appendChild(renderRichLine(text, text));
+  }
+
+  if (foundContent) showRichView(true);
+  resetSection();
+}
+
+function feedSection(data) {
+  if (!autoRender) return;
+  if (!sectionBuffer) {
+    const buf = term.buffer.active;
+    sectionStartY = buf.baseY + buf.cursorY;
+  }
+  sectionBuffer += data;
+  if (hasLatex(stripAnsi(sectionBuffer))) {
+    currentSectionHasLatex = true;
+  }
+
+  clearTimeout(sectionTimer);
+  sectionTimer = setTimeout(flushSection, settings.autoRenderDelay);
+}
+
+// ══════════════════════════════════════
+//  Prompt detection
+// ══════════════════════════════════════
+const PROMPT_RE = /(?:[^\s]*@[^\s]*:[^\s]*\$|❯|>>>|>\s|In \[\d+\]:|\.\.\.|julia>)\s*$/;
+
+function isPromptLine(text) {
+  const t = text.trim();
+  if (!t) return false;
+  if (PROMPT_RE.test(t)) return true;
+  if (/^.*\$\s+$/.test(t) && t.length < 120) return true;
+  if (/^.*#\s+$/.test(t) && t.length < 120) return true;
+  return false;
+}
+
+// ══════════════════════════════════════
+//  Manual toggle: render from xterm buffer
+// ══════════════════════════════════════
+function showManualRichView() {
+  const buf = term.buffer.active;
+  const startY = 0;
+  const endY = buf.baseY + buf.cursorY;
+
+  richContent.innerHTML = '';
+  let blankCount = 0;
+  let foundContent = false;
+  let skippedLeading = true;
+
+  for (let y = startY; y <= endY; y++) {
+    let line;
+    try { line = buf.getLine(y); } catch { continue; }
+    if (!line) continue;
+    const text = line.translateToString(true);
+    if (!text.trim()) {
+      if (foundContent && blankCount < 1) {
+        blankCount++;
+        const el = document.createElement('div');
+        el.className = 'rline';
+        el.innerHTML = '\u00a0';
+        richContent.appendChild(el);
+      }
+      continue;
+    }
+
+    if (skippedLeading && !foundContent) {
+      skippedLeading = false;
+    }
+    blankCount = 0;
+    foundContent = true;
+
+    if (text.trim() === '$$') {
+      let mathContent = '';
+      let j = y + 1;
+      while (j <= endY) {
+        let nextLine;
+        try { nextLine = buf.getLine(j); } catch { break; }
+        if (!nextLine) break;
+        const nextText = nextLine.translateToString(true);
+        if (nextText.trim() === '$$') {
+          const el = document.createElement('div');
+          el.className = 'rline';
+          const mathSpan = document.createElement('span');
+          mathSpan.className = 'display-math';
+          try { katex.render(mathContent.trim(), mathSpan, { displayMode: true, throwOnError: false }); }
+          catch { mathSpan.textContent = '$$\n' + mathContent + '\n$$'; }
+          el.appendChild(mathSpan);
+          richContent.appendChild(el);
+          y = j;
+          break;
+        }
+        mathContent += (mathContent ? '\n' : '') + nextText.trim();
+        j++;
+      }
+      continue;
+    }
+
+    const el = renderRichLine(text, text);
+    if (isPromptLine(text)) el.classList.add('prompt-line');
+    richContent.appendChild(el);
+  }
+
+  if (foundContent) showRichView(false);
+}
+
+// ══════════════════════════════════════
+//  PTY data flow
+// ══════════════════════════════════════
+ptyProc.onData(data => {
+  term.write(data);
+  if (mathEnabled) feedSection(data);
+});
+
+term.focus();
+</script>
+</body>
+</html>
