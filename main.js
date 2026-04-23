@@ -26,15 +26,44 @@ function buildMenu(autoRender) {
           }
         },
         { type: 'separator' },
+        {
+          label: 'New Tab',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => mainWindow.webContents.send('new-tab')
+        },
+        {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => mainWindow.webContents.send('close-tab')
+        },
+        { type: 'separator' },
         { role: 'close' }
       ]
     },
     {
       label: '&Edit',
       submenu: [
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          click: () => mainWindow.webContents.send('do-copy')
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+Shift+V',
+          click: () => mainWindow.webContents.send('do-paste')
+        },
+        {
+          label: 'Select All',
+          accelerator: 'CmdOrCtrl+Shift+A',
+          click: () => mainWindow.webContents.send('select-all')
+        },
+        { type: 'separator' },
+        {
+          label: 'Find...',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          click: () => mainWindow.webContents.send('open-search')
+        },
         { type: 'separator' },
         {
           label: 'Clear Terminal',
@@ -71,6 +100,19 @@ function buildMenu(autoRender) {
       ]
     },
     {
+      label: '&Tabs',
+      submenu: [
+        {
+          label: 'Next Tab',
+          click: () => mainWindow.webContents.send('next-tab')
+        },
+        {
+          label: 'Previous Tab',
+          click: () => mainWindow.webContents.send('prev-tab')
+        }
+      ]
+    },
+    {
       label: '&Help',
       submenu: [
         { label: 'Keyboard Shortcuts', click: () => mainWindow.webContents.send('show-shortcuts') }
@@ -97,4 +139,24 @@ app.on('window-all-closed', () => app.quit());
 
 ipcMain.on('rebuild-menu', (event, autoRender) => {
   Menu.setApplicationMenu(buildMenu(autoRender));
+});
+
+ipcMain.on('close-window', () => {
+  if (mainWindow) mainWindow.close();
+});
+
+ipcMain.on('detach-tab', (event, opts) => {
+  const win = new BrowserWindow({
+    width: 960,
+    height: 700,
+    title: 'MathTerm',
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+  win.loadFile('index.html');
+  win.webContents.on('did-finish-load', () => {
+    if (opts?.cwd) win.webContents.send('set-tab-cwd', opts.cwd);
+  });
 });
