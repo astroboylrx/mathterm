@@ -3,6 +3,11 @@ const path = require('path');
 
 let mainWindow;
 
+function getFocusedWebContents() {
+  const win = BrowserWindow.getFocusedWindow();
+  return win ? win.webContents : (mainWindow ? mainWindow.webContents : null);
+}
+
 function buildMenu(autoRender) {
   return Menu.buildFromTemplate([
     {
@@ -12,7 +17,8 @@ function buildMenu(autoRender) {
           label: 'Open File in Math Mode...',
           accelerator: 'CmdOrCtrl+Shift+O',
           click: () => {
-            dialog.showOpenDialog(mainWindow, {
+            const win = BrowserWindow.getFocusedWindow() || mainWindow;
+            dialog.showOpenDialog(win, {
               filters: [
                 { name: 'Documents', extensions: ['md', 'txt', 'tex', 'markdown'] },
                 { name: 'All Files', extensions: ['*'] }
@@ -20,7 +26,8 @@ function buildMenu(autoRender) {
               properties: ['openFile']
             }).then(result => {
               if (!result.canceled && result.filePaths.length > 0) {
-                mainWindow.webContents.send('open-file', result.filePaths[0]);
+                const wc = getFocusedWebContents();
+                if (wc) wc.send('open-file', result.filePaths[0]);
               }
             });
           }
@@ -29,12 +36,12 @@ function buildMenu(autoRender) {
         {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+Shift+T',
-          click: () => mainWindow.webContents.send('new-tab')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('new-tab'); }
         },
         {
           label: 'Close Tab',
           accelerator: 'CmdOrCtrl+Shift+W',
-          click: () => mainWindow.webContents.send('close-tab')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('close-tab'); }
         },
         { type: 'separator' },
         { role: 'close' }
@@ -46,33 +53,33 @@ function buildMenu(autoRender) {
         {
           label: 'Copy',
           accelerator: 'CmdOrCtrl+Shift+C',
-          click: () => mainWindow.webContents.send('do-copy')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-copy'); }
         },
         {
           label: 'Paste',
           accelerator: 'CmdOrCtrl+Shift+V',
-          click: () => mainWindow.webContents.send('do-paste')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-paste'); }
         },
         {
           label: 'Select All',
           accelerator: 'CmdOrCtrl+Shift+A',
-          click: () => mainWindow.webContents.send('select-all')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('select-all'); }
         },
         { type: 'separator' },
         {
           label: 'Find...',
           accelerator: 'CmdOrCtrl+Shift+F',
-          click: () => mainWindow.webContents.send('open-search')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-search'); }
         },
         { type: 'separator' },
         {
           label: 'Clear Terminal',
-          click: () => mainWindow.webContents.send('clear-terminal')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('clear-terminal'); }
         },
         { type: 'separator' },
         {
           label: 'Preferences...',
-          click: () => mainWindow.webContents.send('open-settings')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-settings'); }
         }
       ]
     },
@@ -86,14 +93,14 @@ function buildMenu(autoRender) {
         {
           label: 'Toggle Math Mode',
           accelerator: 'CmdOrCtrl+Shift+M',
-          click: () => mainWindow.webContents.send('toggle-math-mode')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('toggle-math-mode'); }
         },
         { type: 'separator' },
         {
           label: 'Auto-Render LaTeX',
           type: 'checkbox',
           checked: autoRender,
-          click: item => mainWindow.webContents.send('set-auto-render', item.checked)
+          click: item => { const wc = getFocusedWebContents(); if (wc) wc.send('set-auto-render', item.checked); }
         },
         { type: 'separator' },
         { role: 'toggleDevTools' }
@@ -104,18 +111,18 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Next Tab',
-          click: () => mainWindow.webContents.send('next-tab')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('next-tab'); }
         },
         {
           label: 'Previous Tab',
-          click: () => mainWindow.webContents.send('prev-tab')
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('prev-tab'); }
         }
       ]
     },
     {
       label: '&Help',
       submenu: [
-        { label: 'Keyboard Shortcuts', click: () => mainWindow.webContents.send('show-shortcuts') }
+        { label: 'Keyboard Shortcuts', click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('show-shortcuts'); } }
       ]
     }
   ]);
@@ -135,14 +142,33 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(buildMenu(true));
 });
 
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    mainWindow = new BrowserWindow({
+      width: 960,
+      height: 700,
+      title: 'MathTerm',
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false
+      }
+    });
+    mainWindow.loadFile('index.html');
+    Menu.setApplicationMenu(buildMenu(true));
+  }
+});
 
 ipcMain.on('rebuild-menu', (event, autoRender) => {
   Menu.setApplicationMenu(buildMenu(autoRender));
 });
 
-ipcMain.on('close-window', () => {
-  if (mainWindow) mainWindow.close();
+ipcMain.on('close-window', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.close();
 });
 
 ipcMain.on('detach-tab', (event, opts) => {

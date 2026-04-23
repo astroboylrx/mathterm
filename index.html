@@ -426,6 +426,7 @@
     <label><span>Foreground color</span><input type="text" id="s-fg"></label>
     <label><span>Cursor color</span><input type="text" id="s-cursor"></label>
     <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
+    <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>
     <div class="note">Scrollback and font changes require restart to take full effect.</div>
     <div class="dialog-buttons">
       <button onclick="closeSettings()">Cancel</button>
@@ -461,7 +462,8 @@ const DEFAULTS = {
   bg: '#1a1a2e',
   fg: '#e0e0e0',
   cursor: '#51cf66',
-  inheritCwd: false
+  inheritCwd: false,
+  copyOnSelect: !isMac
 };
 
 function loadSettings() {
@@ -490,6 +492,7 @@ function openSettings() {
   document.getElementById('s-fg').value = settings.fg;
   document.getElementById('s-cursor').value = settings.cursor;
   document.getElementById('s-inheritcwd').checked = settings.inheritCwd;
+  document.getElementById('s-copyonselect').checked = settings.copyOnSelect;
   document.getElementById('settings-dialog').showModal();
 }
 
@@ -498,15 +501,20 @@ function closeSettings() {
 }
 
 function saveSettings() {
+  const validateColor = (v, fallback) => {
+    if (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('color', v)) return v;
+    return fallback;
+  };
   settings.scrollback = parseInt(document.getElementById('s-scrollback').value) || DEFAULTS.scrollback;
   settings.fontSize = parseInt(document.getElementById('s-fontsize').value) || DEFAULTS.fontSize;
   settings.fontFamily = document.getElementById('s-fontfamily').value || DEFAULTS.fontFamily;
   settings.autoRender = document.getElementById('s-autorender').checked;
   settings.autoRenderDelay = parseInt(document.getElementById('s-delay').value) || DEFAULTS.autoRenderDelay;
-  settings.bg = document.getElementById('s-bg').value || DEFAULTS.bg;
-  settings.fg = document.getElementById('s-fg').value || DEFAULTS.fg;
-  settings.cursor = document.getElementById('s-cursor').value || DEFAULTS.cursor;
+  settings.bg = validateColor(document.getElementById('s-bg').value || DEFAULTS.bg, DEFAULTS.bg);
+  settings.fg = validateColor(document.getElementById('s-fg').value || DEFAULTS.fg, DEFAULTS.fg);
+  settings.cursor = validateColor(document.getElementById('s-cursor').value || DEFAULTS.cursor, DEFAULTS.cursor);
   settings.inheritCwd = document.getElementById('s-inheritcwd').checked;
+  settings.copyOnSelect = document.getElementById('s-copyonselect').checked;
 
   saveSettingsFile(settings);
   applySettings();
@@ -543,7 +551,6 @@ const searchInput = document.getElementById('search-input');
 const searchCount = document.getElementById('search-count');
 const contextMenu = document.getElementById('context-menu');
 
-let mathEnabled = true;
 let autoRender = settings.autoRender;
 
 // ══════════════════════════════════════
@@ -572,7 +579,6 @@ class TabSession {
     this.tabEl = null;
     this._promptPrefix = null;
     this._promptYSet = new Set();
-    this._promptRecordTimer = null;
     this._shimDir = null;
     this._customTitle = null;
   }
@@ -669,7 +675,13 @@ function createTab() {
   const searchAddon = new SearchAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
-  term.loadAddon(new WebLinksAddon((_event, uri) => shell.openExternal(uri)));
+  try { term.loadAddon(new (require('@xterm/addon-unicode11').Unicode11Addon)()); term.unicode.activeVersion = '6'; } catch {}
+  term.loadAddon(new WebLinksAddon((_event, uri) => {
+    try {
+      const u = new URL(uri);
+      if (['http:', 'https:', 'mailto:'].includes(u.protocol)) shell.openExternal(uri);
+    } catch {}
+  }));
   term.open(xtermHolder);
 
   tab.term = term;
@@ -690,9 +702,21 @@ function createTab() {
     cols: term.cols,
     rows: term.rows,
     cwd: spawnCwd,
-    env: shellEnv
+    env: {
+      ...shellEnv,
+      TERM_PROGRAM: 'MathTerm',
+      TERM_PROGRAM_VERSION: '0.6',
+      COLORTERM: 'truecolor'
+    }
   });
   tab.ptyProc = ptyProc;
+
+  ptyProc.onExit(() => {
+    if (tab._shimDir) {
+      try { fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
+      tab._shimDir = null;
+    }
+  });
 
   term.onData(data => {
     if (tab.richVisible) {
@@ -709,6 +733,7 @@ function createTab() {
   term.onResize(({ cols, rows }) => ptyProc.resize(cols, rows));
 
   term.onSelectionChange(() => {
+    if (!settings.copyOnSelect) return;
     const sel = term.getSelection();
     if (sel) clipboard.writeText(sel);
   });
@@ -716,14 +741,19 @@ function createTab() {
   ptyProc.onData(data => {
     const hasPromptMark = data.includes('\x1b]133;A');
     if (hasPromptMark) {
-      clearTimeout(tab._promptRecordTimer);
-      tab._promptRecordTimer = setTimeout(() => {
+      setTimeout(() => {
         const buf = tab.term.buffer.active;
         tab._promptYSet.add(buf.baseY + buf.cursorY);
+        if (tab._promptYSet.size > 500) {
+          const minY = buf.baseY - settings.scrollback;
+          for (const v of tab._promptYSet) {
+            if (v < minY) tab._promptYSet.delete(v);
+          }
+        }
       }, 20);
     }
     term.write(data);
-    if (mathEnabled) tabFeedSection(tab, data);
+    tabFeedSection(tab, data);
     tabTrackTitle(tab, data);
   });
 
@@ -821,7 +851,6 @@ function closeTab(id) {
   if (tabs.length <= 1) { ipcRenderer.send('close-window'); return; }
   const tab = tabs[idx];
   clearTimeout(tab.sectionTimer);
-  clearTimeout(tab._promptRecordTimer);
   tab.ptyProc.kill();
   tab.term.dispose();
   tab.container.remove();
@@ -945,7 +974,7 @@ document.addEventListener('click', e => {
 });
 
 function escapeHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
 // ══════════════════════════════════════
@@ -1001,7 +1030,7 @@ function doPaste() {
   const tab = getActiveTab();
   if (!tab) return;
   const text = clipboard.readText();
-  if (text) tab.ptyProc.write(text);
+  if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
 }
 
 function doSelectAll() {
@@ -1101,15 +1130,18 @@ ipcRenderer.on('clear-terminal', () => {
   const tab = getActiveTab();
   if (!tab) return;
   if (tab.richVisible) tabHideRichView(tab);
-  tab.term.clear();
   tab.ptyProc.write('\x0c');
 });
 ipcRenderer.on('open-file', (e, filePath) => {
-  try {
-    const content = fs.readFileSync(filePath, 'utf8');
+  const MAX_FILE_SIZE = 10 * 1024 * 1024;
+  fs.promises.stat(filePath).then(stat => {
+    if (stat.size > MAX_FILE_SIZE) return;
+    return fs.promises.readFile(filePath, 'utf8');
+  }).then(content => {
+    if (!content) return;
     const tab = getActiveTab();
     if (tab) renderFileContent(tab, content, filePath);
-  } catch (err) { console.error('Failed to open file:', err); }
+  }).catch(err => console.error('Failed to open file:', err));
 });
 ipcRenderer.on('show-shortcuts', () => {});
 ipcRenderer.on('open-settings', () => openSettings());
@@ -1180,11 +1212,6 @@ function renderFileContent(tab, content, filePath) {
     }
     blankCount = 0;
     const el = renderRichLine(text, text);
-    const isPrompt = isPromptLine(tab, text);
-    if (isPrompt) {
-      console.log('[prompt-line]', JSON.stringify(text.slice(0, 60)));
-      el.classList.add('prompt-line');
-    }
     tab.richContent.appendChild(el);
   }
   tabShowRichView(tab, false);
@@ -1290,6 +1317,8 @@ function parseAnsiToSpans(text) {
 const LATEX_COMMANDS = /\\(?:frac|sqrt|sum|int|nabla|partial|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Omega|cdot|times|div|mathbb|mathcal|mathrm|mathbf|text|begin|end|left|right|overline|hat|vec|bar|dot|tilde|infty|forall|exists|leq|geq|neq|approx|equiv|sim|propto|subset|supset|cup|cap|emptyset|quad|hbar|to|rightarrow|leftarrow|Rightarrow|iff|binom|pm|mp|circ|angle|ell)/;
 
 function hasLatex(text) {
+  if (/\\\[.*?\\\]/s.test(text)) return true;
+  if (/\\\(.*?\\\)/s.test(text)) return true;
   if (/\$\$[\s\S]*?\$\$/.test(text)) return true;
   if (/\$\$/.test(text) && (text.match(/\$\$/g)||[]).length >= 2) return true;
   const matches = text.match(/\$([^$\n]+)\$/g);
@@ -1305,11 +1334,36 @@ function hasLatex(text) {
   return false;
 }
 
+function isEscapedDollar(text, pos) {
+  let bs = 0;
+  let p = pos - 1;
+  while (p >= 0 && text[p] === '\\') { bs++; p--; }
+  return bs % 2 === 1;
+}
+
 function splitLatexSmart(text) {
   const parts = [];
   let i = 0;
   while (i < text.length) {
-    if (text[i] === '$' && text[i+1] === '$') {
+    if (text[i] === '\\' && text[i+1] === '(' ) {
+      const end = text.indexOf('\\)', i + 2);
+      if (end !== -1) {
+        parts.push({ type:'inline', closed:true, content:text.slice(i+2,end), raw:text.slice(i,end+2) });
+        i = end + 2;
+      } else {
+        parts.push({ type:'inline', closed:false, content:text.slice(i+2), raw:text.slice(i) });
+        i = text.length;
+      }
+    } else if (text[i] === '\\' && text[i+1] === '[') {
+      const end = text.indexOf('\\]', i + 2);
+      if (end !== -1) {
+        parts.push({ type:'display', closed:true, content:text.slice(i+2,end), raw:text.slice(i,end+2) });
+        i = end + 2;
+      } else {
+        parts.push({ type:'display', closed:false, content:text.slice(i+2), raw:text.slice(i) });
+        i = text.length;
+      }
+    } else if (text[i] === '$' && text[i+1] === '$' && !isEscapedDollar(text, i)) {
       const end = text.indexOf('$$', i+2);
       if (end !== -1) {
         parts.push({ type:'display', closed:true, content:text.slice(i+2,end), raw:text.slice(i,end+2) });
@@ -1318,9 +1372,9 @@ function splitLatexSmart(text) {
         parts.push({ type:'display', closed:false, content:text.slice(i+2), raw:text.slice(i) });
         i = text.length;
       }
-    } else if (text[i] === '$') {
+    } else if (text[i] === '$' && !isEscapedDollar(text, i)) {
       const end = text.indexOf('$', i+1);
-      if (end !== -1 && end > i+1) {
+      if (end !== -1 && end > i+1 && !isEscapedDollar(text, end)) {
         parts.push({ type:'inline', closed:true, content:text.slice(i+1,end), raw:text.slice(i,end+1) });
         i = end+1;
       } else if (end === -1) {
@@ -1331,7 +1385,12 @@ function splitLatexSmart(text) {
       }
     } else {
       const next = text.indexOf('$', i);
-      const end = next === -1 ? text.length : next;
+      const np = text.indexOf('\\(', i);
+      const nb = text.indexOf('\\[', i);
+      let end = text.length;
+      if (next !== -1) end = Math.min(end, next);
+      if (np !== -1) end = Math.min(end, np);
+      if (nb !== -1) end = Math.min(end, nb);
       parts.push({ type:'text', content:text.slice(i,end), raw:text.slice(i,end) });
       i = end;
     }
@@ -1380,10 +1439,11 @@ function tabResetSection(tab) {
   tab.sectionBuffer = '';
   tab.sectionHasLatex = false;
   tab.sectionStartY = 0;
+  tab._sectionStartTime = 0;
 }
 
 function tabFlushSection(tab) {
-  if (!tab.sectionHasLatex || !mathEnabled) { tabResetSection(tab); return; }
+  if (!tab.sectionHasLatex) { tabResetSection(tab); return; }
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   tab.richContent.innerHTML = '';
@@ -1448,16 +1508,29 @@ function tabFlushSection(tab) {
   tabResetSection(tab);
 }
 
+const SECTION_BUFFER_MAX = 256 * 1024;
+const SECTION_ELAPSED_MAX = 30000;
+
 function tabFeedSection(tab, data) {
   if (!autoRender) return;
   if (!tab.sectionBuffer) {
     const buf = tab.term.buffer.active;
     tab.sectionStartY = buf.baseY + buf.cursorY;
+    tab._sectionStartTime = Date.now();
   }
   tab.sectionBuffer += data;
+  if (tab.sectionBuffer.length > SECTION_BUFFER_MAX) {
+    tab.sectionBuffer = tab.sectionBuffer.slice(-SECTION_BUFFER_MAX);
+  }
   if (hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
-  clearTimeout(tab.sectionTimer);
-  tab.sectionTimer = setTimeout(() => tabFlushSection(tab), settings.autoRenderDelay);
+  const elapsed = Date.now() - tab._sectionStartTime;
+  if (tab.sectionHasLatex && (tab.sectionBuffer.length >= SECTION_BUFFER_MAX || elapsed >= SECTION_ELAPSED_MAX)) {
+    clearTimeout(tab.sectionTimer);
+    tabFlushSection(tab);
+  } else {
+    clearTimeout(tab.sectionTimer);
+    tab.sectionTimer = setTimeout(() => tabFlushSection(tab), settings.autoRenderDelay);
+  }
 }
 
 // ══════════════════════════════════════
@@ -1542,7 +1615,6 @@ function showManualRichView(tab) {
     try { line = buf.getLine(y); } catch { continue; }
     if (!line) continue;
     const text = line.translateToString(true);
-    console.log('[line', y, ']', JSON.stringify(text.slice(0, 80)));
     if (!text.trim()) {
       if (foundContent && blankCount < 1) {
         blankCount++;
@@ -1573,13 +1645,11 @@ function showManualRichView(tab) {
     }
     const el = renderRichLine(text, text);
     if (isPromptLine(tab, text, y)) {
-      console.log('[showManualRichView prompt]', JSON.stringify(text.slice(0, 80)));
       el.classList.add('prompt-line');
       promptCount++;
     }
     tab.richContent.appendChild(el);
   }
-  console.log('[showManualRichView] total lines:', endY + 1, 'prompts found:', promptCount);
   if (foundContent) tabShowRichView(tab, false);
 }
 

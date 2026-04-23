@@ -1,6 +1,6 @@
 {
   "name": "mathterm",
-  "version": "1.0.0",
+  "version": "0.6.0",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -9,11 +9,14 @@
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/xterm": "^5.5.0",
-    "electron": "^41.1.0",
-    "electron-rebuild": "^3.0.0",
     "katex": "^0.16.0",
     "node-pty": "^1.0.0"
+  },
+  "devDependencies": {
+    "electron": "^41.1.0",
+    "electron-rebuild": "^3.0.0"
   }
 }
