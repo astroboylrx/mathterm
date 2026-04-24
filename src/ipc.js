@@ -9,7 +9,7 @@ const { refreshTabTitle } = require('./titleTrack');
 
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
-  mt.ipc.on('set-auto-render', (e, val) => {
+  mt.ipc.on('set-auto-render', (val) => {
     state.autoRender = val;
     state.autoIndicator.textContent = state.autoRender ? '\u2B50 AUTO' : 'AUTO OFF';
     state.autoIndicator.className = state.autoRender ? '' : 'off';
@@ -21,7 +21,7 @@ function initIpc() {
     if (tab.richVisible) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
   });
-  mt.ipc.on('open-file', (e, filePath) => {
+  mt.ipc.on('open-file', (filePath) => {
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     mt.fs.statAsync(filePath).then(stat => {
       if (stat.size > MAX_FILE_SIZE) return;
@@ -47,7 +47,7 @@ function initIpc() {
   mt.ipc.on('do-copy', () => doCopy());
   mt.ipc.on('do-paste', () => doPaste());
   mt.ipc.on('open-search', () => openSearch());
-  mt.ipc.on('set-tab-cwd', (e, cwd) => {
+  mt.ipc.on('set-tab-cwd', (cwd) => {
     const tab = getActiveTab();
     if (tab) { tab.cwd = cwd; refreshTabTitle(tab); }
   });

@@ -148,4 +148,80 @@ function tryParseTableBlock(lines, startIdx) {
   return { element: table, endIdx: idx };
 }
 
-module.exports = { isTableBorder, isTableRow, tryParseTableBlock, renderInlineLatex };
+function parseMdCells(text) {
+  let t = text.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map(c => c.trim());
+}
+
+const MD_SEP = /^\|?\s*[:\-]+\s*(\|\s*[:\-]+\s*)*\|?$/;
+
+function isMdSeparator(item) {
+  const t = getText(item).trim();
+  if (!t) return false;
+  if (!t.includes('|')) return false;
+  const cells = parseMdCells(t);
+  return cells.length >= 2 && cells.every(c => /^:?-+:?$/.test(c.trim()));
+}
+
+function isMdRow(item) {
+  const t = getText(item).trim();
+  return t.length > 0 && t.startsWith('|') && t.endsWith('|') && t.includes('|', 1);
+}
+
+function tryParseMarkdownTable(lines, startIdx) {
+  if (startIdx >= lines.length) return null;
+  if (!isMdRow(lines[startIdx])) return null;
+
+  const headerCells = parseMdCells(getText(lines[startIdx]));
+  if (headerCells.length < 2) return null;
+  if (startIdx + 1 >= lines.length || !isMdSeparator(lines[startIdx + 1])) return null;
+
+  const sepCells = parseMdCells(getText(lines[startIdx + 1]));
+  const alignments = sepCells.map(c => {
+    const s = c.trim();
+    if (s.startsWith(':') && s.endsWith(':')) return 'center';
+    if (s.endsWith(':')) return 'right';
+    return 'left';
+  });
+
+  let idx = startIdx + 2;
+  const dataRows = [];
+  while (idx < lines.length && isMdRow(lines[idx])) {
+    dataRows.push(parseMdCells(getText(lines[idx])));
+    idx++;
+  }
+
+  const numCols = headerCells.length;
+  const table = document.createElement('table');
+  table.className = 'box-table';
+
+  const thead = document.createElement('thead');
+  const htr = document.createElement('tr');
+  for (let c = 0; c < numCols; c++) {
+    const th = document.createElement('th');
+    th.appendChild(renderInlineLatex(headerCells[c] || ''));
+    htr.appendChild(th);
+  }
+  thead.appendChild(htr);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  for (const row of dataRows) {
+    const tr = document.createElement('tr');
+    for (let c = 0; c < numCols; c++) {
+      const td = document.createElement('td');
+      td.appendChild(renderInlineLatex(row[c] || ''));
+      if (alignments[c] === 'right') td.style.textAlign = 'right';
+      else if (alignments[c] === 'center') td.style.textAlign = 'center';
+      tr.appendChild(td);
+    }
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
+  return { element: table, endIdx: idx };
+}
+
+module.exports = { isTableBorder, isTableRow, tryParseTableBlock, tryParseMarkdownTable, renderInlineLatex };

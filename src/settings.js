@@ -86,6 +86,7 @@ function applySettings() {
       cursor: settings.cursor
     };
     if (tab.container.classList.contains('active')) tab.fitAddon.fit();
+    tab.richView.style.fontSize = settings.fontSize + 'px';
   }
   mt.ipc.send('rebuild-menu', state.autoRender);
 }

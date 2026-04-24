@@ -12,10 +12,12 @@ function hasLatex(text) {
   if (matches) {
     for (const m of matches) {
       const inner = m.slice(1,-1);
+      if (!inner.trim()) continue;
       if (LATEX_COMMANDS.test(inner)) return true;
       if (/[_^]\{/.test(inner)) return true;
       if (/[_^][0-9a-zA-Z]/.test(inner)) return true;
       if (/\\/.test(inner) && inner.length > 2) return true;
+      if (/^[0-9+\-*/().,=<>!\s]+$/.test(inner)) return true;
     }
   }
   return false;
