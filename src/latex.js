@@ -87,38 +87,4 @@ function splitLatexSmart(text) {
   return parts;
 }
 
-function renderRichLine(cleanText, rawText) {
-  const el = document.createElement('div');
-  el.className = 'rline';
-  if (hasLatex(cleanText)) {
-    const parts = splitLatexSmart(cleanText);
-    for (const part of parts) {
-      if (part.type === 'display' && part.closed) {
-        const span = document.createElement('span');
-        span.className = 'display-math';
-        try { katex.render(part.content, span, { displayMode:true, throwOnError:false }); }
-        catch { span.textContent = part.raw; }
-        el.appendChild(span);
-      } else if (part.type === 'inline' && part.closed) {
-        const span = document.createElement('span');
-        try { katex.render(part.content, span, { displayMode:false, throwOnError:false }); }
-        catch { span.textContent = part.raw; }
-        el.appendChild(span);
-      } else if (!part.closed && part.type !== 'text') {
-        const span = document.createElement('span');
-        span.className = 'latex-pending';
-        span.textContent = part.raw;
-        el.appendChild(span);
-      } else {
-        const span = document.createElement('span');
-        span.textContent = part.content;
-        el.appendChild(span);
-      }
-    }
-  } else {
-    el.appendChild(parseAnsiToSpans(rawText));
-  }
-  return el;
-}
-
-module.exports = { hasLatex, splitLatexSmart, renderRichLine, LATEX_COMMANDS };
+module.exports = { hasLatex, splitLatexSmart, LATEX_COMMANDS };

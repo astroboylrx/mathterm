@@ -9,10 +9,12 @@ const { createTab, closeTab, switchTab } = require('./tabs');
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
   mt.ipc.on('set-auto-render', (val) => {
-    state.autoRender = val;
-    state.autoIndicator.textContent = state.autoRender ? '\u2B50 AUTO' : 'AUTO OFF';
-    state.autoIndicator.className = state.autoRender ? '' : 'off';
-    mt.ipc.send('rebuild-menu', state.autoRender);
+    const tab = getActiveTab();
+    if (tab) tab.autoRender = val;
+    const active = tab ? tab.autoRender : false;
+    state.autoIndicator.textContent = 'AUTO';
+    state.autoIndicator.className = active ? '' : 'off';
+    mt.ipc.send('rebuild-menu', active);
   });
   mt.ipc.on('clear-terminal', () => {
     const tab = getActiveTab();

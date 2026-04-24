@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <style>
-    :root { --bg: #1a1a2e; --fg: #e0e0e0; }
+    :root { --bg: #1a1a2e; --fg: #e0e0e0; --ui-font-size: 12px; }
     * { margin: 0; box-sizing: border-box; }
     body {
       background: var(--bg);
@@ -36,7 +36,7 @@
       border: none;
       color: #666;
       font-family: inherit;
-      font-size: 12px;
+      font-size: var(--ui-font-size);
       cursor: pointer;
       border-radius: 4px 4px 0 0;
       gap: 6px;
@@ -383,7 +383,7 @@
       background: #16213e;
       border-top: 1px solid #333;
       padding: 2px 12px;
-      font-size: 12px;
+      font-size: var(--ui-font-size);
       color: #666;
       display: flex;
       align-items: center;
@@ -402,13 +402,24 @@
       border-radius: 3px;
       cursor: pointer;
       font-family: inherit;
-      font-size: 12px;
+      font-size: var(--ui-font-size);
       transition: all 0.15s;
     }
     #math-btn:hover { border-color: #51cf66; color: #51cf66; }
     #math-btn.active { background: #16213e; border-color: #51cf66; color: #51cf66; }
-    #auto-indicator { color: #51cf66; }
-    #auto-indicator.off { color: #555; }
+    #auto-indicator {
+      background: #1a1a2e;
+      border: 1px solid #51cf66;
+      color: #51cf66;
+      padding: 2px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: var(--ui-font-size);
+      transition: all 0.15s;
+    }
+    #auto-indicator:hover { background: #16213e; }
+    #auto-indicator.off { border-color: #555; color: #555; }
 
     dialog#settings-dialog {
       background: #16213e;
@@ -505,7 +516,7 @@
   <div id="status-bar">
     <div class="left">
       <span id="mode-indicator">TERMINAL</span>
-      <span id="auto-indicator" title="Auto-render LaTeX">&#x2B50; AUTO</span>
+      <button id="auto-indicator" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
     </div>
     <div class="right">
       <span>Ctrl+Shift+M</span>
@@ -522,6 +533,7 @@
     <label><span>Background color</span><input type="text" id="s-bg"></label>
     <label><span>Foreground color</span><input type="text" id="s-fg"></label>
     <label><span>Cursor color</span><input type="text" id="s-cursor"></label>
+    <label><span>Cursor style</span><select id="s-cursorstyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
     <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
     <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>
     <div class="note">Scrollback and font changes require restart to take full effect.</div>

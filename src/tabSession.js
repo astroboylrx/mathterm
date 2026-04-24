@@ -29,6 +29,7 @@ class TabSession {
     this._commandStartY = 0;
     this._commandEndY = 0;
     this._lastExitCode = '';
+    this.autoRender = true;
   }
 }
 

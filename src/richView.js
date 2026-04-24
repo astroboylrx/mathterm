@@ -274,9 +274,12 @@ function tabShowRichView(tab, auto) {
   tab.richVisible = true;
   tab.richAutoTriggered = !!auto;
   tab.richView.classList.add('visible');
-  tab.richView.scrollTop = tab.richView.scrollHeight;
   tab.richView.focus();
   tab.term.blur();
+  requestAnimationFrame(() => {
+    tab.richView.scrollTop = tab.richView.scrollHeight > tab.richView.clientHeight + 10
+      ? 0 : tab.richView.scrollHeight;
+  });
   tab.richHint.textContent = auto
     ? 'Press Esc or q to return to terminal'
     : 'Esc/q/Ctrl+Shift+M to return \u00b7 Select & copy freely';
@@ -335,7 +338,7 @@ function tabFlushSection(tab) {
 }
 
 function tabFeedSection(tab, data) {
-  if (!state.autoRender) return;
+  if (!tab.autoRender) return;
   if (!tab.sectionBuffer) {
     const buf = tab.term.buffer.active;
     tab.sectionStartY = buf.baseY + buf.cursorY;
@@ -370,18 +373,23 @@ function showManualRichView(tab) {
 function renderFileContent(tab, content, filePath) {
   tab.richContent.innerHTML = '';
   const isMd = filePath && /\.md$/i.test(filePath);
+  let shown = false;
   if (isMd) {
     renderMarkdownFile(content, tab.richContent);
     tabShowRichView(tab, false);
+    shown = true;
   } else {
     const lines = content.split('\n');
     const foundContent = renderLinesToContainer(lines, tab.richContent, null, null);
-    if (foundContent) tabShowRichView(tab, false);
+    if (foundContent) { tabShowRichView(tab, false); shown = true; }
+  }
+  if (shown) {
+    requestAnimationFrame(() => { tab.richView.scrollTop = 0; });
   }
 }
 
 function tabFlushSectionOnCommandEnd(tab) {
-  if (!state.autoRender) return;
+  if (!tab.autoRender) return;
   clearTimeout(tab.sectionTimer);
   if (tab.sectionHasLatex) {
     tabFlushSection(tab);

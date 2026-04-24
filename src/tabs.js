@@ -49,6 +49,7 @@ function createTab(cwd) {
     fontSize: settings.fontSize,
     theme: { background: settings.bg, foreground: settings.fg, cursor: settings.cursor },
     cursorBlink: true,
+    cursorStyle: settings.cursorStyle,
     scrollback: settings.scrollback
   });
   const fitAddon = new FitAddon();
@@ -233,6 +234,9 @@ function switchTab(id) {
     tab.term.focus();
   });
   updateStatusBar(tab);
+  state.autoIndicator.textContent = 'AUTO';
+  state.autoIndicator.className = tab.autoRender ? '' : 'off';
+  mt.ipc.send('rebuild-menu', tab.autoRender);
 }
 
 function closeTab(id) {
@@ -247,6 +251,7 @@ function closeTab(id) {
   tab.tabEl.remove();
   if (tab._shimDir) {
     try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
+    tab._shimDir = null;
   }
   state.tabs.splice(idx, 1);
   if (state.activeTabId === id) {

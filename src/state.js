@@ -5,7 +5,6 @@ const state = {
   tabIdCounter: 0,
   dragTabId: null,
   tabContextMenuId: null,
-  autoRender: true,
   _hostname: window.mathterm.os.hostname().split('.')[0],
 
   tabBar: null,

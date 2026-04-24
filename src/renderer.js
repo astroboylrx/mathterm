@@ -18,10 +18,17 @@ state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
 state.searchCount = document.getElementById('search-count');
 state.contextMenu = document.getElementById('context-menu');
-state.autoRender = settings.autoRender;
 
 window.createTab = createTab;
 window.toggleMathMode = toggleMathMode;
+window.toggleAutoRender = function() {
+  const tab = getActiveTab();
+  if (!tab) return;
+  tab.autoRender = !tab.autoRender;
+  state.autoIndicator.textContent = 'AUTO';
+  state.autoIndicator.className = tab.autoRender ? '' : 'off';
+  window.mathterm.ipc.send('rebuild-menu', tab.autoRender);
+};
 window.closeSettings = closeSettings;
 window.saveSettings = require('./settings').saveSettings;
 window.doSearchPrev = require('./search').doSearchPrev;
@@ -87,6 +94,25 @@ document.addEventListener('keydown', e => {
       e.preventDefault();
       const { tabHideRichView } = require('./richView');
       tabHideRichView(tab);
+    } else if (e.key === 'PageDown' || (e.shiftKey && e.key === 'PageDown')) {
+      e.preventDefault();
+      tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
+    } else if (e.key === 'PageUp' || (e.shiftKey && e.key === 'PageUp')) {
+      e.preventDefault();
+      tab.richView.scrollTop -= tab.richView.clientHeight * 0.9;
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      tab.richView.scrollTop = 0;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      tab.richView.scrollTop = tab.richView.scrollHeight;
+    } else if (e.key === 'ArrowDown') {
+      tab.richView.scrollTop += 40;
+    } else if (e.key === 'ArrowUp') {
+      tab.richView.scrollTop -= 40;
+    } else if (e.key === ' ') {
+      e.preventDefault();
+      tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
     }
     return;
   }
@@ -140,3 +166,9 @@ initTabContextListeners();
 
 const urlCwd = new URLSearchParams(window.location.search).get('cwd');
 createTab(urlCwd || undefined);
+
+const firstTab = getActiveTab();
+if (firstTab) {
+  state.autoIndicator.textContent = 'AUTO';
+  state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
+}
