@@ -1,5 +1,5 @@
 const { state, getActiveTab, getTabIndex } = require('./state');
-const { settings, isMac } = require('./settings');
+const { settings, isMac, applySettings } = require('./settings');
 const { createTab, switchTab } = require('./tabs');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
@@ -18,6 +18,8 @@ state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
 state.searchCount = document.getElementById('search-count');
 state.contextMenu = document.getElementById('context-menu');
+
+applySettings();
 
 window.createTab = createTab;
 window.toggleMathMode = toggleMathMode;

@@ -3,12 +3,13 @@ const { state, getActiveTab, updateStatusBar } = require('./state');
 
 const isMac = mt.os.platform === 'darwin';
 
-const SETTINGS_PATH = mt.path.join(mt.os.homedir(), '.mathterm.json');
+const configHome = mt.os.env.XDG_CONFIG_HOME || mt.path.join(mt.os.homedir(), '.config');
+const SETTINGS_PATH = mt.path.join(configHome, 'mathterm', 'mathterm.json');
 
 const DEFAULTS = {
   scrollback: 16384,
-  fontSize: 12,
-  fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+  fontSize: 16,
+  fontFamily: '"JetBrainsMono Nerd Font Mono", monospace',
   autoRender: true,
   autoRenderDelay: 1500,
   bg: '#1a1a2e',
@@ -22,14 +23,14 @@ const DEFAULTS = {
 function loadSettings() {
   try {
     const raw = mt.fs.readFileSync(SETTINGS_PATH, 'utf8');
-    const user = JSON.parse(raw);
-    return { ...DEFAULTS, ...user };
+    return { ...DEFAULTS, ...JSON.parse(raw) };
   } catch {
     return { ...DEFAULTS };
   }
 }
 
 function saveSettingsFile(s) {
+  mt.fs.mkdirSync(mt.path.dirname(SETTINGS_PATH), { recursive: true });
   mt.fs.writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2) + '\n');
 }
 

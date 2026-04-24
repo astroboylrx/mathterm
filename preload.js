@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('mathterm', {
   fs: {
     readFileSync: (p, enc) => fs.readFileSync(p, enc),
     writeFileSync: (p, data) => fs.writeFileSync(p, data),
+    mkdirSync: (p, opts) => fs.mkdirSync(p, opts),
     mkdtempSync: (prefix) => fs.mkdtempSync(prefix),
     rmSync: (p, opts) => fs.rmSync(p, opts),
     readdirSync: (p) => fs.readdirSync(p),
@@ -57,6 +58,7 @@ contextBridge.exposeInMainWorld('mathterm', {
   path: {
     join: (...args) => path.join(...args),
     basename: (p) => path.basename(p),
+    dirname: (p) => path.dirname(p),
     isAbsolute: (p) => path.isAbsolute(p)
   },
 
