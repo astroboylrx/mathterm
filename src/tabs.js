@@ -26,6 +26,7 @@ function createTab() {
 
   const richViewEl = document.createElement('div');
   richViewEl.className = 'rich-view';
+  richViewEl.tabIndex = 0;
   const richContentEl = document.createElement('div');
   richContentEl.className = 'rich-content';
   const richHintEl = document.createElement('div');

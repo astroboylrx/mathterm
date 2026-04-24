@@ -54,6 +54,15 @@ document.addEventListener('keydown', e => {
   const tab = getActiveTab();
   if (!tab) return;
 
+  if (tab.richVisible) {
+    if (e.key === 'Escape' || e.key === 'q') {
+      e.preventDefault();
+      const { tabHideRichView } = require('./richView');
+      tabHideRichView(tab);
+    }
+    return;
+  }
+
   if (e.ctrlKey && e.key === 'ArrowUp') {
     e.preventDefault();
     jumpToPrevPrompt(tab);
@@ -64,8 +73,6 @@ document.addEventListener('keydown', e => {
     jumpToNextPrompt(tab);
     return;
   }
-
-  if (tab.richVisible) return;
 });
 
 function jumpToPrevPrompt(tab) {

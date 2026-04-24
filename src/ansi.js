@@ -113,7 +113,7 @@ function lineToColoredSpans(line) {
     if (!cellRef) break;
     const ch = cellRef.getChars();
     if (!ch || (ch.length === 1 && ch.charCodeAt(0) === 0)) {
-      if (x > 0 && buf) flushBuf();
+      buf += ' ';
       continue;
     }
     const code = cellRef.getCode();

@@ -4,6 +4,7 @@ const { hasLatex, splitLatexSmart, renderRichLine } = require('./latex');
 const { stripAnsi, lineToColoredSpans } = require('./ansi');
 const { isPromptLine } = require('./promptTrack');
 const { refreshTabTitle } = require('./titleTrack');
+const { isTableBorder, tryParseTableBlock } = require('./tableRender');
 
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
@@ -45,15 +46,118 @@ function renderLineFromBuffer(line) {
   return el;
 }
 
+function _t(item) { return typeof item === 'string' ? item : (item.text || ''); }
+
+function collectBufferLines(buf, startY, endY) {
+  const raw = [];
+  for (let y = startY; y <= endY; y++) {
+    let line;
+    try { line = buf.getLine(y); } catch { continue; }
+    if (!line) continue;
+    raw.push({ text: line.translateToString(true), _line: line, y, wrapped: !!line.isWrapped });
+  }
+  const textLines = [];
+  for (const item of raw) {
+    if (item.wrapped && textLines.length > 0) {
+      const prev = textLines[textLines.length - 1];
+      prev.text += item.text;
+      prev.joined = true;
+    } else {
+      textLines.push({ text: item.text, _line: item._line, y: item.y });
+    }
+  }
+  return textLines;
+}
+
+function renderLinesToContainer(textLines, container, promptLineChecker, tab) {
+  let i = 0;
+  let blankCount = 0;
+  let foundContent = false;
+
+  while (i < textLines.length) {
+    const item = textLines[i];
+    const text = typeof item === 'string' ? item : (item.text || '');
+    if (!text.trim()) {
+      if (foundContent && blankCount < 1) {
+        blankCount++;
+        const el = document.createElement('div');
+        el.className = 'rline';
+        el.innerHTML = '\u00a0';
+        container.appendChild(el);
+      }
+      i++;
+      continue;
+    }
+    blankCount = 0;
+    foundContent = true;
+
+    const tableResult = tryParseTableBlock(textLines, i);
+    if (tableResult) {
+      container.appendChild(tableResult.element);
+      i = tableResult.endIdx;
+      continue;
+    }
+
+    if (text.trim() === '$$') {
+      let mathContent = '';
+      let j = i + 1;
+      while (j < textLines.length) {
+        if (_t(textLines[j]).trim() === '$$') {
+          const el = document.createElement('div');
+          el.className = 'rline';
+          const ms = document.createElement('span');
+          ms.className = 'display-math';
+          try { require('katex').render(mathContent.trim(), ms, { displayMode:true, throwOnError:false }); }
+          catch { ms.textContent = '$$\n' + mathContent + '\n$$'; }
+          el.appendChild(ms);
+          container.appendChild(el);
+          i = j + 1;
+          break;
+        }
+        mathContent += (mathContent ? '\n' : '') + _t(textLines[j]).trim();
+        j++;
+      }
+      if (j >= textLines.length) {
+        const el = document.createElement('div');
+        el.className = 'rline';
+        const span = document.createElement('span');
+        span.className = 'latex-pending';
+        span.textContent = '$$' + (mathContent ? '\n' + mathContent : '');
+        el.appendChild(span);
+        container.appendChild(el);
+        i = textLines.length;
+      }
+      continue;
+    }
+
+    if (typeof item === 'object' && item._line && !item.joined) {
+      const el = renderLineFromBuffer(item._line);
+      if (el) {
+        if (promptLineChecker && promptLineChecker(tab, text, item.y)) {
+          el.classList.add('prompt-line');
+        }
+        container.appendChild(el);
+      }
+    } else {
+      const el = renderRichLine(text, text);
+      container.appendChild(el);
+    }
+    i++;
+  }
+  return foundContent;
+}
+
 function tabShowRichView(tab, auto) {
   if (tab.richVisible) return;
   tab.richVisible = true;
   tab.richAutoTriggered = !!auto;
   tab.richView.classList.add('visible');
   tab.richView.scrollTop = tab.richView.scrollHeight;
+  tab.richView.focus();
+  tab.term.blur();
   tab.richHint.textContent = auto
-    ? 'Press q to return to terminal'
-    : 'Esc or Ctrl+Shift+M to return \u00b7 Select & copy freely';
+    ? 'Press Esc or q to return to terminal'
+    : 'Esc/q/Ctrl+Shift+M to return \u00b7 Select & copy freely';
   if (tab.id === state.activeTabId) {
     updateStatusBar(tab);
   }
@@ -89,7 +193,6 @@ function tabFlushSection(tab) {
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   tab.richContent.innerHTML = '';
-  let blankCount = 0, foundContent = false;
 
   let startY = tab.sectionStartY;
   for (let y = tab.sectionStartY - 1; y >= Math.max(0, tab.sectionStartY - 10); y--) {
@@ -102,51 +205,9 @@ function tabFlushSection(tab) {
     break;
   }
 
-  for (let y = startY; y <= endY; y++) {
-    let line;
-    try { line = buf.getLine(y); } catch { continue; }
-    if (!line) continue;
-    const text = line.translateToString(true);
-    if (!text.trim()) {
-      if (foundContent && blankCount < 1) {
-        blankCount++;
-        const el = document.createElement('div'); el.className = 'rline'; el.innerHTML = '\u00a0';
-        tab.richContent.appendChild(el);
-      }
-      continue;
-    }
-    blankCount = 0; foundContent = true;
+  const textLines = collectBufferLines(buf, startY, endY);
 
-    if (text.trim() === '$$') {
-      let mathContent = '', j = y + 1;
-      while (j <= endY) {
-        let nextLine;
-        try { nextLine = buf.getLine(j); } catch { break; }
-        if (!nextLine) break;
-        const nextText = nextLine.translateToString(true);
-        if (nextText.trim() === '$$') {
-          const el = document.createElement('div'); el.className = 'rline';
-          const ms = document.createElement('span'); ms.className = 'display-math';
-          try { require('katex').render(mathContent.trim(), ms, { displayMode:true, throwOnError:false }); }
-          catch { ms.textContent = '$$\n' + mathContent + '\n$$'; }
-          el.appendChild(ms); tab.richContent.appendChild(el);
-          y = j; break;
-        }
-        mathContent += (mathContent ? '\n' : '') + nextText.trim(); j++;
-      }
-      if (j > endY) {
-        const el = document.createElement('div'); el.className = 'rline';
-        const span = document.createElement('span'); span.className = 'latex-pending';
-        span.textContent = '$$' + (mathContent ? '\n'+mathContent : '');
-        el.appendChild(span); tab.richContent.appendChild(el); y = j;
-      }
-      continue;
-    }
-    const el = renderLineFromBuffer(line);
-    if (!el) continue;
-    if (isPromptLine(tab, text, y)) el.classList.add('prompt-line');
-    tab.richContent.appendChild(el);
-  }
+  const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
   if (foundContent) tabShowRichView(tab, true);
   tabResetSection(tab);
 }
@@ -177,106 +238,18 @@ function showManualRichView(tab) {
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   tab.richContent.innerHTML = '';
-  let blankCount = 0, foundContent = false;
-  let promptCount = 0;
 
-  for (let y = 0; y <= endY; y++) {
-    let line;
-    try { line = buf.getLine(y); } catch { continue; }
-    if (!line) continue;
-    const text = line.translateToString(true);
-    if (!text.trim()) {
-      if (foundContent && blankCount < 1) {
-        blankCount++;
-        const el = document.createElement('div'); el.className = 'rline'; el.innerHTML = '\u00a0';
-        tab.richContent.appendChild(el);
-      }
-      continue;
-    }
-    blankCount = 0; foundContent = true;
+  const textLines = collectBufferLines(buf, 0, endY);
 
-    if (text.trim() === '$$') {
-      let mathContent = '', j = y + 1;
-      while (j <= endY) {
-        let nextLine;
-        try { nextLine = buf.getLine(j); } catch { break; }
-        if (!nextLine) break;
-        const nextText = nextLine.translateToString(true);
-        if (nextText.trim() === '$$') {
-          const el = document.createElement('div'); el.className = 'rline';
-          const ms = document.createElement('span'); ms.className = 'display-math';
-          try { require('katex').render(mathContent.trim(), ms, { displayMode:true, throwOnError:false }); }
-          catch { ms.textContent = '$$\n' + mathContent + '\n$$'; }
-          el.appendChild(ms); tab.richContent.appendChild(el); y = j; break;
-        }
-        mathContent += (mathContent ? '\n' : '') + nextText.trim(); j++;
-      }
-      continue;
-    }
-    const el = renderLineFromBuffer(line);
-    if (!el) continue;
-    if (isPromptLine(tab, text, y)) {
-      el.classList.add('prompt-line');
-      promptCount++;
-    }
-    tab.richContent.appendChild(el);
-  }
+  const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
   if (foundContent) tabShowRichView(tab, false);
 }
 
 function renderFileContent(tab, content, filePath) {
-  const katex = require('katex');
   tab.richContent.innerHTML = '';
   const lines = content.split('\n');
-  let blankCount = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    const text = lines[i];
-    if (text.trim() === '$$') {
-      let mathContent = '';
-      let j = i + 1;
-      while (j < lines.length) {
-        if (lines[j].trim() === '$$') {
-          const el = document.createElement('div');
-          el.className = 'rline';
-          const mathSpan = document.createElement('span');
-          mathSpan.className = 'display-math';
-          try { katex.render(mathContent.trim(), mathSpan, { displayMode: true, throwOnError: false }); }
-          catch { mathSpan.textContent = '$$\n' + mathContent + '\n$$'; }
-          el.appendChild(mathSpan);
-          tab.richContent.appendChild(el);
-          i = j; break;
-        }
-        mathContent += (mathContent ? '\n' : '') + lines[j];
-        j++;
-      }
-      if (j >= lines.length && lines[lines.length - 1].trim() !== '$$') {
-        const el = document.createElement('div');
-        el.className = 'rline';
-        const span = document.createElement('span');
-        span.className = 'latex-pending';
-        span.textContent = '$$' + (mathContent ? '\n' + mathContent : '');
-        el.appendChild(span);
-        tab.richContent.appendChild(el);
-        i = lines.length;
-      }
-      continue;
-    }
-    if (!text.trim()) {
-      if (blankCount < 1) {
-        blankCount++;
-        const el = document.createElement('div');
-        el.className = 'rline';
-        el.innerHTML = '\u00a0';
-        tab.richContent.appendChild(el);
-      }
-      continue;
-    }
-    blankCount = 0;
-    const el = renderRichLine(text, text);
-    tab.richContent.appendChild(el);
-  }
-  tabShowRichView(tab, false);
+  const foundContent = renderLinesToContainer(lines, tab.richContent, null, null);
+  if (foundContent) tabShowRichView(tab, false);
 }
 
 function tabFlushSectionOnCommandEnd(tab) {

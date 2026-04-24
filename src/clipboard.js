@@ -2,11 +2,19 @@ const mt = window.mathterm;
 const { getActiveTab } = require('./state');
 const { settings } = require('./settings');
 
-function doCopy() {
+function getSelectionText() {
   const tab = getActiveTab();
-  if (!tab) return;
-  const sel = tab.term.getSelection();
-  if (sel) mt.clipboard.writeText(sel);
+  if (!tab) return '';
+  if (tab.richVisible) {
+    const sel = window.getSelection();
+    return sel ? sel.toString() : '';
+  }
+  return tab.term.getSelection();
+}
+
+function doCopy() {
+  const text = getSelectionText();
+  if (text) mt.clipboard.writeText(text);
 }
 
 function doPaste() {
@@ -18,15 +26,33 @@ function doPaste() {
 
 function doSelectAll() {
   const tab = getActiveTab();
-  if (tab) tab.term.selectAll();
+  if (!tab) return;
+  if (tab.richVisible) {
+    const range = document.createRange();
+    range.selectNodeContents(tab.richContent);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } else {
+    tab.term.selectAll();
+  }
+}
+
+function hasSelection() {
+  const tab = getActiveTab();
+  if (!tab) return false;
+  if (tab.richVisible) {
+    const sel = window.getSelection();
+    return sel && sel.toString().length > 0;
+  }
+  return tab.term.hasSelection();
 }
 
 function showContextMenu(x, y) {
   const tab = getActiveTab();
   const state = require('./state').state;
-  const hasSel = tab && tab.term.hasSelection();
   const copyItem = document.getElementById('ctx-copy');
-  if (hasSel) copyItem.classList.remove('disabled');
+  if (hasSelection()) copyItem.classList.remove('disabled');
   else copyItem.classList.add('disabled');
   state.contextMenu.style.left = x + 'px';
   state.contextMenu.style.top = y + 'px';
@@ -53,6 +79,16 @@ function initClipboardListeners() {
   });
   document.addEventListener('click', e => {
     if (!state.contextMenu.contains(e.target)) hideContextMenu();
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!settings.copyOnSelect) return;
+    const tab = getActiveTab();
+    if (!tab || !tab.richVisible) return;
+    const sel = window.getSelection();
+    if (sel && sel.toString().length > 0) {
+      mt.clipboard.writeText(sel.toString());
+    }
   });
 }
 
