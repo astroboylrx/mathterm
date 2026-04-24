@@ -3,6 +3,8 @@ const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { SearchAddon } = require('@xterm/addon-search');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
+const { WebglAddon } = require('@xterm/addon-webgl');
+const { CanvasAddon } = require('@xterm/addon-canvas');
 
 const { state, getActiveTab, getTabIndex, updateStatusBar } = require('./state');
 const { settings } = require('./settings');
@@ -64,6 +66,14 @@ function createTab(cwd) {
     } catch {}
   }));
   term.open(xtermHolder);
+
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => { webgl.dispose(); try { term.loadAddon(new CanvasAddon()); } catch {} });
+    term.loadAddon(webgl);
+  } catch {
+    try { term.loadAddon(new CanvasAddon()); } catch {}
+  }
 
   tab.term = term;
   tab.fitAddon = fitAddon;
