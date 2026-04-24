@@ -31,7 +31,15 @@ function updateTabBar() {
 }
 
 function tabTrackTitle(tab, data) {
-  const osc7 = data.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/g);
+  if (!tab._titleBuf) tab._titleBuf = '';
+  tab._titleBuf += data;
+  if (tab._titleBuf.length > 8192) {
+    tab._titleBuf = tab._titleBuf.slice(-4096);
+  }
+
+  let changed = false;
+
+  const osc7 = tab._titleBuf.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/g);
   if (osc7) {
     const last = osc7[osc7.length - 1];
     const m7 = last.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/);
@@ -43,11 +51,12 @@ function tabTrackTitle(tab, data) {
     cwd = cwd.replace(/^(\/\/[^/]+)?\/+/, '/').replace(/^\/\//, '/');
     if (!mt.path.isAbsolute(cwd)) cwd = '/' + cwd;
     tab.cwd = cwd;
-    refreshTabTitle(tab);
-    return;
+    changed = true;
+    const end = tab._titleBuf.lastIndexOf('\x07') + 1;
+    tab._titleBuf = tab._titleBuf.slice(end);
   }
 
-  const osc0 = data.match(/\x1b\]0;([^\x07\x1b]*)/);
+  const osc0 = tab._titleBuf.match(/\x1b\]0;([^\x07\x1b]*)\x07/);
   if (osc0) {
     const rawTitle = osc0[1].trim();
     if (rawTitle) {
@@ -55,11 +64,16 @@ function tabTrackTitle(tab, data) {
       if (m) {
         if (!tab._promptPrefix) tab._promptPrefix = m[1];
         tab.cwd = resolveTildePath(m[2].trim());
+        changed = true;
       }
-      refreshTabTitle(tab);
     }
-    return;
+    const end = tab._titleBuf.indexOf('\x07', tab._titleBuf.indexOf('\x1b]0;')) + 1;
+    if (end > 0) tab._titleBuf = tab._titleBuf.slice(end);
   }
+
+  if (changed) refreshTabTitle(tab);
+
+  if (!tab._titleBuf.includes('\x1b]')) tab._titleBuf = '';
 }
 
 module.exports = { tabTrackTitle, computeTabTitle, refreshTabTitle, updateTabBar, formatTabCwd, resolveTildePath };

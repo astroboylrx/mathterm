@@ -41,6 +41,11 @@ function buildShellArgs(shellCmd, shimDir) {
   if (isZsh) {
     return { args: ['-l', '-i'], env: { ...mt.os.env, ZDOTDIR: shimDir } };
   } else {
+    // Note: no `-l` here. Bash login shells do NOT source `--rcfile`; they
+    // only read /etc/profile + ~/.bash_profile.  The bashrc.sh shim manually
+    // sources profile files and then installs OSC 133 prompt markers via
+    // PROMPT_COMMAND.  zsh avoids this because ZDOTDIR redirects its entire
+    // dotfile chain, including login-shell files.
     return { args: ['--rcfile', mt.path.join(shimDir, 'bashrc.sh'), '-i'], env: mt.os.env };
   }
 }

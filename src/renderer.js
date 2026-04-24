@@ -33,6 +33,34 @@ document.addEventListener('keydown', e => {
 
   const mod = isMac ? e.metaKey : e.ctrlKey;
 
+  if (mod && e.shiftKey) {
+    const key = e.key.toLowerCase();
+    const tab = getActiveTab();
+    if (key === 'm' && tab) {
+      e.preventDefault();
+      toggleMathMode();
+      return;
+    }
+    if (key === 'f') {
+      e.preventDefault();
+      const { openSearch } = require('./search');
+      openSearch();
+      return;
+    }
+    if (!tab || !tab.richVisible) return;
+    const richActions = { c: 'do-copy', v: 'do-paste', a: 'select-all' };
+    const action = richActions[key];
+    if (action) {
+      e.preventDefault();
+      e.stopPropagation();
+      const { doCopy, doPaste, doSelectAll } = require('./clipboard');
+      if (action === 'do-copy') doCopy();
+      else if (action === 'do-paste') doPaste();
+      else if (action === 'select-all') doSelectAll();
+      return;
+    }
+  }
+
   if (mod && e.key === 'PageDown') {
     e.preventDefault();
     const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
@@ -110,4 +138,5 @@ initClipboardListeners();
 initSearchListeners();
 initTabContextListeners();
 
-createTab();
+const urlCwd = new URLSearchParams(window.location.search).get('cwd');
+createTab(urlCwd || undefined);

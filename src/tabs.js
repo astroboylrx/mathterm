@@ -12,7 +12,7 @@ const { createShellShim, buildShellArgs } = require('./shellShim');
 const { tabFeedSection } = require('./richView');
 const { tabTrackTitle, updateTabBar } = require('./titleTrack');
 
-function createTab() {
+function createTab(cwd) {
   const id = state.tabIdCounter++;
   const tab = new TabSession(id);
 
@@ -68,9 +68,9 @@ function createTab() {
   tab.fitAddon = fitAddon;
   tab.searchAddon = searchAddon;
 
-  const spawnCwd = settings.inheritCwd
-    ? (getActiveTab()?.cwd || mt.os.env.HOME)
-    : mt.os.env.HOME;
+  const spawnCwd = cwd
+    || (settings.inheritCwd ? (getActiveTab()?.cwd || mt.os.env.HOME) : null)
+    || mt.os.env.HOME;
   tab.cwd = spawnCwd;
 
   const shellCmd = mt.os.env.SHELL || '/bin/bash';

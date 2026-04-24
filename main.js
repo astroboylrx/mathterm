@@ -59,23 +59,19 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Copy',
-          accelerator: 'CmdOrCtrl+Shift+C',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-copy'); }
         },
         {
           label: 'Paste',
-          accelerator: 'CmdOrCtrl+Shift+V',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-paste'); }
         },
         {
           label: 'Select All',
-          accelerator: 'CmdOrCtrl+Shift+A',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('select-all'); }
         },
         { type: 'separator' },
         {
           label: 'Find...',
-          accelerator: 'CmdOrCtrl+Shift+F',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-search'); }
         },
         { type: 'separator' },
@@ -99,7 +95,6 @@ function buildMenu(autoRender) {
         { type: 'separator' },
         {
           label: 'Toggle Math Mode',
-          accelerator: 'CmdOrCtrl+Shift+M',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('toggle-math-mode'); }
         },
         { type: 'separator' },
@@ -179,8 +174,7 @@ ipcMain.on('detach-tab', (event, opts) => {
     title: 'MathTerm',
     webPreferences: webPrefs
   });
-  win.loadFile('index.html');
-  win.webContents.on('did-finish-load', () => {
-    if (opts?.cwd) win.webContents.send('set-tab-cwd', opts.cwd);
-  });
+  const params = new URLSearchParams();
+  if (opts?.cwd) params.set('cwd', opts.cwd);
+  win.loadFile('index.html', { query: params.toString() || undefined });
 });

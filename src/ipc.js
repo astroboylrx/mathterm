@@ -5,7 +5,6 @@ const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richVi
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
 const { createTab, closeTab, switchTab } = require('./tabs');
-const { refreshTabTitle } = require('./titleTrack');
 
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
@@ -47,10 +46,6 @@ function initIpc() {
   mt.ipc.on('do-copy', () => doCopy());
   mt.ipc.on('do-paste', () => doPaste());
   mt.ipc.on('open-search', () => openSearch());
-  mt.ipc.on('set-tab-cwd', (cwd) => {
-    const tab = getActiveTab();
-    if (tab) { tab.cwd = cwd; refreshTabTitle(tab); }
-  });
   mt.ipc.on('select-all', () => doSelectAll());
 }
 

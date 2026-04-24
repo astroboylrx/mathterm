@@ -135,8 +135,14 @@
       pointer-events: none;
       user-select: text;
       z-index: 10;
+      outline: none;
+      border: 1px solid transparent;
     }
-    .rich-view.visible { opacity: 1; pointer-events: auto; }
+    .rich-view.visible {
+      opacity: 1;
+      pointer-events: auto;
+      border-color: #f0883e;
+    }
     .rich-view::-webkit-scrollbar { width: 8px; }
     .rich-view::-webkit-scrollbar-track { background: transparent; }
     .rich-view::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
