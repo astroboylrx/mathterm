@@ -4,7 +4,7 @@ class TabSession {
   constructor(id) {
     this.id = id;
     this.title = state._hostname + ': ~';
-    this.cwd = process.env.HOME;
+    this.cwd = window.mathterm.os.env.HOME;
     this.ptyProc = null;
     this.term = null;
     this.fitAddon = null;

@@ -1,16 +1,15 @@
-const os = require('os');
-const path = require('path');
+const mt = window.mathterm;
 const { state } = require('./state');
 
 function formatTabCwd(cwd) {
-  const home = os.homedir();
+  const home = mt.os.homedir();
   if (cwd === home) return '~';
-  return path.basename(cwd) || '/';
+  return mt.path.basename(cwd) || '/';
 }
 
 function resolveTildePath(p) {
-  if (p === '~' || p === '~/') return os.homedir();
-  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  if (p === '~' || p === '~/') return mt.os.homedir();
+  if (p.startsWith('~/')) return mt.path.join(mt.os.homedir(), p.slice(2));
   return p;
 }
 
@@ -37,12 +36,12 @@ function tabTrackTitle(tab, data) {
     const last = osc7[osc7.length - 1];
     const m7 = last.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/);
     if (m7 && !tab._promptPrefix) {
-      tab._promptPrefix = (process.env.USER || os.userInfo().username) + '@' + m7[1];
+      tab._promptPrefix = (mt.os.env.USER || mt.os.userInfo().username) + '@' + m7[1];
     }
     const raw = m7[2] || '';
     let cwd = decodeURIComponent(raw);
     cwd = cwd.replace(/^(\/\/[^/]+)?\/+/, '/').replace(/^\/\//, '/');
-    if (!path.isAbsolute(cwd)) cwd = '/' + cwd;
+    if (!mt.path.isAbsolute(cwd)) cwd = '/' + cwd;
     tab.cwd = cwd;
     refreshTabTitle(tab);
     return;

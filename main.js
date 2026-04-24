@@ -3,6 +3,13 @@ const path = require('path');
 
 let mainWindow;
 
+const webPrefs = {
+  nodeIntegration: false,
+  contextIsolation: true,
+  sandbox: false,
+  preload: path.join(__dirname, 'preload.js')
+};
+
 function getFocusedWebContents() {
   const win = BrowserWindow.getFocusedWindow();
   return win ? win.webContents : (mainWindow ? mainWindow.webContents : null);
@@ -133,10 +140,7 @@ app.whenReady().then(() => {
     width: 960,
     height: 700,
     title: 'MathTerm',
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
+    webPreferences: webPrefs
   });
   mainWindow.loadFile('index.html');
   Menu.setApplicationMenu(buildMenu(true));
@@ -152,10 +156,7 @@ app.on('activate', () => {
       width: 960,
       height: 700,
       title: 'MathTerm',
-      webPreferences: {
-        nodeIntegration: true,
-        contextIsolation: false
-      }
+      webPreferences: webPrefs
     });
     mainWindow.loadFile('index.html');
     Menu.setApplicationMenu(buildMenu(true));
@@ -176,10 +177,7 @@ ipcMain.on('detach-tab', (event, opts) => {
     width: 960,
     height: 700,
     title: 'MathTerm',
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false
-    }
+    webPreferences: webPrefs
   });
   win.loadFile('index.html');
   win.webContents.on('did-finish-load', () => {

@@ -1,4 +1,3 @@
-const os = require('os');
 
 const state = {
   tabs: [],
@@ -7,7 +6,7 @@ const state = {
   dragTabId: null,
   tabContextMenuId: null,
   autoRender: true,
-  _hostname: os.hostname().split('.')[0],
+  _hostname: window.mathterm.os.hostname().split('.')[0],
 
   tabBar: null,
   termContainer: null,

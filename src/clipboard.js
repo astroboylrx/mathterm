@@ -1,4 +1,4 @@
-const { clipboard } = require('electron');
+const mt = window.mathterm;
 const { getActiveTab } = require('./state');
 const { settings } = require('./settings');
 
@@ -6,13 +6,13 @@ function doCopy() {
   const tab = getActiveTab();
   if (!tab) return;
   const sel = tab.term.getSelection();
-  if (sel) clipboard.writeText(sel);
+  if (sel) mt.clipboard.writeText(sel);
 }
 
 function doPaste() {
   const tab = getActiveTab();
   if (!tab) return;
-  const text = clipboard.readText();
+  const text = mt.clipboard.readText();
   if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
 }
 

@@ -1,5 +1,4 @@
-const fs = require('fs');
-const { ipcRenderer } = require('electron');
+const mt = window.mathterm;
 const { state, getActiveTab } = require('./state');
 const { settings, openSettings } = require('./settings');
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
@@ -9,50 +8,50 @@ const { createTab, closeTab, switchTab } = require('./tabs');
 const { refreshTabTitle } = require('./titleTrack');
 
 function initIpc() {
-  ipcRenderer.on('toggle-math-mode', () => toggleMathMode());
-  ipcRenderer.on('set-auto-render', (e, val) => {
+  mt.ipc.on('toggle-math-mode', () => toggleMathMode());
+  mt.ipc.on('set-auto-render', (e, val) => {
     state.autoRender = val;
     state.autoIndicator.textContent = state.autoRender ? '\u2B50 AUTO' : 'AUTO OFF';
     state.autoIndicator.className = state.autoRender ? '' : 'off';
-    ipcRenderer.send('rebuild-menu', state.autoRender);
+    mt.ipc.send('rebuild-menu', state.autoRender);
   });
-  ipcRenderer.on('clear-terminal', () => {
+  mt.ipc.on('clear-terminal', () => {
     const tab = getActiveTab();
     if (!tab) return;
     if (tab.richVisible) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
   });
-  ipcRenderer.on('open-file', (e, filePath) => {
+  mt.ipc.on('open-file', (e, filePath) => {
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
-    fs.promises.stat(filePath).then(stat => {
+    mt.fs.statAsync(filePath).then(stat => {
       if (stat.size > MAX_FILE_SIZE) return;
-      return fs.promises.readFile(filePath, 'utf8');
+      return mt.fs.readFileAsync(filePath, 'utf8');
     }).then(content => {
       if (!content) return;
       const tab = getActiveTab();
       if (tab) renderFileContent(tab, content, filePath);
     }).catch(err => console.error('Failed to open file:', err));
   });
-  ipcRenderer.on('show-shortcuts', () => {});
-  ipcRenderer.on('open-settings', () => openSettings());
-  ipcRenderer.on('new-tab', () => createTab());
-  ipcRenderer.on('close-tab', () => { const t = getActiveTab(); if (t) closeTab(t.id); });
-  ipcRenderer.on('next-tab', () => {
+  mt.ipc.on('show-shortcuts', () => {});
+  mt.ipc.on('open-settings', () => openSettings());
+  mt.ipc.on('new-tab', () => createTab());
+  mt.ipc.on('close-tab', () => { const t = getActiveTab(); if (t) closeTab(t.id); });
+  mt.ipc.on('next-tab', () => {
     const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
     if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx + 1) % state.tabs.length].id);
   });
-  ipcRenderer.on('prev-tab', () => {
+  mt.ipc.on('prev-tab', () => {
     const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
     if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx - 1 + state.tabs.length) % state.tabs.length].id);
   });
-  ipcRenderer.on('do-copy', () => doCopy());
-  ipcRenderer.on('do-paste', () => doPaste());
-  ipcRenderer.on('open-search', () => openSearch());
-  ipcRenderer.on('set-tab-cwd', (e, cwd) => {
+  mt.ipc.on('do-copy', () => doCopy());
+  mt.ipc.on('do-paste', () => doPaste());
+  mt.ipc.on('open-search', () => openSearch());
+  mt.ipc.on('set-tab-cwd', (e, cwd) => {
     const tab = getActiveTab();
     if (tab) { tab.cwd = cwd; refreshTabTitle(tab); }
   });
-  ipcRenderer.on('select-all', () => doSelectAll());
+  mt.ipc.on('select-all', () => doSelectAll());
 }
 
 module.exports = { initIpc };

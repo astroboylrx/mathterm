@@ -1,12 +1,8 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { shell, ipcRenderer, clipboard } = require('electron');
+const mt = window.mathterm;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { SearchAddon } = require('@xterm/addon-search');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
-const pty = require('node-pty');
 
 const { state, getActiveTab, getTabIndex, updateStatusBar } = require('./state');
 const { settings } = require('./settings');
@@ -62,7 +58,7 @@ function createTab() {
   term.loadAddon(new WebLinksAddon((_event, uri) => {
     try {
       const u = new URL(uri);
-      if (['http:', 'https:', 'mailto:'].includes(u.protocol)) shell.openExternal(uri);
+      if (['http:', 'https:', 'mailto:'].includes(u.protocol)) mt.shell.openExternal(uri);
     } catch {}
   }));
   term.open(xtermHolder);
@@ -72,15 +68,15 @@ function createTab() {
   tab.searchAddon = searchAddon;
 
   const spawnCwd = settings.inheritCwd
-    ? (getActiveTab()?.cwd || process.env.HOME)
-    : process.env.HOME;
+    ? (getActiveTab()?.cwd || mt.os.env.HOME)
+    : mt.os.env.HOME;
   tab.cwd = spawnCwd;
 
-  const shellCmd = process.env.SHELL || '/bin/bash';
+  const shellCmd = mt.os.env.SHELL || '/bin/bash';
   const shimDir = createShellShim(shellCmd);
   tab._shimDir = shimDir;
   const { args: shellArgs, env: shellEnv } = buildShellArgs(shellCmd, shimDir);
-  const ptyProc = pty.spawn(shellCmd, shellArgs, {
+  const ptyProc = mt.pty.spawn(shellCmd, shellArgs, {
     name: 'xterm-256color',
     cols: term.cols,
     rows: term.rows,
@@ -96,7 +92,7 @@ function createTab() {
 
   ptyProc.onExit(() => {
     if (tab._shimDir) {
-      try { fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
+      try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
       tab._shimDir = null;
     }
   });
@@ -119,7 +115,7 @@ function createTab() {
   term.onSelectionChange(() => {
     if (!settings.copyOnSelect) return;
     const sel = term.getSelection();
-    if (sel) clipboard.writeText(sel);
+    if (sel) mt.clipboard.writeText(sel);
   });
 
   term.parser.registerOscHandler(133, (data) => {
@@ -241,7 +237,7 @@ function switchTab(id) {
 function closeTab(id) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
-  if (state.tabs.length <= 1) { ipcRenderer.send('close-window'); return; }
+  if (state.tabs.length <= 1) { mt.ipc.send('close-window'); return; }
   const tab = state.tabs[idx];
   clearTimeout(tab.sectionTimer);
   tab.ptyProc.kill();
@@ -249,7 +245,7 @@ function closeTab(id) {
   tab.container.remove();
   tab.tabEl.remove();
   if (tab._shimDir) {
-    try { fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
+    try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
   }
   state.tabs.splice(idx, 1);
   if (state.activeTabId === id) {
@@ -330,7 +326,7 @@ function moveTab(id, direction) {
 function detachTab(id) {
   const tab = state.tabs.find(t => t.id === id);
   if (!tab) return;
-  ipcRenderer.send('detach-tab', {
+  mt.ipc.send('detach-tab', {
     cwd: tab.cwd,
     title: tab._customTitle || tab.title
   });

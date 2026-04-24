@@ -1,12 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
-const { ipcRenderer } = require('electron');
+const mt = window.mathterm;
 const { state, updateStatusBar } = require('./state');
 
-const isMac = process.platform === 'darwin';
+const isMac = mt.os.platform === 'darwin';
 
-const SETTINGS_PATH = path.join(os.homedir(), '.mathterm.json');
+const SETTINGS_PATH = mt.path.join(mt.os.homedir(), '.mathterm.json');
 
 const DEFAULTS = {
   scrollback: 16384,
@@ -23,7 +20,7 @@ const DEFAULTS = {
 
 function loadSettings() {
   try {
-    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const raw = mt.fs.readFileSync(SETTINGS_PATH, 'utf8');
     const user = JSON.parse(raw);
     return { ...DEFAULTS, ...user };
   } catch {
@@ -32,7 +29,7 @@ function loadSettings() {
 }
 
 function saveSettingsFile(s) {
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2) + '\n');
+  mt.fs.writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2) + '\n');
 }
 
 const settings = loadSettings();
@@ -90,7 +87,7 @@ function applySettings() {
     };
     if (tab.container.classList.contains('active')) tab.fitAddon.fit();
   }
-  ipcRenderer.send('rebuild-menu', state.autoRender);
+  mt.ipc.send('rebuild-menu', state.autoRender);
 }
 
 module.exports = { settings, DEFAULTS, SETTINGS_PATH, isMac, openSettings, closeSettings, saveSettings, applySettings };
