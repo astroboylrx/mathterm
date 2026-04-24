@@ -11,6 +11,8 @@ const state = {
   termContainer: null,
   modeIndicator: null,
   autoIndicator: null,
+  cwdIndicator: null,
+  exitIndicator: null,
   mathBtn: null,
   searchBar: null,
   searchInput: null,
@@ -35,6 +37,18 @@ function updateStatusBar(tab) {
     state.modeIndicator.textContent = 'TERMINAL';
     state.modeIndicator.classList.remove('active');
     state.mathBtn.classList.remove('active');
+  }
+  if (state.cwdIndicator && tab.cwd) {
+    const home = window.mathterm.os.homedir();
+    const display = tab.cwd === home ? '~'
+      : tab.cwd.startsWith(home + '/') ? '~' + tab.cwd.slice(home.length)
+      : tab.cwd;
+    state.cwdIndicator.textContent = state._hostname + ': ' + display;
+  }
+  if (state.exitIndicator && tab._lastExitCode !== '') {
+    const code = tab._lastExitCode;
+    state.exitIndicator.textContent = code === '0' ? '✓' : '✗ ' + code;
+    state.exitIndicator.className = code === '0' ? 'ok' : 'err';
   }
 }
 

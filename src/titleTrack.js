@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { state } = require('./state');
+const { state, updateStatusBar } = require('./state');
 
 function formatTabCwd(cwd) {
   const home = mt.os.homedir();
@@ -21,6 +21,7 @@ function computeTabTitle(tab) {
 function refreshTabTitle(tab) {
   tab.title = computeTabTitle(tab);
   updateTabBar();
+  if (tab.id === state.activeTabId) updateStatusBar(tab);
 }
 
 function updateTabBar() {

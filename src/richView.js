@@ -10,6 +10,34 @@ const { renderMarkdownBlock, renderMarkdownFile } = require('./markdown');
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
 
+const _katexQueue = [];
+let _katexRaf = 0;
+const KATEX_CHUNK = 8;
+
+function queueKatex(latex, el, displayMode) {
+  el.textContent = latex;
+  el.dataset.katexPending = '1';
+  _katexQueue.push({ latex, el, displayMode });
+  if (!_katexRaf) _katexRaf = requestAnimationFrame(_flushKatex);
+}
+
+function _flushKatex() {
+  const batch = _katexQueue.splice(0, KATEX_CHUNK);
+  for (const { latex, el, displayMode } of batch) {
+    try {
+      require('katex').render(latex, el, { displayMode, throwOnError: false });
+    } catch {
+      el.textContent = displayMode ? `$$${latex}$$` : `$${latex}$`;
+    }
+    delete el.dataset.katexPending;
+  }
+  if (_katexQueue.length > 0) {
+    _katexRaf = requestAnimationFrame(_flushKatex);
+  } else {
+    _katexRaf = 0;
+  }
+}
+
 function renderLineFromBuffer(line) {
   const text = line.translateToString(true);
   if (!text.trim()) return null;
@@ -17,18 +45,15 @@ function renderLineFromBuffer(line) {
   el.className = 'rline';
   if (hasLatex(text)) {
     const parts = splitLatexSmart(text);
-    const katex = require('katex');
     for (const part of parts) {
       if (part.type === 'display' && part.closed) {
         const span = document.createElement('span');
         span.className = 'display-math';
-        try { katex.render(part.content, span, { displayMode:true, throwOnError:false }); }
-        catch { span.textContent = part.raw; }
+        queueKatex(part.content, span, true);
         el.appendChild(span);
       } else if (part.type === 'inline' && part.closed) {
         const span = document.createElement('span');
-        try { katex.render(part.content, span, { displayMode:false, throwOnError:false }); }
-        catch { span.textContent = part.raw; }
+        queueKatex(part.content, span, false);
         el.appendChild(span);
       } else if (!part.closed && part.type !== 'text') {
         const span = document.createElement('span');
@@ -188,11 +213,7 @@ function tryParseDisplayMath(textLines, startIdx) {
       el.className = 'display-math';
       el.style.textAlign = 'center';
       el.style.margin = '8px 0';
-      try {
-        require('katex').render(latex, el, { displayMode: true, throwOnError: false });
-      } catch {
-        el.textContent = '$$\n' + latex + '\n$$';
-      }
+      queueKatex(latex, el, true);
       return { element: el, endIdx: j + 1 };
     }
     mathLines.push(t.trimEnd());
@@ -242,14 +263,12 @@ function renderInlineLatexToEl(text, el) {
   for (const part of parts) {
     if (part.type === 'inline' && part.closed) {
       const span = document.createElement('span');
-      try { require('katex').render(part.content, span, { displayMode: false, throwOnError: false }); }
-      catch { span.textContent = part.raw; }
+      queueKatex(part.content, span, false);
       el.appendChild(span);
     } else if (part.type === 'display' && part.closed) {
       const span = document.createElement('span');
       span.className = 'display-math';
-      try { require('katex').render(part.content, span, { displayMode: true, throwOnError: false }); }
-      catch { span.textContent = part.raw; }
+      queueKatex(part.content, span, true);
       el.appendChild(span);
     } else if (!part.closed && part.type !== 'text') {
       const span = document.createElement('span');
