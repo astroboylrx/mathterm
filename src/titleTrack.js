@@ -39,38 +39,48 @@ function tabTrackTitle(tab, data) {
   }
 
   let changed = false;
+  let consumeUpto = 0;
 
-  const osc7 = tab._titleBuf.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/g);
-  if (osc7) {
-    const last = osc7[osc7.length - 1];
-    const m7 = last.match(/\x1b\]7;file:\/\/([^\x07\/]+)([^\x07]*)\x07/);
-    if (m7 && !tab._promptPrefix) {
-      tab._promptPrefix = (mt.os.env.USER || mt.os.userInfo().username) + '@' + m7[1];
+  // OSC 7 (cwd notification: file://host/path), terminated by BEL (\x07) or ST (ESC \\)
+  const osc7Re = /\x1b\]7;file:\/\/([^\x07\x1b\/]+)([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+  let lastM7 = null;
+  let m;
+  while ((m = osc7Re.exec(tab._titleBuf)) !== null) {
+    lastM7 = m;
+    if (osc7Re.lastIndex > consumeUpto) consumeUpto = osc7Re.lastIndex;
+  }
+  if (lastM7) {
+    if (!tab._promptPrefix) {
+      tab._promptPrefix = (mt.os.env.USER || mt.os.userInfo().username) + '@' + lastM7[1];
     }
-    const raw = m7[2] || '';
+    const raw = lastM7[2] || '';
     let cwd = decodeURIComponent(raw);
     cwd = cwd.replace(/^(\/\/[^/]+)?\/+/, '/').replace(/^\/\//, '/');
     if (!mt.path.isAbsolute(cwd)) cwd = '/' + cwd;
     tab.cwd = cwd;
     changed = true;
-    const end = tab._titleBuf.lastIndexOf('\x07') + 1;
-    tab._titleBuf = tab._titleBuf.slice(end);
   }
 
-  const osc0 = tab._titleBuf.match(/\x1b\]0;([^\x07\x1b]*)\x07/);
-  if (osc0) {
-    const rawTitle = osc0[1].trim();
+  // OSC 0/1/2 (icon name / window title), same dual terminator support
+  const osc012Re = /\x1b\][012];([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
+  let lastM012 = null;
+  while ((m = osc012Re.exec(tab._titleBuf)) !== null) {
+    lastM012 = m;
+    if (osc012Re.lastIndex > consumeUpto) consumeUpto = osc012Re.lastIndex;
+  }
+  if (lastM012) {
+    const rawTitle = lastM012[1].trim();
     if (rawTitle) {
-      const m = rawTitle.match(/^([^@]+@[^:]+):(.+)$/);
-      if (m) {
-        if (!tab._promptPrefix) tab._promptPrefix = m[1];
-        tab.cwd = resolveTildePath(m[2].trim());
+      const tm = rawTitle.match(/^([^@]+@[^:]+):(.+)$/);
+      if (tm) {
+        if (!tab._promptPrefix) tab._promptPrefix = tm[1];
+        tab.cwd = resolveTildePath(tm[2].trim());
         changed = true;
       }
     }
-    const end = tab._titleBuf.indexOf('\x07', tab._titleBuf.indexOf('\x1b]0;')) + 1;
-    if (end > 0) tab._titleBuf = tab._titleBuf.slice(end);
   }
+
+  if (consumeUpto > 0) tab._titleBuf = tab._titleBuf.slice(consumeUpto);
 
   if (changed) refreshTabTitle(tab);
 

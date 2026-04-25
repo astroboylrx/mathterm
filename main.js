@@ -59,19 +59,27 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Copy',
+          accelerator: 'CmdOrCtrl+Shift+C',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-copy'); }
         },
         {
           label: 'Paste',
+          accelerator: 'CmdOrCtrl+Shift+V',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-paste'); }
         },
         {
           label: 'Select All',
+          accelerator: 'CmdOrCtrl+Shift+A',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('select-all'); }
         },
         { type: 'separator' },
         {
           label: 'Find...',
+          accelerator: 'CmdOrCtrl+Shift+F',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-search'); }
         },
         { type: 'separator' },
@@ -95,6 +103,8 @@ function buildMenu(autoRender) {
         { type: 'separator' },
         {
           label: 'Toggle Math Mode',
+          accelerator: 'CmdOrCtrl+Shift+M',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('toggle-math-mode'); }
         },
         { type: 'separator' },
@@ -113,10 +123,14 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Next Tab',
+          accelerator: 'CmdOrCtrl+PageDown',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('next-tab'); }
         },
         {
           label: 'Previous Tab',
+          accelerator: 'CmdOrCtrl+PageUp',
+          registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('prev-tab'); }
         }
       ]

@@ -12,10 +12,11 @@ function createShellShim(shellCmd) {
 if [ -f "$_mt_real_zdot/.zshrc" ]; then . "$_mt_real_zdot/.zshrc"; fi
 mathterm_prompt_marker() { ${markA}; }
 mathterm_preexec() { ${markC}; }
-mathterm_precmd() { ${markD} "\\$?"; }
-precmd_functions=(mathterm_precmd \${precmd_functions[@]})
-precmd_functions+=(mathterm_prompt_marker)
-preexec_functions+=(mathterm_preexec)
+mathterm_precmd() { local _mt_ec=\$?; ${markD} "\$_mt_ec"; }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd mathterm_precmd
+add-zsh-hook precmd mathterm_prompt_marker
+add-zsh-hook preexec mathterm_preexec
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zshenv'),
       `if [ -f "$HOME/.zshenv" ]; then . "$HOME/.zshenv"; fi\nexport _MT_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"\nZDOTDIR=${tmpDir}\n`);

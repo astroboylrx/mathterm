@@ -256,16 +256,18 @@ function closeTab(id) {
   if (state.tabs.length <= 1) { mt.ipc.send('close-window'); return; }
   const tab = state.tabs[idx];
   clearTimeout(tab.sectionTimer);
-  tab.ptyProc.kill();
-  tab.term.dispose();
   tab.container.remove();
   tab.tabEl.remove();
+  state.tabs.splice(idx, 1);
+  const wasActive = state.activeTabId === id;
+  if (wasActive) state.activeTabId = null;
+  try { tab.ptyProc.kill(); } catch {}
+  try { tab.term.dispose(); } catch {}
   if (tab._shimDir) {
     try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
     tab._shimDir = null;
   }
-  state.tabs.splice(idx, 1);
-  if (state.activeTabId === id) {
+  if (wasActive) {
     switchTab(state.tabs[Math.min(idx, state.tabs.length - 1)].id);
   }
 }
