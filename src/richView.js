@@ -338,6 +338,7 @@ function tabResetSection(tab) {
   tab.sectionHasLatex = false;
   tab.sectionStartY = 0;
   tab._sectionStartTime = 0;
+  tab._sectionAltScreen = false;
 }
 
 function tabFlushSection(tab) {
@@ -366,6 +367,8 @@ function tabFlushSection(tab) {
 
 function tabFeedSection(tab, data) {
   if (!tab.autoRender) return;
+  if (/\x1b\[\?(?:1049|1047|47)h/.test(data)) tab._sectionAltScreen = true;
+  if (/\x1b\[\?(?:1049|1047|47)l/.test(data)) tab._sectionAltScreen = true;
   if (!tab.sectionBuffer) {
     const buf = tab.term.buffer.active;
     tab.sectionStartY = buf.baseY + buf.cursorY;
@@ -375,7 +378,7 @@ function tabFeedSection(tab, data) {
   if (tab.sectionBuffer.length > SECTION_BUFFER_MAX) {
     tab.sectionBuffer = tab.sectionBuffer.slice(-SECTION_BUFFER_MAX);
   }
-  if (hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
+  if (!tab._sectionAltScreen && hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
   const elapsed = Date.now() - tab._sectionStartTime;
   if (tab.sectionHasLatex && (tab.sectionBuffer.length >= SECTION_BUFFER_MAX || elapsed >= SECTION_ELAPSED_MAX)) {
     clearTimeout(tab.sectionTimer);
@@ -418,6 +421,11 @@ function renderFileContent(tab, content, filePath) {
 function tabFlushSectionOnCommandEnd(tab) {
   if (!tab.autoRender) return;
   clearTimeout(tab.sectionTimer);
+  if (tab._sectionAltScreen) {
+    tab._sectionAltScreen = false;
+    tabResetSection(tab);
+    return;
+  }
   if (tab.sectionHasLatex) {
     tabFlushSection(tab);
   } else {

@@ -111,6 +111,8 @@ function buildMenu(autoRender) {
         {
           label: 'Auto-Render LaTeX',
           type: 'checkbox',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          registerAccelerator: false,
           checked: autoRender,
           click: item => { const wc = getFocusedWebContents(); if (wc) wc.send('set-auto-render', item.checked); }
         },

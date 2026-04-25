@@ -63,6 +63,11 @@ document.addEventListener('keydown', e => {
       openSearch();
       return;
     }
+    if (key === 'r') {
+      e.preventDefault();
+      window.toggleAutoRender();
+      return;
+    }
     if (!tab || !tab.richVisible) return;
     const richActions = { c: 'do-copy', v: 'do-paste', a: 'select-all' };
     const action = richActions[key];

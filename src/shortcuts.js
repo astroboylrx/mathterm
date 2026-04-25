@@ -10,6 +10,7 @@ const SHORTCUTS = [
   ]},
   { section: 'Math', items: [
     { keys: 'Mod+Shift+M', desc: 'Toggle Math mode' },
+    { keys: 'Mod+Shift+R', desc: 'Toggle auto-render LaTeX' },
     { keys: 'Mod+Shift+O', desc: 'Open file in Math mode' },
   ]},
   { section: 'Editing', items: [

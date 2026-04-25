@@ -19,7 +19,7 @@ add-zsh-hook precmd mathterm_prompt_marker
 add-zsh-hook preexec mathterm_preexec
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zshenv'),
-      `if [ -f "$HOME/.zshenv" ]; then . "$HOME/.zshenv"; fi\nexport _MT_USER_ZDOTDIR="\${ZDOTDIR:-$HOME}"\nZDOTDIR=${tmpDir}\n`);
+      `# _MT_USER_ZDOTDIR is set by the parent process before zsh starts.\nif [ -z "\$_MT_USER_ZDOTDIR" ]; then export _MT_USER_ZDOTDIR="\$HOME"; fi\nif [ -f "\$_MT_USER_ZDOTDIR/.zshenv" ]; then . "\$_MT_USER_ZDOTDIR/.zshenv"; fi\n`);
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zprofile'), `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zprofile" ]; then . "$_mt_real_zdot/.zprofile"; fi\n`);
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zshrc'), zshrc);
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zlogin'), `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zlogin" ]; then . "$_mt_real_zdot/.zlogin"; fi\n`);
@@ -40,7 +40,11 @@ PROMPT_COMMAND="\${PROMPT_COMMAND:+\$PROMPT_COMMAND;}_MATHTERM_PREEXEC=0; ${mark
 function buildShellArgs(shellCmd, shimDir) {
   const isZsh = shellCmd.includes('zsh');
   if (isZsh) {
-    return { args: ['-l', '-i'], env: { ...mt.os.env, ZDOTDIR: shimDir } };
+    return { args: ['-l', '-i'], env: {
+      ...mt.os.env,
+      ZDOTDIR: shimDir,
+      _MT_USER_ZDOTDIR: mt.os.env.ZDOTDIR || mt.os.env.HOME
+    }};
   } else {
     // Note: no `-l` here. Bash login shells do NOT source `--rcfile`; they
     // only read /etc/profile + ~/.bash_profile.  The bashrc.sh shim manually
