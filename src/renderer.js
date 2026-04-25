@@ -13,6 +13,7 @@ state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
 state.autoIndicator = document.getElementById('auto-indicator');
 state.mathBtn = document.getElementById('math-btn');
+state.renderInd = document.getElementById('render-ind');
 state.cwdLink = document.getElementById('cwd-link');
 state.gitSep = document.getElementById('git-sep');
 state.gitBranch = document.getElementById('git-branch');
@@ -209,5 +210,7 @@ const urlCwd = new URLSearchParams(window.location.search).get('cwd');
   if (firstTab) {
     state.autoIndicator.textContent = 'AUTO';
     state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
+    const ri = state.renderInd;
+    if (ri) ri.textContent = firstTab._renderer === 'webgl' ? 'GL' : firstTab._renderer === 'canvas' ? 'CV' : 'DOM';
   }
 })();

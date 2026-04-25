@@ -11,6 +11,7 @@ const state = {
   termContainer: null,
   autoIndicator: null,
   mathBtn: null,
+  renderInd: null,
   cwdLink: null,
   gitSep: null,
   gitBranch: null,

@@ -8,6 +8,12 @@ const { CanvasAddon } = require('@xterm/addon-canvas');
 
 const { state, getActiveTab, getTabIndex, updateStatusBar, updateStatusBarCwd } = require('./state');
 const { settings } = require('./settings');
+
+function updateRendererIndicator(tab) {
+  const el = state.renderInd;
+  if (!el || !tab || tab.id !== state.activeTabId) return;
+  el.textContent = tab._renderer === 'webgl' ? 'GL' : tab._renderer === 'canvas' ? 'CV' : 'DOM';
+}
 const { escapeHtml } = require('./ansi');
 const { TabSession } = require('./tabSession');
 const { createShellShim, buildShellArgs } = require('./shellShim');
@@ -69,10 +75,11 @@ function createTab(cwd) {
 
   try {
     const webgl = new WebglAddon();
-    webgl.onContextLoss(() => { webgl.dispose(); try { term.loadAddon(new CanvasAddon()); } catch {} });
+    webgl.onContextLoss(() => { webgl.dispose(); tab._renderer = 'canvas'; try { term.loadAddon(new CanvasAddon()); } catch {} updateRendererIndicator(tab); });
     term.loadAddon(webgl);
+    tab._renderer = 'webgl';
   } catch {
-    try { term.loadAddon(new CanvasAddon()); } catch {}
+    try { term.loadAddon(new CanvasAddon()); tab._renderer = 'canvas'; } catch { tab._renderer = 'dom'; }
   }
 
   tab.term = term;
@@ -245,6 +252,7 @@ function switchTab(id) {
   });
   updateStatusBar(tab);
   updateStatusBarCwd(tab);
+  updateRendererIndicator(tab);
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = tab.autoRender ? '' : 'off';
   mt.ipc.send('rebuild-menu', tab.autoRender);
