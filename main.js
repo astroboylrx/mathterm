@@ -1,7 +1,44 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 let mainWindow;
+
+const SETTINGS_PATH = path.join(
+  process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
+  'mathterm',
+  'mathterm.json'
+);
+
+const DEFAULT_SHORTCUTS = {
+  toggleMath: 'CmdOrCtrl+Shift+M',
+  toggleAutoRender: 'CmdOrCtrl+Shift+R',
+  openSearch: 'CmdOrCtrl+Shift+F',
+  copy: 'CmdOrCtrl+Shift+C',
+  paste: 'CmdOrCtrl+Shift+V',
+  selectAll: 'CmdOrCtrl+Shift+A',
+};
+
+function modToCmdOrCtrl(s) {
+  if (!s) return '';
+  return s.split('+').map(p => /^mod$/i.test(p.trim()) ? 'CmdOrCtrl' : p).join('+');
+}
+
+function loadShortcuts() {
+  try {
+    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    const sc = (parsed && parsed.shortcuts) || {};
+    const out = {};
+    for (const k of Object.keys(DEFAULT_SHORTCUTS)) {
+      out[k] = modToCmdOrCtrl(sc[k]) || DEFAULT_SHORTCUTS[k];
+    }
+    return out;
+  } catch {
+    return { ...DEFAULT_SHORTCUTS };
+  }
+}
 
 const webPrefs = {
   nodeIntegration: false,
@@ -16,6 +53,7 @@ function getFocusedWebContents() {
 }
 
 function buildMenu(autoRender) {
+  const sc = loadShortcuts();
   return Menu.buildFromTemplate([
     {
       label: '&File',
@@ -59,26 +97,26 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Copy',
-          accelerator: 'CmdOrCtrl+Shift+C',
+          accelerator: sc.copy,
           registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-copy'); }
         },
         {
           label: 'Paste',
-          accelerator: 'CmdOrCtrl+Shift+V',
+          accelerator: sc.paste,
           registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-paste'); }
         },
         {
           label: 'Select All',
-          accelerator: 'CmdOrCtrl+Shift+A',
+          accelerator: sc.selectAll,
           registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('select-all'); }
         },
         { type: 'separator' },
         {
           label: 'Find...',
-          accelerator: 'CmdOrCtrl+Shift+F',
+          accelerator: sc.openSearch,
           registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-search'); }
         },
@@ -103,7 +141,7 @@ function buildMenu(autoRender) {
         { type: 'separator' },
         {
           label: 'Toggle Math Mode',
-          accelerator: 'CmdOrCtrl+Shift+M',
+          accelerator: sc.toggleMath,
           registerAccelerator: false,
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('toggle-math-mode'); }
         },
@@ -111,7 +149,7 @@ function buildMenu(autoRender) {
         {
           label: 'Auto-Render LaTeX',
           type: 'checkbox',
-          accelerator: 'CmdOrCtrl+Shift+R',
+          accelerator: sc.toggleAutoRender,
           registerAccelerator: false,
           checked: autoRender,
           click: item => { const wc = getFocusedWebContents(); if (wc) wc.send('set-auto-render', item.checked); }

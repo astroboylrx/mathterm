@@ -460,13 +460,19 @@
     dialog#settings-dialog {
       background: #16213e;
       color: var(--fg);
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 24px;
-      width: 520px;
+      border: none;
+      outline: none;
+      padding: 12px 16px;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
+      margin: 0;
       font-family: inherit;
       font-size: var(--ui-font-size);
+      flex-direction: column;
     }
+    dialog#settings-dialog[open] { display: flex; }
     dialog#settings-dialog::backdrop { background: rgba(0,0,0,0.6); }
     dialog#settings-dialog h2 { margin: 0 0 16px 0; font-size: 18px; color: #51cf66; }
     dialog#settings-dialog label {
@@ -513,25 +519,56 @@
     }
     dialog#settings-dialog button:hover { border-color: #51cf66; }
     dialog#settings-dialog button.primary { background: #51cf66; color: #1a1a2e; border-color: #51cf66; font-weight: bold; }
-    dialog#settings-dialog .note { color: #555; font-size: 11px; margin-top: 4px; }
+    dialog#settings-dialog .note { color: #888; font-size: 0.85em; margin-top: 8px; line-height: 1.5; word-break: break-all; }
+    .dialog-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; outline: none; }
+    dialog#settings-dialog .dialog-body { max-width: 720px; width: 100%; margin-left: auto; margin-right: auto; padding-right: 8px; }
+    dialog#settings-dialog label { gap: 24px; }
+    dialog#settings-dialog label > span:first-child { flex: 1 1 auto; }
+    dialog#settings-dialog label input,
+    dialog#settings-dialog label select { flex: 0 0 auto; }
 
     dialog#shortcuts-dialog {
       background: #16213e;
       color: var(--fg);
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 24px;
-      width: 560px;
-      max-height: 80vh;
+      border: none;
+      outline: none;
+      padding: 12px 16px;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      max-height: none;
+      margin: 0;
       font-family: inherit;
       font-size: var(--ui-font-size);
+      flex-direction: column;
     }
+    dialog#shortcuts-dialog[open] { display: flex; }
     dialog#shortcuts-dialog::backdrop { background: rgba(0,0,0,0.6); }
     dialog#shortcuts-dialog h2 { margin: 0 0 16px 0; font-size: 18px; color: #51cf66; }
     dialog#shortcuts-dialog h3 { margin: 14px 0 6px 0; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
     dialog#shortcuts-dialog table { width: 100%; border-collapse: collapse; }
     dialog#shortcuts-dialog td { padding: 4px 8px; color: #aaa; }
     dialog#shortcuts-dialog td.key { color: #51cf66; font-family: var(--mono, monospace); white-space: nowrap; width: 180px; }
+    dialog#shortcuts-dialog .bindable-badge {
+      display: inline-block;
+      background: #1f3a5f;
+      color: #91c8ff;
+      border: 1px solid #2d5a8a;
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-size: 0.75em;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    dialog#shortcuts-dialog .note {
+      color: #888;
+      font-size: 0.85em;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #333;
+      line-height: 1.5;
+      word-break: break-all;
+    }
     dialog#shortcuts-dialog .dialog-buttons {
       display: flex;
       justify-content: flex-end;
@@ -597,18 +634,21 @@
   </div>
   <dialog id="settings-dialog">
     <h2>Preferences</h2>
-    <label><span>Scrollback lines</span><input type="number" id="s-scrollback" min="100" max="100000" step="1000"></label>
-    <label><span>Font size</span><input type="number" id="s-fontsize" min="8" max="32"></label>
-    <label><span>Font family</span><input type="text" id="s-fontfamily"></label>
-    <label><span>Auto-render LaTeX</span><input type="checkbox" id="s-autorender"></label>
-    <label><span>Auto-render delay (ms)</span><input type="number" id="s-delay" min="500" max="10000" step="250"></label>
-    <label><span>Background color</span><input type="text" id="s-bg"></label>
-    <label><span>Foreground color</span><input type="text" id="s-fg"></label>
-    <label><span>Cursor color</span><input type="text" id="s-cursor"></label>
-    <label><span>Cursor style</span><select id="s-cursorstyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
-    <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
-    <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>
-    <div class="note">Scrollback and font changes require restart to take full effect.</div>
+    <div class="dialog-body">
+      <label><span>Scrollback lines</span><input type="number" id="s-scrollback" min="100" max="100000" step="1000"></label>
+      <label><span>Font size</span><input type="number" id="s-fontsize" min="8" max="32"></label>
+      <label><span>Font family</span><input type="text" id="s-fontfamily"></label>
+      <label><span>Auto-render LaTeX</span><input type="checkbox" id="s-autorender"></label>
+      <label><span>Auto-render delay (ms)</span><input type="number" id="s-delay" min="500" max="10000" step="250"></label>
+      <label><span>Background color</span><input type="text" id="s-bg"></label>
+      <label><span>Foreground color</span><input type="text" id="s-fg"></label>
+      <label><span>Cursor color</span><input type="text" id="s-cursor"></label>
+      <label><span>Cursor style</span><select id="s-cursorstyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
+      <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
+      <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>
+      <div class="note">Scrollback and font changes require restart to take full effect.</div>
+      <div class="note" id="s-config-path">For shortcuts and other advanced options, edit the config file directly.</div>
+    </div>
     <div class="dialog-buttons">
       <button onclick="closeSettings()">Cancel</button>
       <button class="primary" onclick="saveSettings()">Save</button>
@@ -617,7 +657,10 @@
 
   <dialog id="shortcuts-dialog">
     <h2>Keyboard Shortcuts</h2>
-    <div id="shortcuts-content"></div>
+    <div class="dialog-body">
+      <div id="shortcuts-content"></div>
+      <div class="note" id="shortcuts-note"></div>
+    </div>
     <div class="dialog-buttons">
       <button class="primary" onclick="closeShortcuts()">Close</button>
     </div>

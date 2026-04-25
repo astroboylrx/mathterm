@@ -44,44 +44,57 @@ window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;
 window.closeSearch = closeSearch;
 
+const { parseShortcut, matchShortcut } = require('./keybindings');
+
+let _bindings = {};
+function rebuildBindings() {
+  _bindings = {};
+  for (const [name, str] of Object.entries(settings.shortcuts || {})) {
+    const parsed = parseShortcut(str);
+    if (parsed) _bindings[name] = parsed;
+  }
+}
+rebuildBindings();
+
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
 
-  const mod = isMac ? e.metaKey : e.ctrlKey;
+  const tab = getActiveTab();
 
-  if (mod && e.shiftKey) {
-    const key = e.key.toLowerCase();
-    const tab = getActiveTab();
-    if (key === 'm' && tab) {
-      e.preventDefault();
-      toggleMathMode();
+  if (matchShortcut(_bindings.toggleMath, e, isMac) && tab) {
+    e.preventDefault();
+    toggleMathMode();
+    return;
+  }
+  if (matchShortcut(_bindings.openSearch, e, isMac)) {
+    e.preventDefault();
+    require('./search').openSearch();
+    return;
+  }
+  if (matchShortcut(_bindings.toggleAutoRender, e, isMac)) {
+    e.preventDefault();
+    window.toggleAutoRender();
+    return;
+  }
+  if (tab && tab.richVisible) {
+    if (matchShortcut(_bindings.copy, e, isMac)) {
+      e.preventDefault(); e.stopPropagation();
+      require('./clipboard').doCopy();
       return;
     }
-    if (key === 'f') {
-      e.preventDefault();
-      const { openSearch } = require('./search');
-      openSearch();
+    if (matchShortcut(_bindings.paste, e, isMac)) {
+      e.preventDefault(); e.stopPropagation();
+      require('./clipboard').doPaste();
       return;
     }
-    if (key === 'r') {
-      e.preventDefault();
-      window.toggleAutoRender();
-      return;
-    }
-    if (!tab || !tab.richVisible) return;
-    const richActions = { c: 'do-copy', v: 'do-paste', a: 'select-all' };
-    const action = richActions[key];
-    if (action) {
-      e.preventDefault();
-      e.stopPropagation();
-      const { doCopy, doPaste, doSelectAll } = require('./clipboard');
-      if (action === 'do-copy') doCopy();
-      else if (action === 'do-paste') doPaste();
-      else if (action === 'select-all') doSelectAll();
+    if (matchShortcut(_bindings.selectAll, e, isMac)) {
+      e.preventDefault(); e.stopPropagation();
+      require('./clipboard').doSelectAll();
       return;
     }
   }
 
+  const mod = isMac ? e.metaKey : e.ctrlKey;
   if (mod && e.key === 'PageDown') {
     e.preventDefault();
     const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
@@ -100,7 +113,6 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  const tab = getActiveTab();
   if (!tab) return;
 
   if (tab.richVisible) {
@@ -131,12 +143,12 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.ctrlKey && e.key === 'ArrowUp') {
+  if (matchShortcut(_bindings.prevPrompt, e, isMac)) {
     e.preventDefault();
     jumpToPrevPrompt(tab);
     return;
   }
-  if (e.ctrlKey && e.key === 'ArrowDown') {
+  if (matchShortcut(_bindings.nextPrompt, e, isMac)) {
     e.preventDefault();
     jumpToNextPrompt(tab);
     return;

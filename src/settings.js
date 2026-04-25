@@ -6,6 +6,17 @@ const isMac = mt.os.platform === 'darwin';
 const configHome = mt.os.env.XDG_CONFIG_HOME || mt.path.join(mt.os.homedir(), '.config');
 const SETTINGS_PATH = mt.path.join(configHome, 'mathterm', 'mathterm.json');
 
+const DEFAULT_SHORTCUTS = {
+  toggleMath: 'Mod+Shift+M',
+  toggleAutoRender: 'Mod+Shift+R',
+  openSearch: 'Mod+Shift+F',
+  copy: 'Mod+Shift+C',
+  paste: 'Mod+Shift+V',
+  selectAll: 'Mod+Shift+A',
+  prevPrompt: 'Ctrl+Up',
+  nextPrompt: 'Ctrl+Down',
+};
+
 const DEFAULTS = {
   scrollback: 16384,
   fontSize: 16,
@@ -18,15 +29,26 @@ const DEFAULTS = {
   cursorStyle: 'block',
   inheritCwd: false,
   copyOnSelect: !isMac,
+  shortcuts: DEFAULT_SHORTCUTS,
 };
 
+function _mergeIncoming(incoming) {
+  return {
+    ...DEFAULTS,
+    ...incoming,
+    shortcuts: { ...DEFAULT_SHORTCUTS, ...((incoming && incoming.shortcuts) || {}) },
+  };
+}
+
 function loadSettings() {
-  try {
-    const raw = mt.fs.readFileSync(SETTINGS_PATH, 'utf8');
-    return { ...DEFAULTS, ...JSON.parse(raw) };
-  } catch {
-    return { ...DEFAULTS };
+  let raw;
+  try { raw = mt.fs.readFileSync(SETTINGS_PATH, 'utf8'); } catch { raw = null; }
+  const incoming = raw ? JSON.parse(raw) : {};
+  const merged = _mergeIncoming(incoming);
+  if (raw === null || !incoming.shortcuts) {
+    try { saveSettingsFile(merged); } catch {}
   }
+  return merged;
 }
 
 function saveSettingsFile(s) {
@@ -48,6 +70,8 @@ function openSettings() {
   document.getElementById('s-cursorstyle').value = settings.cursorStyle;
   document.getElementById('s-inheritcwd').checked = settings.inheritCwd;
   document.getElementById('s-copyonselect').checked = settings.copyOnSelect;
+  const cfgNote = document.getElementById('s-config-path');
+  if (cfgNote) cfgNote.textContent = `For shortcuts and other advanced options, edit ${SETTINGS_PATH} directly.`;
   document.getElementById('settings-dialog').showModal();
 }
 
@@ -85,6 +109,7 @@ function applySettings() {
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = active ? '' : 'off';
   document.documentElement.style.setProperty('--ui-font-size', settings.fontSize + 'px');
+  applyButtonTitles();
   for (const tab of state.tabs) {
     tab.term.options.fontSize = settings.fontSize;
     tab.term.options.fontFamily = settings.fontFamily;
@@ -98,6 +123,21 @@ function applySettings() {
     tab.richView.style.fontSize = settings.fontSize + 'px';
   }
   mt.ipc.send('rebuild-menu', active);
+}
+
+function applyButtonTitles() {
+  const { parseShortcut, formatShortcut } = require('./keybindings');
+  const sc = settings.shortcuts || {};
+  if (state.mathBtn) {
+    const chord = formatShortcut(parseShortcut(sc.toggleMath), isMac);
+    state.mathBtn.title = chord ? `Toggle Math mode (${chord})` : 'Toggle Math mode';
+  }
+  if (state.autoIndicator) {
+    const chord = formatShortcut(parseShortcut(sc.toggleAutoRender), isMac);
+    state.autoIndicator.title = chord
+      ? `Toggle auto-render LaTeX, per tab (${chord})`
+      : 'Toggle auto-render LaTeX (per tab)';
+  }
 }
 
 module.exports = { settings, DEFAULTS, SETTINGS_PATH, isMac, openSettings, closeSettings, saveSettings, applySettings };

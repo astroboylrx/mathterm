@@ -1,5 +1,6 @@
 const { state, getActiveTab, updateStatusBar } = require('./state');
-const { settings } = require('./settings');
+const { settings, isMac } = require('./settings');
+const { parseShortcut, formatShortcut } = require('./keybindings');
 const { hasLatex, splitLatexSmart } = require('./latex');
 const { stripAnsi, lineToColoredSpans } = require('./ansi');
 const { isPromptLine } = require('./promptTrack');
@@ -307,9 +308,10 @@ function tabShowRichView(tab, auto) {
     tab.richView.scrollTop = tab.richView.scrollHeight > tab.richView.clientHeight + 10
       ? 0 : tab.richView.scrollHeight;
   });
+  const mathChord = formatShortcut(parseShortcut(settings.shortcuts.toggleMath), isMac);
   tab.richHint.textContent = auto
     ? 'Press Esc or q to return to terminal'
-    : 'Esc/q/Ctrl+Shift+M to return \u00b7 Select & copy freely';
+    : `Esc/q/${mathChord} to return \u00b7 Select & copy freely`;
   if (tab.id === state.activeTabId) {
     updateStatusBar(tab);
   }
