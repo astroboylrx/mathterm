@@ -34,7 +34,19 @@ function splitLatexSmart(text) {
   const parts = [];
   let i = 0;
   while (i < text.length) {
-    if (text[i] === '\\' && text[i+1] === '(' ) {
+    if (text[i] === '`') {
+      let n = 0;
+      while (text[i+n] === '`') n++;
+      const closer = '`'.repeat(n);
+      const end = text.indexOf(closer, i + n);
+      if (end !== -1) {
+        parts.push({ type:'code', closed:true, content:text.slice(i+n, end), raw:text.slice(i, end+n) });
+        i = end + n;
+      } else {
+        parts.push({ type:'text', content:text.slice(i, i+n), raw:text.slice(i, i+n) });
+        i += n;
+      }
+    } else if (text[i] === '\\' && text[i+1] === '(' ) {
       const end = text.indexOf('\\)', i + 2);
       if (end !== -1) {
         parts.push({ type:'inline', closed:true, content:text.slice(i+2,end), raw:text.slice(i,end+2) });
@@ -76,10 +88,12 @@ function splitLatexSmart(text) {
       const next = text.indexOf('$', i);
       const np = text.indexOf('\\(', i);
       const nb = text.indexOf('\\[', i);
+      const ng = text.indexOf('`', i);
       let end = text.length;
       if (next !== -1) end = Math.min(end, next);
       if (np !== -1) end = Math.min(end, np);
       if (nb !== -1) end = Math.min(end, nb);
+      if (ng !== -1) end = Math.min(end, ng);
       parts.push({ type:'text', content:text.slice(i,end), raw:text.slice(i,end) });
       i = end;
     }

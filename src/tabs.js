@@ -6,7 +6,7 @@ const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { WebglAddon } = require('@xterm/addon-webgl');
 const { CanvasAddon } = require('@xterm/addon-canvas');
 
-const { state, getActiveTab, getTabIndex, updateStatusBar } = require('./state');
+const { state, getActiveTab, getTabIndex, updateStatusBar, updateStatusBarCwd } = require('./state');
 const { settings } = require('./settings');
 const { escapeHtml } = require('./ansi');
 const { TabSession } = require('./tabSession');
@@ -244,6 +244,7 @@ function switchTab(id) {
     tab.term.focus();
   });
   updateStatusBar(tab);
+  updateStatusBarCwd(tab);
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = tab.autoRender ? '' : 'off';
   mt.ipc.send('rebuild-menu', tab.autoRender);

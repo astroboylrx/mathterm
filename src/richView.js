@@ -46,7 +46,11 @@ function renderLineFromBuffer(line) {
   if (hasLatex(text)) {
     const parts = splitLatexSmart(text);
     for (const part of parts) {
-      if (part.type === 'display' && part.closed) {
+      if (part.type === 'code') {
+        const code = document.createElement('code');
+        code.textContent = part.content;
+        el.appendChild(code);
+      } else if (part.type === 'display' && part.closed) {
         const span = document.createElement('span');
         span.className = 'display-math';
         queueKatex(part.content, span, true);
@@ -261,7 +265,11 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab) {
 function renderInlineLatexToEl(text, el) {
   const parts = splitLatexSmart(text);
   for (const part of parts) {
-    if (part.type === 'inline' && part.closed) {
+    if (part.type === 'code') {
+      const code = document.createElement('code');
+      code.textContent = part.content;
+      el.appendChild(code);
+    } else if (part.type === 'inline' && part.closed) {
       const span = document.createElement('span');
       queueKatex(part.content, span, false);
       el.appendChild(span);
@@ -277,7 +285,7 @@ function renderInlineLatexToEl(text, el) {
       el.appendChild(span);
     } else {
       const content = part.content;
-      if (/\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`/.test(content)) {
+      if (/\*\*[^*]+\*\*|\*[^*]+\*/.test(content)) {
         applyInlineMarkdown(content, el);
       } else {
         const span = document.createElement('span');

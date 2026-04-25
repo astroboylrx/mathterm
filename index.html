@@ -415,9 +415,21 @@
       gap: 12px;
       flex-shrink: 0;
     }
-    #status-bar .active { color: #51cf66; }
-    #status-bar .left { display: flex; align-items: center; gap: 12px; }
-    #status-bar .right { display: flex; align-items: center; gap: 8px; }
+    #status-bar .left { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; }
+    #status-bar .right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    #cwd-link {
+      color: #888;
+      cursor: pointer;
+      text-decoration: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
+    #cwd-link:hover { color: #c8c8d0; text-decoration: underline; }
+    #git-sep { color: #444; }
+    #git-branch { color: #888; flex-shrink: 0; }
+    #git-sep.hidden, #git-branch.hidden { display: none; }
     #math-btn {
       background: #1a1a2e;
       border: 1px solid #333;
@@ -502,6 +514,41 @@
     dialog#settings-dialog button:hover { border-color: #51cf66; }
     dialog#settings-dialog button.primary { background: #51cf66; color: #1a1a2e; border-color: #51cf66; font-weight: bold; }
     dialog#settings-dialog .note { color: #555; font-size: 11px; margin-top: 4px; }
+
+    dialog#shortcuts-dialog {
+      background: #16213e;
+      color: var(--fg);
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 24px;
+      width: 560px;
+      max-height: 80vh;
+      font-family: inherit;
+      font-size: var(--ui-font-size);
+    }
+    dialog#shortcuts-dialog::backdrop { background: rgba(0,0,0,0.6); }
+    dialog#shortcuts-dialog h2 { margin: 0 0 16px 0; font-size: 18px; color: #51cf66; }
+    dialog#shortcuts-dialog h3 { margin: 14px 0 6px 0; font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+    dialog#shortcuts-dialog table { width: 100%; border-collapse: collapse; }
+    dialog#shortcuts-dialog td { padding: 4px 8px; color: #aaa; }
+    dialog#shortcuts-dialog td.key { color: #51cf66; font-family: var(--mono, monospace); white-space: nowrap; width: 180px; }
+    dialog#shortcuts-dialog .dialog-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 20px;
+    }
+    dialog#shortcuts-dialog button {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      color: var(--fg);
+      padding: 6px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+    }
+    dialog#shortcuts-dialog button.primary { background: #51cf66; color: #1a1a2e; border-color: #51cf66; font-weight: bold; }
   </style>
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">
@@ -539,12 +586,13 @@
   </div>
   <div id="status-bar">
     <div class="left">
-      <span id="mode-indicator">TERMINAL</span>
-      <button id="auto-indicator" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
+      <a id="cwd-link" title="Open in file manager"></a>
+      <span id="git-sep" class="hidden"> | </span>
+      <span id="git-branch" class="hidden"></span>
     </div>
     <div class="right">
-      <span>Ctrl+Shift+M</span>
-      <button id="math-btn" onclick="toggleMathMode()">&#x2211; Math</button>
+      <button id="auto-indicator" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
+      <button id="math-btn" title="Toggle Math mode (Ctrl+Shift+M)" onclick="toggleMathMode()">&#x2211; Math</button>
     </div>
   </div>
   <dialog id="settings-dialog">
@@ -564,6 +612,14 @@
     <div class="dialog-buttons">
       <button onclick="closeSettings()">Cancel</button>
       <button class="primary" onclick="saveSettings()">Save</button>
+    </div>
+  </dialog>
+
+  <dialog id="shortcuts-dialog">
+    <h2>Keyboard Shortcuts</h2>
+    <div id="shortcuts-content"></div>
+    <div class="dialog-buttons">
+      <button class="primary" onclick="closeShortcuts()">Close</button>
     </div>
   </dialog>
 

@@ -11,9 +11,15 @@ const { initTabContextListeners } = require('./tabs');
 
 state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
-state.modeIndicator = document.getElementById('mode-indicator');
 state.autoIndicator = document.getElementById('auto-indicator');
 state.mathBtn = document.getElementById('math-btn');
+state.cwdLink = document.getElementById('cwd-link');
+state.gitSep = document.getElementById('git-sep');
+state.gitBranch = document.getElementById('git-branch');
+state.cwdLink.addEventListener('click', () => {
+  const cwd = state.cwdLink.dataset.cwd;
+  if (cwd) window.mathterm.shell.openPath(cwd);
+});
 state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
 state.searchCount = document.getElementById('search-count');
@@ -32,6 +38,7 @@ window.toggleAutoRender = function() {
   window.mathterm.ipc.send('rebuild-menu', tab.autoRender);
 };
 window.closeSettings = closeSettings;
+window.closeShortcuts = require('./shortcuts').closeShortcuts;
 window.saveSettings = require('./settings').saveSettings;
 window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;

@@ -41,7 +41,8 @@ contextBridge.exposeInMainWorld('mathterm', {
   },
 
   shell: {
-    openExternal: (url) => shell.openExternal(url)
+    openExternal: (url) => shell.openExternal(url),
+    openPath: (p) => shell.openPath(p)
   },
 
   fs: {

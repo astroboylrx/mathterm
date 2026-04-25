@@ -19,11 +19,38 @@ let placeholderMap = [];
 
 function extractDisplayMath(text) {
   placeholderMap = [];
-  return text.replace(/\$\$([\s\S]+?)\$\$/g, (_, latex) => {
-    const idx = placeholderMap.length;
-    placeholderMap.push(renderKatexHtml(latex, true));
-    return `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
-  });
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '`') {
+      let n = 0;
+      while (text[i+n] === '`') n++;
+      const closer = '`'.repeat(n);
+      const end = text.indexOf(closer, i + n);
+      if (end !== -1) {
+        result += text.slice(i, end + n);
+        i = end + n;
+        continue;
+      }
+      result += text.slice(i, i + n);
+      i += n;
+      continue;
+    }
+    if (text[i] === '$' && text[i+1] === '$') {
+      const end = text.indexOf('$$', i + 2);
+      if (end !== -1) {
+        const latex = text.slice(i + 2, end);
+        const idx = placeholderMap.length;
+        placeholderMap.push(renderKatexHtml(latex, true));
+        result += `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
+        i = end + 2;
+        continue;
+      }
+    }
+    result += text[i];
+    i++;
+  }
+  return result;
 }
 
 function restorePlaceholders(html) {

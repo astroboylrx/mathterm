@@ -5,6 +5,7 @@ const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richVi
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
 const { createTab, closeTab, switchTab } = require('./tabs');
+const { openShortcuts } = require('./shortcuts');
 
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
@@ -33,7 +34,7 @@ function initIpc() {
       if (tab) renderFileContent(tab, content, filePath);
     }).catch(err => console.error('Failed to open file:', err));
   });
-  mt.ipc.on('show-shortcuts', () => {});
+  mt.ipc.on('show-shortcuts', () => openShortcuts());
   mt.ipc.on('open-settings', () => openSettings());
   mt.ipc.on('new-tab', () => createTab());
   mt.ipc.on('close-tab', () => { const t = getActiveTab(); if (t) closeTab(t.id); });
