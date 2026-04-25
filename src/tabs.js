@@ -146,7 +146,6 @@ function createTab(cwd) {
       const exitCode = data.length > 2 ? data.slice(2) : '';
       tab._lastExitCode = exitCode;
       tab._commandEndY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
-      updateStatusBar(tab);
       const { tabFlushSectionOnCommandEnd } = require('./richView');
       tabFlushSectionOnCommandEnd(tab);
     }

@@ -13,8 +13,6 @@ state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
 state.modeIndicator = document.getElementById('mode-indicator');
 state.autoIndicator = document.getElementById('auto-indicator');
-state.cwdIndicator = document.getElementById('cwd-indicator');
-state.exitIndicator = document.getElementById('exit-indicator');
 state.mathBtn = document.getElementById('math-btn');
 state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
@@ -169,10 +167,23 @@ initSearchListeners();
 initTabContextListeners();
 
 const urlCwd = new URLSearchParams(window.location.search).get('cwd');
-createTab(urlCwd || undefined);
 
-const firstTab = getActiveTab();
-if (firstTab) {
-  state.autoIndicator.textContent = 'AUTO';
-  state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
-}
+(async () => {
+  const sz = settings.fontSize;
+  const fam = '"JetBrainsMono Nerd Font Mono"';
+  const loadFonts = Promise.all([
+    document.fonts.load(`${sz}px ${fam}`),
+    document.fonts.load(`bold ${sz}px ${fam}`),
+    document.fonts.load(`italic ${sz}px ${fam}`),
+  ]).catch(() => {});
+  const timeout = new Promise(r => setTimeout(r, 1500));
+  await Promise.race([loadFonts, timeout]);
+
+  createTab(urlCwd || undefined);
+
+  const firstTab = getActiveTab();
+  if (firstTab) {
+    state.autoIndicator.textContent = 'AUTO';
+    state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
+  }
+})();

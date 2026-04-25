@@ -444,10 +444,6 @@
     }
     #auto-indicator:hover { background: #16213e; }
     #auto-indicator.off { border-color: #555; color: #555; }
-    #cwd-indicator { color: #888; }
-    #exit-indicator { font-weight: bold; }
-    #exit-indicator.ok { color: #51cf66; }
-    #exit-indicator.err { color: #ff6b6b; }
 
     dialog#settings-dialog {
       background: #16213e;
@@ -545,8 +541,6 @@
     <div class="left">
       <span id="mode-indicator">TERMINAL</span>
       <button id="auto-indicator" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
-      <span id="cwd-indicator">~</span>
-      <span id="exit-indicator"></span>
     </div>
     <div class="right">
       <span>Ctrl+Shift+M</span>
