@@ -4,6 +4,7 @@ function createShellShim(shellCmd) {
   const isZsh = shellCmd.includes('zsh');
   const tmpDir = mt.fs.mkdtempSync(mt.path.join(mt.os.tmpdir(), 'mathterm-'));
   const markA = "printf '\\033]133;A\\007'";
+  const markB = "printf '\\033]133;B\\007'";
   const markC = "printf '\\033]133;C\\007'";
   const markD = "printf '\\033]133;D;%s\\007'";
 
@@ -11,12 +12,14 @@ function createShellShim(shellCmd) {
     const zshrc = `_mt_real_zdot="\$_MT_USER_ZDOTDIR"
 if [ -f "$_mt_real_zdot/.zshrc" ]; then . "$_mt_real_zdot/.zshrc"; fi
 mathterm_prompt_marker() { ${markA}; }
+mathterm_prompt_end() { ${markB}; }
 mathterm_preexec() { ${markC}; }
 mathterm_precmd() { local _mt_ec=\$?; ${markD} "\$_mt_ec"; }
 autoload -Uz add-zsh-hook
 add-zsh-hook precmd mathterm_precmd
 add-zsh-hook precmd mathterm_prompt_marker
 add-zsh-hook preexec mathterm_preexec
+zle -N zle-line-init mathterm_prompt_end
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zshenv'),
       `# _MT_USER_ZDOTDIR is set by the parent process before zsh starts.\nif [ -z "\$_MT_USER_ZDOTDIR" ]; then export _MT_USER_ZDOTDIR="\$HOME"; fi\nif [ -f "\$_MT_USER_ZDOTDIR/.zshenv" ]; then . "\$_MT_USER_ZDOTDIR/.zshenv"; fi\n`);
@@ -30,6 +33,10 @@ for f in ~/.bash_profile ~/.bash_login ~/.profile; do [ -f "$f" ] && . "$f" && b
 _mathterm_preexec_invoke_exec() { [ "\$_MATHTERM_PREEXEC" = "1" ] && return; _MATHTERM_PREEXEC=1; ${markC}; }
 trap '_mathterm_preexec_invoke_exec' DEBUG
 PROMPT_COMMAND="\${PROMPT_COMMAND:+\$PROMPT_COMMAND;}_MATHTERM_PREEXEC=0; ${markD} \\\$?; ${markA}"
+case "\$PS1" in
+  *'\\[\\e]133;B\\a\\]'*) ;;
+  *) PS1="\${PS1}\\[\\e]133;B\\a\\]" ;;
+esac
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, 'bashrc.sh'), bashrc);
   }

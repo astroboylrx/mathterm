@@ -126,7 +126,7 @@ function saveSettings() {
 }
 
 function applySettings() {
-  const { applyTheme } = require('./themes');
+  const { applyTheme, selectionBgFor } = require('./themes');
   const c = applyTheme(settings.theme);
 
   const tab = getActiveTab();
@@ -142,7 +142,8 @@ function applySettings() {
     tab.term.options.theme = {
       background: c.bg,
       foreground: c.fg,
-      cursor: c.accent
+      cursor: c.accent,
+      selectionBackground: selectionBgFor(c)
     };
     tab.term.options.cursorStyle = settings.cursorStyle;
     if (tab.container.classList.contains('active')) tab.fitAddon.fit();

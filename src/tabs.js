@@ -52,12 +52,17 @@ function createTab(cwd) {
   tab.richContent = richContentEl;
   tab.richHint = richHintEl;
 
-  const { resolveTheme } = require('./themes');
+  const { resolveTheme, selectionBgFor } = require('./themes');
   const themeColors = resolveTheme(settings.theme);
   const term = new Terminal({
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
-    theme: { background: themeColors.bg, foreground: themeColors.fg, cursor: themeColors.accent },
+    theme: {
+      background: themeColors.bg,
+      foreground: themeColors.fg,
+      cursor: themeColors.accent,
+      selectionBackground: selectionBgFor(themeColors)
+    },
     cursorBlink: true,
     cursorStyle: settings.cursorStyle,
     scrollback: settings.scrollback
@@ -142,12 +147,25 @@ function createTab(cwd) {
   term.parser.registerOscHandler(133, (data) => {
     if (data.startsWith('A')) {
       const buf = tab.term.buffer.active;
-      tab._promptYSet.add(buf.baseY + buf.cursorY);
+      tab._promptStartY = buf.baseY + buf.cursorY;
+      tab._promptBHandled = false;
+      tab._promptYSet.add(tab._promptStartY);
       if (tab._promptYSet.size > 500) {
         const minY = buf.baseY - settings.scrollback;
         for (const v of tab._promptYSet) {
           if (v < minY) tab._promptYSet.delete(v);
         }
+      }
+    } else if (data.startsWith('B')) {
+      // Prompt end — mark all lines from prompt start to here as prompt.
+      // Guarded against re-fires (e.g. zsh zle-line-init on widget changes):
+      // only act on the first ;B following a ;A.
+      if (tab._promptStartY !== undefined && !tab._promptBHandled) {
+        const endY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
+        for (let y = tab._promptStartY; y <= endY; y++) {
+          tab._promptYSet.add(y);
+        }
+        tab._promptBHandled = true;
       }
     } else if (data.startsWith('C')) {
       tab._commandStartY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;

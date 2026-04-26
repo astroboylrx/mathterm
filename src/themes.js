@@ -112,12 +112,80 @@ const CATPPUCCIN_LATTE = {
   ]
 };
 
+const VSCODE_DARK = {
+  bg: '#1e1e1e', bgAlt: '#252526', bgDark: '#181818',
+  fg: '#d4d4d4', fgMuted: '#cccccc', fgDim: '#858585',
+  accent: '#569cd6',
+  border: '#3c3c3c',
+  red: '#f44747', yellow: '#dcdcaa', blue: '#569cd6',
+  purple: '#c586c0', cyan: '#4ec9b0', orange: '#ce9178',
+  highlight: '#264f78',
+  ansi: [
+    '#000000','#cd3131','#0dbc79','#e5e510',
+    '#2472c8','#bc3fbc','#11a8cd','#e5e5e5',
+    '#666666','#f14c4c','#23d18b','#f5f543',
+    '#3b8eea','#d670d6','#29b8db','#e5e5e5'
+  ]
+};
+
+const VSCODE_LIGHT = {
+  bg: '#ffffff', bgAlt: '#f3f3f3', bgDark: '#e7e7e7',
+  fg: '#3b3b3b', fgMuted: '#616161', fgDim: '#a0a0a0',
+  accent: '#0451a5',
+  border: '#d4d4d4',
+  red: '#cd3131', yellow: '#795e26', blue: '#0451a5',
+  purple: '#af00db', cyan: '#0598bc', orange: '#dd6b17',
+  highlight: '#0451a5',
+  ansi: [
+    '#000000','#cd3131','#00bc00','#949800',
+    '#0451a5','#bc05bc','#0598bc','#555555',
+    '#666666','#cd3131','#14ce14','#b5ba00',
+    '#0451a5','#bc05bc','#0598bc','#a5a5a5'
+  ]
+};
+
+const TOKYO_NIGHT = {
+  bg: '#1a1b26', bgAlt: '#16161e', bgDark: '#15161e',
+  fg: '#a9b1d6', fgMuted: '#9aa5ce', fgDim: '#565f89',
+  accent: '#7aa2f7',
+  border: '#3b4261',
+  red: '#f7768e', yellow: '#e0af68', blue: '#7aa2f7',
+  purple: '#bb9af7', cyan: '#7dcfff', orange: '#ff9e64',
+  highlight: '#ff9e64',
+  ansi: [
+    '#15161e','#f7768e','#9ece6a','#e0af68',
+    '#7aa2f7','#bb9af7','#7dcfff','#a9b1d6',
+    '#414868','#f7768e','#9ece6a','#e0af68',
+    '#7aa2f7','#bb9af7','#7dcfff','#c0caf5'
+  ]
+};
+
+const DRACULA = {
+  bg: '#282a36', bgAlt: '#44475a', bgDark: '#21222c',
+  fg: '#f8f8f2', fgMuted: '#bdbed1', fgDim: '#6272a4',
+  accent: '#bd93f9',
+  border: '#44475a',
+  red: '#ff5555', yellow: '#f1fa8c', blue: '#8be9fd',
+  purple: '#ff79c6', cyan: '#8be9fd', orange: '#ffb86c',
+  highlight: '#ff79c6',
+  ansi: [
+    '#21222c','#ff5555','#50fa7b','#f1fa8c',
+    '#bd93f9','#ff79c6','#8be9fd','#f8f8f2',
+    '#6272a4','#ff6e6e','#69ff94','#ffffa5',
+    '#d6acff','#ff92df','#a4ffff','#ffffff'
+  ]
+};
+
 const BUILTIN_THEMES = {
   dark: { name: 'Dark', colors: DARK },
+  'vscode-dark': { name: 'VS Code Dark+', colors: VSCODE_DARK },
+  'tokyo-night': { name: 'Tokyo Night', colors: TOKYO_NIGHT },
+  dracula: { name: 'Dracula', colors: DRACULA },
   nord: { name: 'Nord', colors: NORD },
   'solarized-dark': { name: 'Solarized Dark', colors: SOLARIZED_DARK },
   'catppuccin-mocha': { name: 'Catppuccin Mocha', colors: CATPPUCCIN_MOCHA },
   'gruvbox-dark': { name: 'Gruvbox Dark', colors: GRUVBOX_DARK },
+  'vscode-light': { name: 'VS Code Light+', colors: VSCODE_LIGHT },
   'solarized-light': { name: 'Solarized Light', colors: SOLARIZED_LIGHT },
   'catppuccin-latte': { name: 'Catppuccin Latte', colors: CATPPUCCIN_LATTE },
 };
@@ -143,6 +211,11 @@ function _luminance(hex) {
   const rgb = _hexToRgb(hex);
   if (!rgb) return 0;
   return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255;
+}
+
+function selectionBgFor(c) {
+  const alpha = _luminance(c.bg) > 0.5 ? 0.1 : 0.2;
+  return hexToRgba(c.accent, alpha);
 }
 
 function resolveTheme(id) {
@@ -214,6 +287,7 @@ function applyTheme(id) {
   root.setProperty('--fg-dim', c.fgDim);
   root.setProperty('--accent', c.accent);
   root.setProperty('--accent-subtle', hexToRgba(c.accent, 0.15));
+  root.setProperty('--selection-bg', selectionBgFor(c));
   root.setProperty('--border', c.border);
   root.setProperty('--red', c.red);
   root.setProperty('--yellow', c.yellow);
@@ -233,4 +307,4 @@ function applyTheme(id) {
   return c;
 }
 
-module.exports = { BUILTIN_THEMES, resolveTheme, getThemeList, loadUserThemes, applyTheme };
+module.exports = { BUILTIN_THEMES, resolveTheme, getThemeList, loadUserThemes, applyTheme, hexToRgba, selectionBgFor };

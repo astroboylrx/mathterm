@@ -29,6 +29,8 @@ class TabSession {
     this._customTitle = null;
     this._commandStartY = 0;
     this._commandEndY = 0;
+    this._promptStartY = undefined;
+    this._promptBHandled = false;
     this._lastExitCode = '';
     this.autoRender = true;
     this.osc1337Parser = new Osc1337Parser();
