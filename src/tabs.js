@@ -20,6 +20,17 @@ const { createShellShim, buildShellArgs } = require('./shellShim');
 const { tabFeedSection } = require('./richView');
 const { tabTrackTitle, updateTabBar } = require('./titleTrack');
 
+const IMAGE_MAX_COUNT = 50;
+const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
+
+function trimInlineImages(arr) {
+  let bytes = 0;
+  for (const im of arr) bytes += im.dataUrl.length;
+  while (arr.length > 0 && (arr.length > IMAGE_MAX_COUNT || bytes > IMAGE_MAX_BYTES)) {
+    bytes -= arr.shift().dataUrl.length;
+  }
+}
+
 function createTab(cwd) {
   const id = state.tabIdCounter++;
   const tab = new TabSession(id);
@@ -186,11 +197,17 @@ function createTab(cwd) {
       for (const img of images) {
         tab.inlineImages.push({ ...img, lineY: y });
       }
-      if (tab.inlineImages.length > 50) {
-        tab.inlineImages = tab.inlineImages.slice(-50);
-      }
+      trimInlineImages(tab.inlineImages);
     }
     term.write(cleanData);
+    if (images.length) {
+      // Force-render math view as soon as the image is parsed,
+      // bypassing the AUTO toggle and the section delay.
+      setTimeout(() => {
+        const { showManualRichView } = require('./richView');
+        showManualRichView(tab);
+      }, 0);
+    }
     tabFeedSection(tab, cleanData);
     tabTrackTitle(tab, cleanData);
   });

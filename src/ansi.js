@@ -98,14 +98,31 @@ function lineToColoredSpans(line) {
   let currentColor = null;
   let buf = '';
 
+  function _emitSpan(classes, text) {
+    if (!text) return;
+    const s = document.createElement('span');
+    if (currentColor) s.style.color = currentColor;
+    if (classes.length) s.className = classes.join(' ');
+    s.textContent = text;
+    fragment.appendChild(s);
+  }
+
   function flushBuf() {
-    if (!buf) return;
-    if (currentColor) {
-      span.style.color = currentColor;
+    if (!buf) {
+      span = document.createElement('span');
+      return;
     }
-    if (currentClasses.length) span.className = currentClasses.join(' ');
-    span.textContent = buf;
-    fragment.appendChild(span);
+    // Strip ansi-underline from trailing whitespace so a TUI "heading bar"
+    // (underlined text padded with underlined spaces to end of line) doesn't
+    // render as a window-wide rule.
+    if (currentClasses.includes('ansi-underline')) {
+      const m = buf.match(/^([\s\S]*?)(\s*)$/);
+      const head = m[1], tail = m[2];
+      _emitSpan(currentClasses, head);
+      _emitSpan(currentClasses.filter(c => c !== 'ansi-underline'), tail);
+    } else {
+      _emitSpan(currentClasses, buf);
+    }
     span = document.createElement('span');
     currentClasses = [];
     currentColor = null;

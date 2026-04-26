@@ -8,6 +8,38 @@ function createShellShim(shellCmd) {
   const markC = "printf '\\033]133;C\\007'";
   const markD = "printf '\\033]133;D;%s\\007'";
 
+  // imgcat: base64-encode a file and emit OSC 1337 inline-image; mathterm's
+  // Osc1337Parser captures it for the rich view. POSIX-portable across bash/zsh.
+  // Files larger than 20 MB are downscaled to 2048px on the longest side via
+  // ImageMagick (\`magick\` or \`convert\`) or macOS \`sips\`, with graceful
+  // fallback to the original file when no downscaler is installed.
+  const imgcatFn = `imgcat() {
+  if [ $# -eq 0 ]; then printf 'usage: imgcat <file>...\\n' >&2; return 1; fi
+  local f file size tmp name b64
+  for f in "$@"; do
+    if [ ! -f "$f" ]; then printf 'imgcat: %s: not found\\n' "$f" >&2; continue; fi
+    file="$f"
+    size=$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f" 2>/dev/null || echo 0)
+    if [ "$size" -gt 20971520 ]; then
+      tmp=$(mktemp --suffix=.jpg 2>/dev/null || mktemp -t imgcat.XXXXXX)
+      if command -v magick >/dev/null 2>&1; then
+        magick "$f" -resize '2048x2048>' -quality 85 "$tmp" 2>/dev/null && file="$tmp"
+      elif command -v convert >/dev/null 2>&1; then
+        convert "$f" -resize '2048x2048>' -quality 85 "$tmp" 2>/dev/null && file="$tmp"
+      elif command -v sips >/dev/null 2>&1; then
+        sips -Z 2048 "$f" --out "$tmp" >/dev/null 2>&1 && file="$tmp"
+      else
+        printf 'imgcat: %s is %s bytes; install ImageMagick (magick/convert) for auto-resize\\n' "$f" "$size" >&2
+      fi
+    fi
+    name=$(printf '%s' "\${f##*/}" | base64 | tr -d '\\n')
+    b64=$(base64 < "$file" | tr -d '\\n')
+    printf '\\033]1337;File=name=%s;inline=1:%s\\a\\n' "$name" "$b64"
+    [ -n "$tmp" ] && [ -f "$tmp" ] && rm -f "$tmp"
+    tmp=
+  done
+}`;
+
   if (isZsh) {
     const zshrc = `_mt_real_zdot="\$_MT_USER_ZDOTDIR"
 if [ -f "$_mt_real_zdot/.zshrc" ]; then . "$_mt_real_zdot/.zshrc"; fi
@@ -20,6 +52,7 @@ add-zsh-hook precmd mathterm_precmd
 add-zsh-hook precmd mathterm_prompt_marker
 add-zsh-hook preexec mathterm_preexec
 zle -N zle-line-init mathterm_prompt_end
+${imgcatFn}
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, '.zshenv'),
       `# _MT_USER_ZDOTDIR is set by the parent process before zsh starts.\nif [ -z "\$_MT_USER_ZDOTDIR" ]; then export _MT_USER_ZDOTDIR="\$HOME"; fi\nif [ -f "\$_MT_USER_ZDOTDIR/.zshenv" ]; then . "\$_MT_USER_ZDOTDIR/.zshenv"; fi\n`);
@@ -37,6 +70,7 @@ case "\$PS1" in
   *'\\[\\e]133;B\\a\\]'*) ;;
   *) PS1="\${PS1}\\[\\e]133;B\\a\\]" ;;
 esac
+${imgcatFn}
 `;
     mt.fs.writeFileSync(mt.path.join(tmpDir, 'bashrc.sh'), bashrc);
   }

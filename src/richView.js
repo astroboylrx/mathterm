@@ -129,12 +129,27 @@ function applyInlineMarkdown(text, el) {
   }
 }
 
+// Horizontals + dashed + tees, but NOT corners or verticals — corners signal a
+// box border (top/bottom edge), which we want to keep as literal text.
+const BOX_RULE_RE = /^[─━┄┅┈┉╌╍═├┤┬┴┼\s]+$/;
+
+function isBoxRule(text) {
+  const t = text.trim();
+  return t.length >= 6 && BOX_RULE_RE.test(t);
+}
+
 function renderRichLine(item, text, isPrompt) {
   const el = document.createElement('div');
   if (typeof item === 'object' && item.y !== undefined) el.dataset.y = item.y;
   const trimmed = text.trimStart();
   const leading = text.length - trimmed.length;
   el.className = 'rline' + (isPrompt ? ' prompt-line' : '');
+
+  if (!isPrompt && isBoxRule(text)) {
+    el.className = 'rline rule';
+    el.style.width = text.trim().length + 'ch';
+    return el;
+  }
 
   if (/^#{1,6}\s/.test(trimmed)) {
     const level = trimmed.match(/^(#{1,6})\s/)[1].length;
@@ -259,6 +274,24 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab) {
       && promptLineChecker && promptLineChecker(tab, text, item.y);
 
     container.appendChild(renderRichLine(item, text, isPrompt));
+
+    // If the next non-empty line is a box-rule, merge it into this line as an
+    // underline (Setext-style heading). Skips the rule's own div so the line
+    // sits flush under the heading text instead of as a separate divider.
+    const next = textLines[i + 1];
+    if (next) {
+      const nextText = typeof next === 'string' ? next : (next.text || '');
+      if (isBoxRule(nextText) && !isBoxRule(text)) {
+        const lastEl = container.lastElementChild;
+        if (lastEl && !lastEl.classList.contains('rule')) {
+          lastEl.style.borderBottom = '1px solid var(--border)';
+          lastEl.style.width = 'fit-content';
+          lastEl.style.maxWidth = '100%';
+          i += 2;
+          continue;
+        }
+      }
+    }
     i++;
   }
   return foundContent;
@@ -370,10 +403,16 @@ function tabResetSection(tab) {
   tab.sectionStartY = 0;
   tab._sectionStartTime = 0;
   tab._sectionAltScreen = false;
+  tab._sectionImageStart = tab.inlineImages ? tab.inlineImages.length : 0;
 }
 
 function tabFlushSection(tab) {
-  if (!tab.sectionHasLatex && tab.inlineImages.length === 0) { tabResetSection(tab); return; }
+  if (tab._sectionAltScreen) { tabResetSection(tab); return; }
+  // Flush only if this section actually accumulated something — new LaTeX
+  // text or a new image. Old images carrying over from earlier sections
+  // shouldn't trigger a re-render (which would clobber the rich view).
+  const newImagesInSection = tab.inlineImages.length > (tab._sectionImageStart || 0);
+  if (!tab.sectionHasLatex && !newImagesInSection) { tabResetSection(tab); return; }
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   tab.richContent.innerHTML = '';
@@ -401,8 +440,17 @@ function tabFlushSection(tab) {
 
 function tabFeedSection(tab, data) {
   if (!tab.autoRender) return;
-  if (/\x1b\[\?(?:1049|1047|47)h/.test(data)) tab._sectionAltScreen = true;
-  if (/\x1b\[\?(?:1049|1047|47)l/.test(data)) tab._sectionAltScreen = true;
+  const enteringAlt = /\x1b\[\?(?:1049|1047|47)h/.test(data);
+  const leavingAlt = /\x1b\[\?(?:1049|1047|47)l/.test(data);
+  if (enteringAlt && !tab._sectionAltScreen) {
+    // Discard pre-alt-screen state so a stale sectionHasLatex can't trigger
+    // an autoflush against the alt buffer's coord space.
+    clearTimeout(tab.sectionTimer);
+    tab.sectionHasLatex = false;
+    tab.sectionBuffer = '';
+  }
+  if (enteringAlt || leavingAlt) tab._sectionAltScreen = true;
+  if (tab._sectionAltScreen) return;
   if (!tab.sectionBuffer) {
     const buf = tab.term.buffer.active;
     tab.sectionStartY = buf.baseY + buf.cursorY;
@@ -412,7 +460,7 @@ function tabFeedSection(tab, data) {
   if (tab.sectionBuffer.length > SECTION_BUFFER_MAX) {
     tab.sectionBuffer = tab.sectionBuffer.slice(-SECTION_BUFFER_MAX);
   }
-  if (!tab._sectionAltScreen && hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
+  if (hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
   const elapsed = Date.now() - tab._sectionStartTime;
   if (tab.sectionHasLatex && (tab.sectionBuffer.length >= SECTION_BUFFER_MAX || elapsed >= SECTION_ELAPSED_MAX)) {
     clearTimeout(tab.sectionTimer);
@@ -426,14 +474,45 @@ function tabFeedSection(tab, data) {
 function showManualRichView(tab) {
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
+  const viewportTopY = buf.viewportY;
+  // If the live cursor row is within the visible viewport, anchor the math
+  // view's *bottom* to that row; otherwise anchor the *top* to viewportTopY.
+  const atLiveEdge = endY >= viewportTopY && endY <= viewportTopY + tab.term.rows - 1;
   tab.richContent.innerHTML = '';
 
   const textLines = collectBufferLines(buf, 0, endY);
 
   const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
-  if (foundContent) {
+  const hasImages = tab.inlineImages && tab.inlineImages.length > 0;
+  if (foundContent || hasImages) {
     insertImagesIntoContainer(tab.richContent, tab, 0, endY);
     tabShowRichView(tab, false);
+    requestAnimationFrame(() => {
+      const lineEls = tab.richContent.querySelectorAll('.rline');
+      if (atLiveEdge) {
+        // Anchor bottom: pick the last .rline whose dataset.y <= endY.
+        let target = null;
+        for (const el of lineEls) {
+          const y = parseInt(el.dataset.y);
+          if (!isNaN(y) && y <= endY) target = el;
+          else break;
+        }
+        if (target) {
+          tab.richView.scrollTop = Math.max(0,
+            target.offsetTop + target.offsetHeight - tab.richView.clientHeight);
+        } else {
+          tab.richView.scrollTop = tab.richView.scrollHeight;
+        }
+      } else {
+        // Anchor top: first .rline whose dataset.y >= viewportTopY.
+        let target = null;
+        for (const el of lineEls) {
+          const y = parseInt(el.dataset.y);
+          if (!isNaN(y) && y >= viewportTopY) { target = el; break; }
+        }
+        tab.richView.scrollTop = target ? target.offsetTop : tab.richView.scrollHeight;
+      }
+    });
   }
 }
 
@@ -463,7 +542,8 @@ function tabFlushSectionOnCommandEnd(tab) {
     tabResetSection(tab);
     return;
   }
-  if (tab.sectionHasLatex) {
+  const newImagesInSection = tab.inlineImages.length > (tab._sectionImageStart || 0);
+  if (tab.sectionHasLatex || newImagesInSection) {
     tabFlushSection(tab);
   } else {
     tabResetSection(tab);
