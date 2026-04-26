@@ -131,6 +131,7 @@ function applyInlineMarkdown(text, el) {
 
 function renderRichLine(item, text, isPrompt) {
   const el = document.createElement('div');
+  if (typeof item === 'object' && item.y !== undefined) el.dataset.y = item.y;
   const trimmed = text.trimStart();
   const leading = text.length - trimmed.length;
   el.className = 'rline' + (isPrompt ? ' prompt-line' : '');
@@ -146,7 +147,7 @@ function renderRichLine(item, text, isPrompt) {
     bq.style.borderLeft = '3px solid var(--accent)';
     bq.style.paddingLeft = '8px';
     bq.style.margin = '2px 0';
-    bq.style.color = 'var(--text-muted)';
+    bq.style.color = 'var(--fg-muted)';
     renderInlineLatexOrMd(trimmed.slice(2), bq);
     el.appendChild(bq);
   } else if (/^[-*]\s/.test(trimmed)) {
@@ -263,6 +264,34 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab) {
   return foundContent;
 }
 
+function insertImagesIntoContainer(container, tab, startY, endY) {
+  if (!tab || !tab.inlineImages || tab.inlineImages.length === 0) return;
+  const relevant = tab.inlineImages.filter(img => img.lineY >= startY && img.lineY <= endY);
+  if (relevant.length === 0) return;
+  const lineEls = Array.from(container.querySelectorAll('.rline'));
+  for (const img of relevant) {
+    const wrap = document.createElement('div');
+    wrap.className = 'inline-image';
+    const imgTag = document.createElement('img');
+    imgTag.src = img.dataUrl;
+    imgTag.alt = img.params.name || 'image';
+    if (img.params.width) imgTag.style.width = img.params.width;
+    if (img.params.height) imgTag.style.height = img.params.height;
+    if (img.params.preserveAspectRatio === '1') imgTag.style.objectFit = 'contain';
+    wrap.appendChild(imgTag);
+    let inserted = false;
+    for (const lineEl of lineEls) {
+      const lineY = parseInt(lineEl.dataset.y);
+      if (!isNaN(lineY) && lineY > img.lineY) {
+        container.insertBefore(wrap, lineEl);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) container.appendChild(wrap);
+  }
+}
+
 function renderInlineLatexToEl(text, el) {
   const parts = splitLatexSmart(text);
   for (const part of parts) {
@@ -344,7 +373,7 @@ function tabResetSection(tab) {
 }
 
 function tabFlushSection(tab) {
-  if (!tab.sectionHasLatex) { tabResetSection(tab); return; }
+  if (!tab.sectionHasLatex && tab.inlineImages.length === 0) { tabResetSection(tab); return; }
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   tab.richContent.innerHTML = '';
@@ -363,7 +392,10 @@ function tabFlushSection(tab) {
   const textLines = collectBufferLines(buf, startY, endY);
 
   const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
-  if (foundContent) tabShowRichView(tab, true);
+  if (foundContent) {
+    insertImagesIntoContainer(tab.richContent, tab, startY, endY);
+    tabShowRichView(tab, true);
+  }
   tabResetSection(tab);
 }
 
@@ -399,7 +431,10 @@ function showManualRichView(tab) {
   const textLines = collectBufferLines(buf, 0, endY);
 
   const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
-  if (foundContent) tabShowRichView(tab, false);
+  if (foundContent) {
+    insertImagesIntoContainer(tab.richContent, tab, 0, endY);
+    tabShowRichView(tab, false);
+  }
 }
 
 function renderFileContent(tab, content, filePath) {

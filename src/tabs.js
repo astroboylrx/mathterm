@@ -52,10 +52,12 @@ function createTab(cwd) {
   tab.richContent = richContentEl;
   tab.richHint = richHintEl;
 
+  const { resolveTheme } = require('./themes');
+  const themeColors = resolveTheme(settings.theme);
   const term = new Terminal({
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
-    theme: { background: settings.bg, foreground: settings.fg, cursor: settings.cursor },
+    theme: { background: themeColors.bg, foreground: themeColors.fg, cursor: themeColors.accent },
     cursorBlink: true,
     cursorStyle: settings.cursorStyle,
     scrollback: settings.scrollback
@@ -160,9 +162,19 @@ function createTab(cwd) {
   });
 
   ptyProc.onData(data => {
-    term.write(data);
-    tabFeedSection(tab, data);
-    tabTrackTitle(tab, data);
+    const { images, cleanData } = tab.osc1337Parser.feed(data);
+    if (images.length) {
+      const y = term.buffer.active.baseY + term.buffer.active.cursorY;
+      for (const img of images) {
+        tab.inlineImages.push({ ...img, lineY: y });
+      }
+      if (tab.inlineImages.length > 50) {
+        tab.inlineImages = tab.inlineImages.slice(-50);
+      }
+    }
+    term.write(cleanData);
+    tabFeedSection(tab, cleanData);
+    tabTrackTitle(tab, cleanData);
   });
 
   state.tabs.push(tab);

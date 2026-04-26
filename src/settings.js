@@ -23,20 +23,22 @@ const DEFAULTS = {
   fontFamily: '"JetBrainsMono Nerd Font Mono", monospace',
   autoRender: true,
   autoRenderDelay: 1500,
-  bg: '#1a1a2e',
-  fg: '#e0e0e0',
-  cursor: '#51cf66',
+  theme: 'dark',
   cursorStyle: 'block',
   inheritCwd: false,
   copyOnSelect: !isMac,
   shortcuts: DEFAULT_SHORTCUTS,
 };
 
+const LEGACY_KEYS = ['bg', 'fg', 'cursor'];
+
 function _mergeIncoming(incoming) {
+  const cleaned = { ...(incoming || {}) };
+  for (const k of LEGACY_KEYS) delete cleaned[k];
   return {
     ...DEFAULTS,
-    ...incoming,
-    shortcuts: { ...DEFAULT_SHORTCUTS, ...((incoming && incoming.shortcuts) || {}) },
+    ...cleaned,
+    shortcuts: { ...DEFAULT_SHORTCUTS, ...(cleaned.shortcuts || {}) },
   };
 }
 
@@ -45,7 +47,8 @@ function loadSettings() {
   try { raw = mt.fs.readFileSync(SETTINGS_PATH, 'utf8'); } catch { raw = null; }
   const incoming = raw ? JSON.parse(raw) : {};
   const merged = _mergeIncoming(incoming);
-  if (raw === null || !incoming.shortcuts) {
+  const hasLegacy = LEGACY_KEYS.some(k => k in (incoming || {}));
+  if (raw === null || !incoming.shortcuts || hasLegacy) {
     try { saveSettingsFile(merged); } catch {}
   }
   return merged;
@@ -58,20 +61,46 @@ function saveSettingsFile(s) {
 
 const settings = loadSettings();
 
+function _updateThemePreview(themeId) {
+  const { resolveTheme } = require('./themes');
+  const c = resolveTheme(themeId);
+  const el = document.getElementById('s-theme-preview');
+  if (!el || !c) return;
+  el.innerHTML = '';
+  const keys = ['bg', 'fg', 'accent', 'red', 'yellow', 'blue', 'purple', 'cyan', 'orange'];
+  for (const k of keys) {
+    const sw = document.createElement('span');
+    sw.className = 'swatch';
+    sw.style.background = c[k];
+    sw.title = `${k}: ${c[k]}`;
+    el.appendChild(sw);
+  }
+}
+
 function openSettings() {
+  const { getThemeList } = require('./themes');
+  const sel = document.getElementById('s-theme');
+  sel.innerHTML = '';
+  for (const t of getThemeList()) {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = t.name + (t.builtin ? '' : ' (custom)');
+    if (t.id === settings.theme) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  _updateThemePreview(settings.theme);
+  sel.onchange = () => _updateThemePreview(sel.value);
+
   document.getElementById('s-scrollback').value = settings.scrollback;
   document.getElementById('s-fontsize').value = settings.fontSize;
   document.getElementById('s-fontfamily').value = settings.fontFamily;
   document.getElementById('s-autorender').checked = settings.autoRender;
   document.getElementById('s-delay').value = settings.autoRenderDelay;
-  document.getElementById('s-bg').value = settings.bg;
-  document.getElementById('s-fg').value = settings.fg;
-  document.getElementById('s-cursor').value = settings.cursor;
   document.getElementById('s-cursorstyle').value = settings.cursorStyle;
   document.getElementById('s-inheritcwd').checked = settings.inheritCwd;
   document.getElementById('s-copyonselect').checked = settings.copyOnSelect;
   const cfgNote = document.getElementById('s-config-path');
-  if (cfgNote) cfgNote.textContent = `For shortcuts and other advanced options, edit ${SETTINGS_PATH} directly.`;
+  if (cfgNote) cfgNote.textContent = `For shortcuts and custom themes, edit files in ${mt.path.join(configHome, 'mathterm')}.`;
   document.getElementById('settings-dialog').showModal();
 }
 
@@ -80,18 +109,12 @@ function closeSettings() {
 }
 
 function saveSettings() {
-  const validateColor = (v, fallback) => {
-    if (typeof CSS !== 'undefined' && CSS.supports && CSS.supports('color', v)) return v;
-    return fallback;
-  };
+  settings.theme = document.getElementById('s-theme').value || 'dark';
   settings.scrollback = parseInt(document.getElementById('s-scrollback').value) || DEFAULTS.scrollback;
   settings.fontSize = parseInt(document.getElementById('s-fontsize').value) || DEFAULTS.fontSize;
   settings.fontFamily = document.getElementById('s-fontfamily').value || DEFAULTS.fontFamily;
   settings.autoRender = document.getElementById('s-autorender').checked;
   settings.autoRenderDelay = parseInt(document.getElementById('s-delay').value) || DEFAULTS.autoRenderDelay;
-  settings.bg = validateColor(document.getElementById('s-bg').value || DEFAULTS.bg, DEFAULTS.bg);
-  settings.fg = validateColor(document.getElementById('s-fg').value || DEFAULTS.fg, DEFAULTS.fg);
-  settings.cursor = validateColor(document.getElementById('s-cursor').value || DEFAULTS.cursor, DEFAULTS.cursor);
   settings.cursorStyle = ['block', 'bar', 'underline'].includes(document.getElementById('s-cursorstyle').value)
     ? document.getElementById('s-cursorstyle').value : DEFAULTS.cursorStyle;
   settings.inheritCwd = document.getElementById('s-inheritcwd').checked;
@@ -103,6 +126,9 @@ function saveSettings() {
 }
 
 function applySettings() {
+  const { applyTheme } = require('./themes');
+  const c = applyTheme(settings.theme);
+
   const tab = getActiveTab();
   if (tab) tab.autoRender = settings.autoRender;
   const active = tab ? tab.autoRender : settings.autoRender;
@@ -114,9 +140,9 @@ function applySettings() {
     tab.term.options.fontSize = settings.fontSize;
     tab.term.options.fontFamily = settings.fontFamily;
     tab.term.options.theme = {
-      background: settings.bg,
-      foreground: settings.fg,
-      cursor: settings.cursor
+      background: c.bg,
+      foreground: c.fg,
+      cursor: c.accent
     };
     tab.term.options.cursorStyle = settings.cursorStyle;
     if (tab.container.classList.contains('active')) tab.fitAddon.fit();

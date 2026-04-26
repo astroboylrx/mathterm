@@ -1,5 +1,6 @@
 const { state, getActiveTab, getTabIndex } = require('./state');
 const { settings, isMac, applySettings } = require('./settings');
+const { loadUserThemes } = require('./themes');
 const { createTab, switchTab } = require('./tabs');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
@@ -26,6 +27,7 @@ state.searchInput = document.getElementById('search-input');
 state.searchCount = document.getElementById('search-count');
 state.contextMenu = document.getElementById('context-menu');
 
+loadUserThemes();
 applySettings();
 
 window.createTab = createTab;

@@ -1,4 +1,5 @@
 const { state } = require('./state');
+const { Osc1337Parser } = require('./osc1337');
 
 class TabSession {
   constructor(id) {
@@ -30,6 +31,8 @@ class TabSession {
     this._commandEndY = 0;
     this._lastExitCode = '';
     this.autoRender = true;
+    this.osc1337Parser = new Osc1337Parser();
+    this.inlineImages = [];
   }
 }
 
