@@ -7,7 +7,8 @@ const { WebglAddon } = require('@xterm/addon-webgl');
 const { CanvasAddon } = require('@xterm/addon-canvas');
 
 const { state, getActiveTab, getTabIndex, updateStatusBar, updateStatusBarCwd } = require('./state');
-const { settings } = require('./settings');
+const { settings, isMac } = require('./settings');
+const { parseShortcut, matchShortcut } = require('./keybindings');
 
 function updateRendererIndicator(tab) {
   const el = state.renderInd;
@@ -22,6 +23,18 @@ const { tabTrackTitle, updateTabBar } = require('./titleTrack');
 
 const IMAGE_MAX_COUNT = 50;
 const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
+
+function prunePromptTracking(tab, minY) {
+  for (const v of tab._promptYSet) {
+    if (v < minY) tab._promptYSet.delete(v);
+  }
+  for (const v of tab._promptStartYSet) {
+    if (v < minY) tab._promptStartYSet.delete(v);
+  }
+  while (tab._promptStartYSet.size > 500) {
+    tab._promptStartYSet.delete(Math.min(...tab._promptStartYSet));
+  }
+}
 
 function trimInlineImages(arr) {
   let bytes = 0;
@@ -50,7 +63,26 @@ function createTab(cwd) {
   richContentEl.className = 'rich-content';
   const richHintEl = document.createElement('div');
   richHintEl.className = 'rich-hint';
-  richHintEl.textContent = 'Press any key to return to terminal';
+  const richHintTextEl = document.createElement('span');
+  richHintTextEl.className = 'rich-hint-text';
+  richHintTextEl.textContent = 'Press any key to return to terminal';
+  richHintEl.appendChild(richHintTextEl);
+  const exportPdfBtn = document.createElement('button');
+  exportPdfBtn.className = 'export-btn';
+  exportPdfBtn.textContent = 'Export PDF';
+  exportPdfBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    require('./export').exportPdf().catch(err => console.error('PDF export failed:', err));
+  });
+  const exportPngBtn = document.createElement('button');
+  exportPngBtn.className = 'export-btn';
+  exportPngBtn.textContent = 'Export PNG';
+  exportPngBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    require('./export').exportPng().catch(err => console.error('PNG export failed:', err));
+  });
+  richHintEl.appendChild(exportPdfBtn);
+  richHintEl.appendChild(exportPngBtn);
   richViewEl.appendChild(richContentEl);
   richViewEl.appendChild(richHintEl);
   container.appendChild(richViewEl);
@@ -90,6 +122,16 @@ function createTab(cwd) {
     } catch {}
   }));
   term.open(xtermHolder);
+
+  term.attachCustomKeyEventHandler(e => {
+    if (e.type !== 'keydown') return true;
+    const sc = settings.shortcuts || {};
+    for (const name of Object.keys(sc)) {
+      const parsed = parseShortcut(sc[name]);
+      if (parsed && matchShortcut(parsed, e, isMac)) return false;
+    }
+    return true;
+  });
 
   try {
     const webgl = new WebglAddon();
@@ -160,12 +202,12 @@ function createTab(cwd) {
       const buf = tab.term.buffer.active;
       tab._promptStartY = buf.baseY + buf.cursorY;
       tab._promptBHandled = false;
+      tab._promptJumpAnchorY = null;
       tab._promptYSet.add(tab._promptStartY);
-      if (tab._promptYSet.size > 500) {
+      tab._promptStartYSet.add(tab._promptStartY);
+      if (tab._promptYSet.size > 500 || tab._promptStartYSet.size > 500) {
         const minY = buf.baseY - settings.scrollback;
-        for (const v of tab._promptYSet) {
-          if (v < minY) tab._promptYSet.delete(v);
-        }
+        prunePromptTracking(tab, minY);
       }
     } else if (data.startsWith('B')) {
       // Prompt end — mark all lines from prompt start to here as prompt.

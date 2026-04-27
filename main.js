@@ -79,6 +79,15 @@ function buildMenu(autoRender) {
         },
         { type: 'separator' },
         {
+          label: 'Export Math View as PDF...',
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('export-rich-pdf'); }
+        },
+        {
+          label: 'Export Math View as PNG...',
+          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('export-rich-png'); }
+        },
+        { type: 'separator' },
+        {
           label: 'New Tab',
           accelerator: 'CmdOrCtrl+Shift+T',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('new-tab'); }
@@ -231,4 +240,44 @@ ipcMain.on('detach-tab', (event, opts) => {
   const params = new URLSearchParams();
   if (opts?.cwd) params.set('cwd', opts.cwd);
   win.loadFile('index.html', { query: params.toString() || undefined });
+});
+
+ipcMain.handle('export-pdf', async (event) => {
+  const wc = event.sender;
+  const win = BrowserWindow.fromWebContents(wc);
+  try {
+    const data = await wc.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      margins: { top: 0, bottom: 0, left: 0, right: 0 }
+    });
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Export Math View as PDF',
+      defaultPath: 'mathterm-export.pdf',
+      filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    fs.writeFileSync(result.filePath, data);
+    return { path: result.filePath };
+  } catch (err) {
+    return { error: String(err) };
+  }
+});
+
+ipcMain.handle('save-png', async (event, dataUrl) => {
+  const wc = event.sender;
+  const win = BrowserWindow.fromWebContents(wc);
+  try {
+    const result = await dialog.showSaveDialog(win, {
+      title: 'Export Math View as PNG',
+      defaultPath: 'mathterm-export.png',
+      filters: [{ name: 'PNG', extensions: ['png'] }]
+    });
+    if (result.canceled || !result.filePath) return { canceled: true };
+    const base64 = String(dataUrl).split(',')[1] || '';
+    fs.writeFileSync(result.filePath, Buffer.from(base64, 'base64'));
+    return { path: result.filePath };
+  } catch (err) {
+    return { error: String(err) };
+  }
 });

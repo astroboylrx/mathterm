@@ -24,6 +24,8 @@ function buildShortcutSections() {
     { section: 'Navigation', items: [
       { id: 'prevPrompt', keys: sc.prevPrompt, desc: 'Jump to previous prompt' },
       { id: 'nextPrompt', keys: sc.nextPrompt, desc: 'Jump to next prompt' },
+      { id: 'selectLastCommand', keys: sc.selectLastCommand, desc: 'Select last command output' },
+      { id: 'scrollToCursor', keys: sc.scrollToCursor, desc: 'Scroll to cursor' },
     ]},
     { section: 'View', items: [
       { keys: 'Mod+=', desc: 'Zoom in' },

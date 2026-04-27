@@ -13,8 +13,10 @@ const DEFAULT_SHORTCUTS = {
   copy: 'Mod+Shift+C',
   paste: 'Mod+Shift+V',
   selectAll: 'Mod+Shift+A',
-  prevPrompt: 'Ctrl+Up',
-  nextPrompt: 'Ctrl+Down',
+  prevPrompt: 'Mod+Shift+Up',
+  nextPrompt: 'Mod+Shift+Down',
+  selectLastCommand: null,
+  scrollToCursor: null,
 };
 
 const DEFAULTS = {
@@ -31,14 +33,42 @@ const DEFAULTS = {
 };
 
 const LEGACY_KEYS = ['bg', 'fg', 'cursor'];
+const LEGACY_T14_SHORTCUTS = {
+  prevPrompt: 'Ctrl+Up',
+  nextPrompt: 'Ctrl+Down',
+  selectLastCommand: 'Ctrl+Shift+Up',
+  scrollToCursor: 'Ctrl+Shift+Down',
+};
+
+function _migrateShortcutDefaults(shortcuts) {
+  if (shortcuts.prevPrompt === LEGACY_T14_SHORTCUTS.prevPrompt) {
+    shortcuts.prevPrompt = DEFAULT_SHORTCUTS.prevPrompt;
+  }
+  if (shortcuts.nextPrompt === LEGACY_T14_SHORTCUTS.nextPrompt) {
+    shortcuts.nextPrompt = DEFAULT_SHORTCUTS.nextPrompt;
+  }
+  if (shortcuts.selectLastCommand === LEGACY_T14_SHORTCUTS.selectLastCommand) {
+    shortcuts.selectLastCommand = DEFAULT_SHORTCUTS.selectLastCommand;
+  }
+  if (shortcuts.scrollToCursor === LEGACY_T14_SHORTCUTS.scrollToCursor) {
+    shortcuts.scrollToCursor = DEFAULT_SHORTCUTS.scrollToCursor;
+  }
+  return shortcuts;
+}
+
+function _needsShortcutMigration(incoming) {
+  const sc = (incoming && incoming.shortcuts) || {};
+  return Object.keys(LEGACY_T14_SHORTCUTS).some(k => sc[k] === LEGACY_T14_SHORTCUTS[k]);
+}
 
 function _mergeIncoming(incoming) {
   const cleaned = { ...(incoming || {}) };
   for (const k of LEGACY_KEYS) delete cleaned[k];
+  const shortcuts = _migrateShortcutDefaults({ ...DEFAULT_SHORTCUTS, ...(cleaned.shortcuts || {}) });
   return {
     ...DEFAULTS,
     ...cleaned,
-    shortcuts: { ...DEFAULT_SHORTCUTS, ...(cleaned.shortcuts || {}) },
+    shortcuts,
   };
 }
 
@@ -48,7 +78,7 @@ function loadSettings() {
   const incoming = raw ? JSON.parse(raw) : {};
   const merged = _mergeIncoming(incoming);
   const hasLegacy = LEGACY_KEYS.some(k => k in (incoming || {}));
-  if (raw === null || !incoming.shortcuts || hasLegacy) {
+  if (raw === null || !incoming.shortcuts || hasLegacy || _needsShortcutMigration(incoming)) {
     try { saveSettingsFile(merged); } catch {}
   }
   return merged;

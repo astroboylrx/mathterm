@@ -636,6 +636,63 @@
       font-size: 13px;
     }
     dialog#shortcuts-dialog button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: bold; }
+
+    .rich-hint .export-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--fg-muted);
+      padding: 2px 10px;
+      margin: 0 4px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.95em;
+    }
+    .rich-hint .export-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+    @media print {
+      html, body {
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        display: block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      *, *::before, *::after {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      #tab-bar, #status-bar, #search-bar, #context-menu, #tab-context-menu,
+      dialog, .xterm-holder, .rich-hint { display: none !important; }
+      #terminal-container {
+        position: static !important;
+        overflow: visible !important;
+        flex: none !important;
+        height: auto !important;
+        min-height: 0 !important;
+      }
+      .tab-container {
+        position: static !important;
+        height: auto !important;
+        min-height: 0 !important;
+      }
+      .tab-container:not(.active) { display: none !important; }
+      .rich-view {
+        position: static !important;
+        opacity: 1 !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        border: none !important;
+        pointer-events: auto !important;
+        padding: 16px 20px !important;
+        page-break-inside: auto !important;
+      }
+      .rline { page-break-inside: avoid; }
+    }
   </style>
   <link rel="stylesheet" href="node_modules/@xterm/xterm/css/xterm.css">
   <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css">

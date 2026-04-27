@@ -27,11 +27,16 @@ contextBridge.exposeInMainWorld('mathterm', {
         'toggle-math-mode', 'set-auto-render', 'clear-terminal', 'open-file',
         'show-shortcuts', 'open-settings', 'new-tab', 'close-tab',
         'next-tab', 'prev-tab', 'do-copy', 'do-paste', 'open-search',
-        'select-all'
+        'select-all', 'export-rich-pdf', 'export-rich-png'
       ];
       if (allowed.includes(channel)) {
         ipcRenderer.on(channel, (event, ...args) => callback(...args));
       }
+    },
+    invoke: (channel, ...args) => {
+      const allowed = ['export-pdf', 'save-png'];
+      if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
+      return Promise.reject(new Error('Channel not allowed: ' + channel));
     }
   },
 

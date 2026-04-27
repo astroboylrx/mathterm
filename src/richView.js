@@ -371,9 +371,12 @@ function tabShowRichView(tab, auto) {
       ? 0 : tab.richView.scrollHeight;
   });
   const mathChord = formatShortcut(parseShortcut(settings.shortcuts.toggleMath), isMac);
-  tab.richHint.textContent = auto
+  const hintText = auto
     ? 'Press Esc or q to return to terminal'
     : `Esc/q/${mathChord} to return \u00b7 Select & copy freely`;
+  const hintTextEl = tab.richHint.querySelector('.rich-hint-text');
+  if (hintTextEl) hintTextEl.textContent = hintText;
+  else tab.richHint.textContent = hintText;
   if (tab.id === state.activeTabId) {
     updateStatusBar(tab);
   }
