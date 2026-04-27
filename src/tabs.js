@@ -9,6 +9,7 @@ const { CanvasAddon } = require('@xterm/addon-canvas');
 const { state, getActiveTab, getTabIndex, updateStatusBar, updateStatusBarCwd } = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, matchShortcut } = require('./keybindings');
+const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 
 function updateRendererIndicator(tab) {
   const el = state.renderInd;
@@ -135,6 +136,7 @@ function createTab(cwd) {
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
     if (isTabCycleShortcut(e)) return false;
+    if (isZoomShortcut(e, isMac)) return false;
     const sc = settings.shortcuts || {};
     for (const name of Object.keys(sc)) {
       const parsed = parseShortcut(sc[name]);
@@ -350,6 +352,7 @@ function switchTab(id) {
   tab.tabEl.classList.add('active');
   requestAnimationFrame(() => {
     tab.fitAddon.fit();
+    applyZoomToTab(tab);
     if (tab.richVisible) tab.richView.classList.add('visible');
     tab.term.focus();
   });

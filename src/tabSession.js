@@ -38,6 +38,7 @@ class TabSession {
     this._promptJumpAnchorY = null;
     this._lastExitCode = '';
     this.autoRender = false;
+    this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();
     this.inlineImages = [];
   }

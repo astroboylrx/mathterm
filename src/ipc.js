@@ -7,6 +7,7 @@ const { openSearch, closeSearch } = require('./search');
 const { createTab, closeTab, switchTab } = require('./tabs');
 const { openShortcuts } = require('./shortcuts');
 const { exportPdf, exportPng } = require('./export');
+const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom } = require('./zoom');
 
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
@@ -51,6 +52,9 @@ function initIpc() {
   mt.ipc.on('do-paste', () => doPaste());
   mt.ipc.on('open-search', () => openSearch());
   mt.ipc.on('select-all', () => doSelectAll());
+  mt.ipc.on('zoom-in', () => zoomInActiveTab());
+  mt.ipc.on('zoom-out', () => zoomOutActiveTab());
+  mt.ipc.on('reset-zoom', () => resetActiveZoom());
   mt.ipc.on('export-rich-pdf', () => { exportPdf().catch(err => console.error('PDF export failed:', err)); });
   mt.ipc.on('export-rich-png', () => { exportPng().catch(err => console.error('PNG export failed:', err)); });
 }

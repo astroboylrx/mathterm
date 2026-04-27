@@ -9,12 +9,14 @@ const { initIpc } = require('./ipc');
 const { initClipboardListeners } = require('./clipboard');
 const { initSearchListeners } = require('./search');
 const { initTabContextListeners } = require('./tabs');
+const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom, isZoomShortcut } = require('./zoom');
 
 state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
 state.autoIndicator = document.getElementById('auto-indicator');
 state.mathBtn = document.getElementById('math-btn');
 state.renderInd = document.getElementById('render-ind');
+state.zoomInd = document.getElementById('zoom-ind');
 state.cwdLink = document.getElementById('cwd-link');
 state.gitSep = document.getElementById('git-sep');
 state.gitBranch = document.getElementById('git-branch');
@@ -82,6 +84,14 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     e.stopPropagation();
     cycleTab(e.key === 'PageDown' ? 1 : -1);
+    return;
+  }
+  if (isZoomShortcut(e, isMac)) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === '-' ) zoomOutActiveTab();
+    else if (e.key === '0') resetActiveZoom();
+    else zoomInActiveTab();
     return;
   }
   const sc = (settings.shortcuts || {});
@@ -186,6 +196,13 @@ document.addEventListener('keydown', e => {
   }
 
   const mod = isMac ? e.metaKey : e.ctrlKey;
+  if (mod && !e.altKey && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
+    e.preventDefault();
+    if (e.key === '-') zoomOutActiveTab();
+    else if (e.key === '0') resetActiveZoom();
+    else zoomInActiveTab();
+    return;
+  }
   if (mod && e.key === 'PageDown') {
     e.preventDefault();
     cycleTab(1);

@@ -176,6 +176,7 @@ function saveSettings() {
 
 function applySettings() {
   const { applyTheme, selectionBgFor } = require('./themes');
+  const { applyZoomToTab } = require('./zoom');
   const c = applyTheme(settings.theme);
 
   const tab = getActiveTab();
@@ -186,7 +187,6 @@ function applySettings() {
   document.documentElement.style.setProperty('--ui-font-size', settings.fontSize + 'px');
   applyButtonTitles();
   for (const tab of state.tabs) {
-    tab.term.options.fontSize = settings.fontSize;
     tab.term.options.fontFamily = settings.fontFamily;
     tab.term.options.theme = {
       background: c.bg,
@@ -195,8 +195,8 @@ function applySettings() {
       selectionBackground: selectionBgFor(c)
     };
     tab.term.options.cursorStyle = settings.cursorStyle;
+    applyZoomToTab(tab);
     if (tab.container.classList.contains('active')) tab.fitAddon.fit();
-    tab.richView.style.fontSize = settings.fontSize + 'px';
   }
   mt.ipc.send('rebuild-menu', active);
 }

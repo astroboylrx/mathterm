@@ -12,6 +12,7 @@ const state = {
   autoIndicator: null,
   mathBtn: null,
   renderInd: null,
+  zoomInd: null,
   cwdLink: null,
   gitSep: null,
   gitBranch: null,
@@ -61,6 +62,12 @@ function getTabIndex(id) {
 function updateStatusBar(tab) {
   if (tab.richVisible) state.mathBtn.classList.add('active');
   else state.mathBtn.classList.remove('active');
+  if (state.zoomInd) {
+    const pct = Math.round((tab.zoomFactor || 1) * 100);
+    state.zoomInd.textContent = pct === 100 ? '' : pct + '%';
+    state.zoomInd.classList.toggle('hidden', pct === 100);
+    state.zoomInd.title = pct === 100 ? '' : `Tab zoom: ${pct}%`;
+  }
 }
 
 let _cwdSeq = 0;

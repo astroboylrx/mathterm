@@ -5,6 +5,7 @@ const os = require('os');
 
 let mainWindow;
 const isMac = process.platform === 'darwin';
+app.setName('MathTerm');
 
 const SETTINGS_PATH = path.join(
   process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
@@ -60,53 +61,81 @@ function getFocusedWebContents() {
   return win ? win.webContents : (mainWindow ? mainWindow.webContents : null);
 }
 
+function sendFocused(channel, ...args) {
+  const wc = getFocusedWebContents();
+  if (wc) wc.send(channel, ...args);
+}
+
+function openFileInMathMode() {
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  dialog.showOpenDialog(win, {
+    filters: [
+      { name: 'Documents', extensions: ['md', 'txt', 'tex', 'markdown'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  }).then(result => {
+    if (!result.canceled && result.filePaths.length > 0) {
+      sendFocused('open-file', result.filePaths[0]);
+    }
+  });
+}
+
 function buildMenu(autoRender) {
   const sc = loadShortcuts();
-  return Menu.buildFromTemplate([
+  const template = [
+    ...(isMac ? [{
+      label: 'MathTerm',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Preferences...',
+          accelerator: 'CmdOrCtrl+,',
+          click: () => sendFocused('open-settings')
+        },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    }] : []),
     {
       label: '&File',
       submenu: [
         {
           label: 'Open File in Math Mode...',
           accelerator: 'CmdOrCtrl+Shift+O',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow() || mainWindow;
-            dialog.showOpenDialog(win, {
-              filters: [
-                { name: 'Documents', extensions: ['md', 'txt', 'tex', 'markdown'] },
-                { name: 'All Files', extensions: ['*'] }
-              ],
-              properties: ['openFile']
-            }).then(result => {
-              if (!result.canceled && result.filePaths.length > 0) {
-                const wc = getFocusedWebContents();
-                if (wc) wc.send('open-file', result.filePaths[0]);
-              }
-            });
-          }
+          click: openFileInMathMode
         },
         { type: 'separator' },
         {
           label: 'Export Math View as PDF...',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('export-rich-pdf'); }
+          click: () => sendFocused('export-rich-pdf')
         },
         {
           label: 'Export Math View as PNG...',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('export-rich-png'); }
+          click: () => sendFocused('export-rich-png')
         },
         { type: 'separator' },
         {
           label: 'New Tab',
           accelerator: isMac ? 'CmdOrCtrl+T' : 'CmdOrCtrl+Shift+T',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('new-tab'); }
+          click: () => sendFocused('new-tab')
         },
         {
           label: 'Close Tab',
           accelerator: isMac ? 'CmdOrCtrl+W' : 'CmdOrCtrl+Shift+W',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('close-tab'); }
+          click: () => sendFocused('close-tab')
         },
-        { type: 'separator' },
-        { role: 'close' }
+        ...(isMac ? [] : [
+          { type: 'separator' },
+          { role: 'close' }
+        ])
       ]
     },
     {
@@ -116,51 +145,68 @@ function buildMenu(autoRender) {
           label: 'Copy',
           accelerator: sc.copy,
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-copy'); }
+          click: () => sendFocused('do-copy')
         },
         {
           label: 'Paste',
           accelerator: sc.paste,
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('do-paste'); }
+          click: () => sendFocused('do-paste')
         },
         {
           label: 'Select All',
           accelerator: sc.selectAll,
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('select-all'); }
+          click: () => sendFocused('select-all')
         },
         { type: 'separator' },
         {
           label: 'Find...',
           accelerator: sc.openSearch,
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-search'); }
+          click: () => sendFocused('open-search')
         },
         { type: 'separator' },
         {
           label: 'Clear Terminal',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('clear-terminal'); }
+          click: () => sendFocused('clear-terminal')
         },
-        { type: 'separator' },
-        {
-          label: 'Preferences...',
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('open-settings'); }
-        }
+        ...(isMac ? [] : [
+          { type: 'separator' },
+          {
+            label: 'Preferences...',
+            click: () => sendFocused('open-settings')
+          }
+        ])
       ]
     },
     {
       label: '&View',
       submenu: [
-        { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', role: 'zoomIn' },
-        { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', role: 'zoomOut' },
-        { label: 'Reset Zoom', accelerator: 'CmdOrCtrl+0', role: 'resetZoom' },
+        {
+          label: 'Zoom In',
+          accelerator: 'CmdOrCtrl+=',
+          registerAccelerator: false,
+          click: () => sendFocused('zoom-in')
+        },
+        {
+          label: 'Zoom Out',
+          accelerator: 'CmdOrCtrl+-',
+          registerAccelerator: false,
+          click: () => sendFocused('zoom-out')
+        },
+        {
+          label: 'Reset Zoom',
+          accelerator: 'CmdOrCtrl+0',
+          registerAccelerator: false,
+          click: () => sendFocused('reset-zoom')
+        },
         { type: 'separator' },
         {
           label: 'Toggle Math Mode',
           accelerator: sc.toggleMath,
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('toggle-math-mode'); }
+          click: () => sendFocused('toggle-math-mode')
         },
         { type: 'separator' },
         {
@@ -169,10 +215,14 @@ function buildMenu(autoRender) {
           accelerator: sc.toggleAutoRender,
           registerAccelerator: false,
           checked: autoRender,
-          click: item => { const wc = getFocusedWebContents(); if (wc) wc.send('set-auto-render', item.checked); }
+          click: item => sendFocused('set-auto-render', item.checked)
         },
         { type: 'separator' },
-        { role: 'toggleDevTools' }
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
       ]
     },
     {
@@ -182,23 +232,34 @@ function buildMenu(autoRender) {
           label: 'Next Tab',
           accelerator: 'CmdOrCtrl+PageDown',
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('next-tab'); }
+          click: () => sendFocused('next-tab')
         },
         {
           label: 'Previous Tab',
           accelerator: 'CmdOrCtrl+PageUp',
           registerAccelerator: false,
-          click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('prev-tab'); }
+          click: () => sendFocused('prev-tab')
         }
       ]
     },
+    ...(isMac ? [{
+      role: 'windowMenu'
+    }] : [{
+      label: '&Window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { role: 'close' }
+      ]
+    }]),
     {
       label: '&Help',
       submenu: [
-        { label: 'Keyboard Shortcuts', click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('show-shortcuts'); } }
+        { label: 'Keyboard Shortcuts', click: () => sendFocused('show-shortcuts') }
       ]
     }
-  ]);
+  ];
+  return Menu.buildFromTemplate(template);
 }
 
 app.whenReady().then(() => {
