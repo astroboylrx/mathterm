@@ -28,7 +28,8 @@ const DEFAULTS = {
   theme: 'dark',
   cursorStyle: 'block',
   inheritCwd: false,
-  copyOnSelect: !isMac,
+  copyOnSelect: true,
+  _copyOnSelectDefaultVersion: 2,
   shortcuts: DEFAULT_SHORTCUTS,
 };
 
@@ -77,6 +78,9 @@ function _mergeIncoming(incoming) {
   const cleaned = { ...(incoming || {}) };
   for (const k of LEGACY_KEYS) delete cleaned[k];
   const shortcuts = _migrateShortcutDefaults({ ...DEFAULT_SHORTCUTS, ...(cleaned.shortcuts || {}) });
+  if (isMac && cleaned._copyOnSelectDefaultVersion !== 2 && cleaned.copyOnSelect === false) {
+    cleaned.copyOnSelect = true;
+  }
   return {
     ...DEFAULTS,
     ...cleaned,
@@ -90,7 +94,10 @@ function loadSettings() {
   const incoming = raw ? JSON.parse(raw) : {};
   const merged = _mergeIncoming(incoming);
   const hasLegacy = LEGACY_KEYS.some(k => k in (incoming || {}));
-  if (raw === null || !incoming.shortcuts || hasLegacy || _needsShortcutMigration(incoming)) {
+  const needsCopyOnSelectMigration = isMac
+    && incoming._copyOnSelectDefaultVersion !== 2
+    && incoming.copyOnSelect === false;
+  if (raw === null || !incoming.shortcuts || hasLegacy || _needsShortcutMigration(incoming) || needsCopyOnSelectMigration) {
     try { saveSettingsFile(merged); } catch {}
   }
   return merged;

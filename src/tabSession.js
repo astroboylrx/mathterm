@@ -7,6 +7,7 @@ class TabSession {
     this.title = state._hostname + ': ~';
     this.cwd = window.mathterm.os.env.HOME;
     this.ptyProc = null;
+    this._closing = false;
     this.term = null;
     this.fitAddon = null;
     this.searchAddon = null;

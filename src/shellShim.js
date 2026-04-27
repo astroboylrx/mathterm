@@ -13,7 +13,8 @@ function createShellShim(shellCmd) {
   // Files larger than 20 MB are downscaled to 2048px on the longest side via
   // ImageMagick (\`magick\` or \`convert\`) or macOS \`sips\`, with graceful
   // fallback to the original file when no downscaler is installed.
-  const imgcatFn = `imgcat() {
+  const imgcatFn = `unalias imgcat 2>/dev/null || true
+imgcat() {
   if [ $# -eq 0 ]; then printf 'usage: imgcat <file>...\\n' >&2; return 1; fi
   local f file size tmp name b64
   for f in "$@"; do

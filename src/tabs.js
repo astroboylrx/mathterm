@@ -184,6 +184,10 @@ function createTab(cwd) {
       try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
       tab._shimDir = null;
     }
+    tab.ptyProc = null;
+    if (!tab._closing && getTabIndex(tab.id) !== -1) {
+      setTimeout(() => closeTab(tab.id), 0);
+    }
   });
 
   term.onData(data => {
@@ -362,13 +366,14 @@ function closeTab(id) {
   if (idx === -1) return;
   if (state.tabs.length <= 1) { mt.ipc.send('close-window'); return; }
   const tab = state.tabs[idx];
+  tab._closing = true;
   clearTimeout(tab.sectionTimer);
   tab.container.remove();
   tab.tabEl.remove();
   state.tabs.splice(idx, 1);
   const wasActive = state.activeTabId === id;
   if (wasActive) state.activeTabId = null;
-  try { tab.ptyProc.kill(); } catch {}
+  try { if (tab.ptyProc) tab.ptyProc.kill(); } catch {}
   try { tab.term.dispose(); } catch {}
   if (tab._shimDir) {
     try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
