@@ -15,6 +15,14 @@ function updateRendererIndicator(tab) {
   if (!el || !tab || tab.id !== state.activeTabId) return;
   el.textContent = tab._renderer === 'webgl' ? 'GL' : tab._renderer === 'canvas' ? 'CV' : 'DOM';
 }
+
+function isTabCycleShortcut(e) {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  const otherMod = isMac ? e.ctrlKey : e.metaKey;
+  return mod && !otherMod && !e.altKey && !e.shiftKey
+    && (e.key === 'PageDown' || e.key === 'PageUp');
+}
+
 const { escapeHtml } = require('./ansi');
 const { TabSession } = require('./tabSession');
 const { createShellShim, buildShellArgs } = require('./shellShim');
@@ -47,6 +55,7 @@ function trimInlineImages(arr) {
 function createTab(cwd) {
   const id = state.tabIdCounter++;
   const tab = new TabSession(id);
+  tab.autoRender = settings.autoRender;
 
   const container = document.createElement('div');
   container.className = 'tab-container';
@@ -125,6 +134,7 @@ function createTab(cwd) {
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
+    if (isTabCycleShortcut(e)) return false;
     const sc = settings.shortcuts || {};
     for (const name of Object.keys(sc)) {
       const parsed = parseShortcut(sc[name]);

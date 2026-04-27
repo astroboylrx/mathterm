@@ -1,12 +1,17 @@
 {
   "name": "mathterm",
-  "version": "0.9.5",
+  "version": "0.9.6",
+  "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
+  "author": "Rixin Li",
+  "homepage": "https://github.com/astroboylrx/mathterm",
   "main": "main.js",
   "scripts": {
     "build": "node build.js",
     "start": "npm run build && electron .",
     "rebuild": "electron-builder install-app-deps",
-    "dist": "npm run build && electron-builder --linux AppImage"
+    "dist": "npm run dist:linux",
+    "dist:linux": "npm run build && node scripts/electron-builder.js --linux AppImage deb rpm",
+    "dist:linux:packages": "npm run build && node scripts/electron-builder.js --linux deb rpm"
   },
   "build": {
     "appId": "com.mathterm.app",
@@ -21,13 +26,23 @@
       "dist/**",
       "assets/**",
       "package.json",
+      "!scripts/**",
       "!src/**",
       "!build.js",
       "!**/*.map"
     ],
     "linux": {
-      "target": "AppImage",
-      "category": "Utility"
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
+      "category": "Utility",
+      "icon": "assets/icons/png",
+      "maintainer": "Rixin Li <astroboylrx@gmail.com>"
+    },
+    "mac": {
+      "icon": "assets/icons/mac/icon.icns"
     }
   },
   "dependencies": {

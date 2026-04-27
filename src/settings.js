@@ -9,10 +9,10 @@ const SETTINGS_PATH = mt.path.join(configHome, 'mathterm', 'mathterm.json');
 const DEFAULT_SHORTCUTS = {
   toggleMath: 'Mod+Shift+M',
   toggleAutoRender: 'Mod+Shift+R',
-  openSearch: 'Mod+Shift+F',
-  copy: 'Mod+Shift+C',
-  paste: 'Mod+Shift+V',
-  selectAll: 'Mod+Shift+A',
+  openSearch: isMac ? 'Mod+F' : 'Mod+Shift+F',
+  copy: isMac ? 'Mod+C' : 'Mod+Shift+C',
+  paste: isMac ? 'Mod+V' : 'Mod+Shift+V',
+  selectAll: isMac ? 'Mod+A' : 'Mod+Shift+A',
   prevPrompt: 'Mod+Shift+Up',
   nextPrompt: 'Mod+Shift+Down',
   selectLastCommand: null,
@@ -23,7 +23,7 @@ const DEFAULTS = {
   scrollback: 16384,
   fontSize: 16,
   fontFamily: '"JetBrainsMono Nerd Font Mono", monospace',
-  autoRender: true,
+  autoRender: false,
   autoRenderDelay: 1500,
   theme: 'dark',
   cursorStyle: 'block',
@@ -39,6 +39,12 @@ const LEGACY_T14_SHORTCUTS = {
   selectLastCommand: 'Ctrl+Shift+Up',
   scrollToCursor: 'Ctrl+Shift+Down',
 };
+const LEGACY_MAC_SHORTCUTS = {
+  openSearch: 'Mod+Shift+F',
+  copy: 'Mod+Shift+C',
+  paste: 'Mod+Shift+V',
+  selectAll: 'Mod+Shift+A',
+};
 
 function _migrateShortcutDefaults(shortcuts) {
   if (shortcuts.prevPrompt === LEGACY_T14_SHORTCUTS.prevPrompt) {
@@ -53,12 +59,18 @@ function _migrateShortcutDefaults(shortcuts) {
   if (shortcuts.scrollToCursor === LEGACY_T14_SHORTCUTS.scrollToCursor) {
     shortcuts.scrollToCursor = DEFAULT_SHORTCUTS.scrollToCursor;
   }
+  if (isMac) {
+    for (const [key, legacyValue] of Object.entries(LEGACY_MAC_SHORTCUTS)) {
+      if (shortcuts[key] === legacyValue) shortcuts[key] = DEFAULT_SHORTCUTS[key];
+    }
+  }
   return shortcuts;
 }
 
 function _needsShortcutMigration(incoming) {
   const sc = (incoming && incoming.shortcuts) || {};
-  return Object.keys(LEGACY_T14_SHORTCUTS).some(k => sc[k] === LEGACY_T14_SHORTCUTS[k]);
+  return Object.keys(LEGACY_T14_SHORTCUTS).some(k => sc[k] === LEGACY_T14_SHORTCUTS[k])
+    || (isMac && Object.keys(LEGACY_MAC_SHORTCUTS).some(k => sc[k] === LEGACY_MAC_SHORTCUTS[k]));
 }
 
 function _mergeIncoming(incoming) {

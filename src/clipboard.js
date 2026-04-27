@@ -1,6 +1,7 @@
 const mt = window.mathterm;
 const { getActiveTab } = require('./state');
-const { settings } = require('./settings');
+const { settings, isMac } = require('./settings');
+const { parseShortcut, formatShortcut } = require('./keybindings');
 
 function getSelectionText() {
   const tab = getActiveTab();
@@ -64,8 +65,22 @@ function hideContextMenu() {
   state.contextMenu.classList.remove('open');
 }
 
+function setContextShortcutLabel(id, shortcut) {
+  const el = document.querySelector(`#${id} .shortcut`);
+  if (!el) return;
+  el.textContent = formatShortcut(parseShortcut(shortcut), isMac);
+}
+
+function updateContextShortcutLabels() {
+  const sc = settings.shortcuts || {};
+  setContextShortcutLabel('ctx-copy', sc.copy);
+  setContextShortcutLabel('ctx-paste', sc.paste);
+  setContextShortcutLabel('ctx-search', sc.openSearch);
+}
+
 function initClipboardListeners() {
   const state = require('./state').state;
+  updateContextShortcutLabels();
   document.getElementById('ctx-copy').addEventListener('click', () => { doCopy(); hideContextMenu(); });
   document.getElementById('ctx-paste').addEventListener('click', () => { doPaste(); hideContextMenu(); });
   document.getElementById('ctx-selectall').addEventListener('click', () => { doSelectAll(); hideContextMenu(); });

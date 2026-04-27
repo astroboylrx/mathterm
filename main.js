@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 
 let mainWindow;
+const isMac = process.platform === 'darwin';
 
 const SETTINGS_PATH = path.join(
   process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'),
@@ -14,6 +15,12 @@ const SETTINGS_PATH = path.join(
 const DEFAULT_SHORTCUTS = {
   toggleMath: 'CmdOrCtrl+Shift+M',
   toggleAutoRender: 'CmdOrCtrl+Shift+R',
+  openSearch: isMac ? 'CmdOrCtrl+F' : 'CmdOrCtrl+Shift+F',
+  copy: isMac ? 'CmdOrCtrl+C' : 'CmdOrCtrl+Shift+C',
+  paste: isMac ? 'CmdOrCtrl+V' : 'CmdOrCtrl+Shift+V',
+  selectAll: isMac ? 'CmdOrCtrl+A' : 'CmdOrCtrl+Shift+A',
+};
+const LEGACY_MAC_SHORTCUTS = {
   openSearch: 'CmdOrCtrl+Shift+F',
   copy: 'CmdOrCtrl+Shift+C',
   paste: 'CmdOrCtrl+Shift+V',
@@ -32,7 +39,8 @@ function loadShortcuts() {
     const sc = (parsed && parsed.shortcuts) || {};
     const out = {};
     for (const k of Object.keys(DEFAULT_SHORTCUTS)) {
-      out[k] = modToCmdOrCtrl(sc[k]) || DEFAULT_SHORTCUTS[k];
+      const shortcut = modToCmdOrCtrl(sc[k]) || DEFAULT_SHORTCUTS[k];
+      out[k] = isMac && shortcut === LEGACY_MAC_SHORTCUTS[k] ? DEFAULT_SHORTCUTS[k] : shortcut;
     }
     return out;
   } catch {
@@ -89,12 +97,12 @@ function buildMenu(autoRender) {
         { type: 'separator' },
         {
           label: 'New Tab',
-          accelerator: 'CmdOrCtrl+Shift+T',
+          accelerator: isMac ? 'CmdOrCtrl+T' : 'CmdOrCtrl+Shift+T',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('new-tab'); }
         },
         {
           label: 'Close Tab',
-          accelerator: 'CmdOrCtrl+Shift+W',
+          accelerator: isMac ? 'CmdOrCtrl+W' : 'CmdOrCtrl+Shift+W',
           click: () => { const wc = getFocusedWebContents(); if (wc) wc.send('close-tab'); }
         },
         { type: 'separator' },

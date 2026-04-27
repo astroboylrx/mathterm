@@ -59,11 +59,31 @@ function rebuildBindings() {
 }
 rebuildBindings();
 
+function isTabCycleShortcut(e) {
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  const otherMod = isMac ? e.ctrlKey : e.metaKey;
+  return mod && !otherMod && !e.altKey && !e.shiftKey
+    && (e.key === 'PageDown' || e.key === 'PageUp');
+}
+
+function cycleTab(direction) {
+  const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
+  if (idx !== -1 && state.tabs.length > 1) {
+    switchTab(state.tabs[(idx + direction + state.tabs.length) % state.tabs.length].id);
+  }
+}
+
 // Pre-empt xterm at capture phase: intercept any configured shortcut before
-// it reaches the textarea, so escape sequences for arrow + modifier combos
-// (e.g. Ctrl+Shift+Up → \x1b[1;6A) never get written to the PTY.
+// it reaches the textarea, so escape sequences for modified navigation keys
+// (e.g. Ctrl+Shift+Up or Ctrl+PageDown) never get written to the PTY.
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
+  if (isTabCycleShortcut(e)) {
+    e.preventDefault();
+    e.stopPropagation();
+    cycleTab(e.key === 'PageDown' ? 1 : -1);
+    return;
+  }
   const sc = (settings.shortcuts || {});
   for (const name of Object.keys(sc)) {
     const parsed = parseShortcut(sc[name]);
@@ -101,13 +121,13 @@ function _dispatchShortcut(name, e) {
       window.toggleAutoRender();
       break;
     case 'copy':
-      if (tab && tab.richVisible) require('./clipboard').doCopy();
+      if (tab) require('./clipboard').doCopy();
       break;
     case 'paste':
-      if (tab && tab.richVisible) require('./clipboard').doPaste();
+      if (tab) require('./clipboard').doPaste();
       break;
     case 'selectAll':
-      if (tab && tab.richVisible) require('./clipboard').doSelectAll();
+      if (tab) require('./clipboard').doSelectAll();
       break;
     case 'prevPrompt':
       if (tab && !tab.richVisible) jumpToPrevPrompt(tab);
@@ -168,14 +188,12 @@ document.addEventListener('keydown', e => {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   if (mod && e.key === 'PageDown') {
     e.preventDefault();
-    const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
-    if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx + 1) % state.tabs.length].id);
+    cycleTab(1);
     return;
   }
   if (mod && e.key === 'PageUp') {
     e.preventDefault();
-    const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
-    if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx - 1 + state.tabs.length) % state.tabs.length].id);
+    cycleTab(-1);
     return;
   }
   if (mod && e.key >= '1' && e.key <= '9') {

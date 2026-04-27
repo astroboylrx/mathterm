@@ -36,7 +36,7 @@ class TabSession {
     this._promptJumpFlashTimer = null;
     this._promptJumpAnchorY = null;
     this._lastExitCode = '';
-    this.autoRender = true;
+    this.autoRender = false;
     this.osc1337Parser = new Osc1337Parser();
     this.inlineImages = [];
   }
