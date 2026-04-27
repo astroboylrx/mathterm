@@ -237,11 +237,21 @@ function createTab(cwd) {
         tab._promptBHandled = true;
       }
     } else if (data.startsWith('C')) {
+      tab._commandRunning = true;
       tab._commandStartY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
     } else if (data.startsWith('D')) {
-      const exitCode = data.length > 2 ? data.slice(2) : '';
+      const wasCommandRunning = tab._commandRunning;
+      tab._commandRunning = false;
+      const exitCode = data.length > 2 ? data.slice(2).split(';')[0].trim() : '';
       tab._lastExitCode = exitCode;
       tab._commandEndY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
+      if (wasCommandRunning && settings.backgroundCommandMarker && tab.id !== state.activeTabId) {
+        const failed = exitCode !== '' && exitCode !== '0';
+        tab.needsAttention = true;
+        tab.attentionLevel = failed ? 'error' : 'success';
+        tab.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
+        updateTabBar();
+      }
       const { tabFlushSectionOnCommandEnd } = require('./richView');
       tabFlushSectionOnCommandEnd(tab);
     }
@@ -348,8 +358,12 @@ function switchTab(id) {
   }
   state.activeTabId = id;
   const tab = getActiveTab();
+  tab.needsAttention = false;
+  tab.attentionLevel = null;
+  tab.attentionMessage = '';
   tab.container.classList.add('active');
   tab.tabEl.classList.add('active');
+  updateTabBar();
   requestAnimationFrame(() => {
     tab.fitAddon.fit();
     applyZoomToTab(tab);

@@ -29,6 +29,7 @@ class TabSession {
     this._promptStartYSet = new Set();
     this._shimDir = null;
     this._customTitle = null;
+    this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;
     this._promptStartY = undefined;
@@ -37,6 +38,9 @@ class TabSession {
     this._promptJumpFlashTimer = null;
     this._promptJumpAnchorY = null;
     this._lastExitCode = '';
+    this.needsAttention = false;
+    this.attentionLevel = null;
+    this.attentionMessage = '';
     this.autoRender = false;
     this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();

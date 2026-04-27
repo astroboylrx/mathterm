@@ -88,6 +88,19 @@
       height: 2px;
       background: var(--accent);
     }
+    .tab-item.needs-attention .tab-title::before {
+      content: '';
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      margin-right: 6px;
+      border-radius: 999px;
+      background: var(--accent);
+      vertical-align: 1px;
+    }
+    .tab-item.needs-attention.attention-error .tab-title::before {
+      background: var(--red);
+    }
     .tab-item.dragging {
       opacity: 0.4;
     }
@@ -460,7 +473,7 @@
     #cwd-link:hover { color: var(--fg); text-decoration: underline; }
     #git-sep { color: var(--fg-dim); }
     #git-branch { color: var(--fg-muted); flex-shrink: 0; }
-    #git-sep.hidden, #git-branch.hidden { display: none; }
+    .hidden { display: none !important; }
     #math-btn {
       background: var(--bg);
       border: 1px solid var(--border);
@@ -755,6 +768,7 @@
       <label><span>Cursor style</span><select id="s-cursorstyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
       <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
       <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>
+      <label><span>Background command marker</span><input type="checkbox" id="s-attentionmarker"></label>
       <div class="note">Scrollback and font changes require restart to take full effect.</div>
       <div class="note" id="s-config-path">For shortcuts and custom themes, edit the config file directly.</div>
     </div>

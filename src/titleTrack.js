@@ -28,6 +28,11 @@ function updateTabBar() {
   for (const tab of state.tabs) {
     const el = tab.tabEl?.querySelector('.tab-title');
     if (el && !el.isContentEditable) el.textContent = tab._customTitle || tab.title;
+    if (tab.tabEl) {
+      tab.tabEl.classList.toggle('needs-attention', !!tab.needsAttention);
+      tab.tabEl.classList.toggle('attention-error', tab.attentionLevel === 'error');
+      tab.tabEl.title = tab.needsAttention ? (tab.attentionMessage || 'Command finished') : '';
+    }
   }
 }
 

@@ -64,9 +64,10 @@ ${imgcatFn}
     const bashrc = `for f in /etc/profile; do [ -f "$f" ] && . "$f" && break; done
 for f in ~/.bash_profile ~/.bash_login ~/.profile; do [ -f "$f" ] && . "$f" && break; done
 [ -z "\$_MATHTERM_BASHRC_LOADED" ] && [ -f ~/.bashrc ] && . ~/.bashrc && export _MATHTERM_BASHRC_LOADED=1
-_mathterm_preexec_invoke_exec() { [ "\$_MATHTERM_PREEXEC" = "1" ] || [ "\$_MATHTERM_PREEXEC" = "2" ] && return; _MATHTERM_PREEXEC=1; ${markC}; }
+_mathterm_preexec_invoke_exec() { case "\$_MATHTERM_PREEXEC" in 1|2) return;; esac; _MATHTERM_PREEXEC=1; ${markC}; }
 trap '_mathterm_preexec_invoke_exec' DEBUG
-PROMPT_COMMAND="\${PROMPT_COMMAND:+\$PROMPT_COMMAND;}_MATHTERM_PREEXEC=2; ${markD} \\\$?; ${markA}; _MATHTERM_PREEXEC=0"
+_mt_user_prompt_command="\${PROMPT_COMMAND-}"
+PROMPT_COMMAND="_mt_status=\\$?; _MATHTERM_PREEXEC=2; if [ -n \\"\\$_mt_user_prompt_command\\" ]; then eval \\"\\$_mt_user_prompt_command\\"; fi; ${markD} \\"\\$_mt_status\\"; ${markA}; _MATHTERM_PREEXEC=0"
 case "\$PS1" in
   *'\\[\\e]133;B\\a\\]'*) ;;
   *) PS1="\${PS1}\\[\\e]133;B\\a\\]" ;;
