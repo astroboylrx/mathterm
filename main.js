@@ -49,6 +49,17 @@ function loadShortcuts() {
   }
 }
 
+function loadQuitWhenLastTabClosed() {
+  if (!isMac) return false;
+  try {
+    const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    return !!parsed.quitWhenLastTabClosed;
+  } catch {
+    return false;
+  }
+}
+
 const webPrefs = {
   nodeIntegration: false,
   contextIsolation: true,
@@ -274,7 +285,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin' || loadQuitWhenLastTabClosed()) app.quit();
 });
 
 app.on('activate', () => {

@@ -34,6 +34,25 @@
        --purple, --cyan, --orange, --highlight, --ansi-0..--ansi-15 */
     * { margin: 0; box-sizing: border-box; }
     ::selection { background: var(--selection-bg); }
+    * {
+      scrollbar-color: var(--border) var(--bg);
+      scrollbar-width: thin;
+    }
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border: 2px solid var(--bg);
+      border-radius: 999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--fg-dim);
+    }
     body {
       background: var(--bg);
       color: var(--fg);
@@ -185,9 +204,21 @@
       pointer-events: auto;
       border-color: var(--highlight);
     }
-    .rich-view::-webkit-scrollbar { width: 8px; }
-    .rich-view::-webkit-scrollbar-track { background: transparent; }
-    .rich-view::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .xterm .xterm-viewport {
+      scrollbar-color: var(--border) var(--bg);
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-track,
+    .rich-view::-webkit-scrollbar-track,
+    .dialog-body::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+    .xterm .xterm-viewport::-webkit-scrollbar-thumb,
+    .rich-view::-webkit-scrollbar-thumb,
+    .dialog-body::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border: 2px solid var(--bg);
+      border-radius: 999px;
+    }
 
     .rline {
       white-space: pre-wrap;
