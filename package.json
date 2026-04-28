@@ -21,6 +21,7 @@
     },
     "files": [
       "main.js",
+      "shortcutDefaults.js",
       "preload.js",
       "index.html",
       "dist/**",

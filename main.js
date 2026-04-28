@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('./shortcutDefaults');
 
 let mainWindow;
 const isMac = process.platform === 'darwin';
@@ -13,30 +14,21 @@ const SETTINGS_PATH = path.join(
   'mathterm.json'
 );
 
-const DEFAULT_SHORTCUTS = {
-  toggleMath: 'CmdOrCtrl+Shift+M',
-  toggleAutoRender: 'CmdOrCtrl+Shift+R',
-  openSearch: isMac ? 'CmdOrCtrl+F' : 'CmdOrCtrl+Shift+F',
-  copy: isMac ? 'CmdOrCtrl+C' : 'CmdOrCtrl+Shift+C',
-  paste: isMac ? 'CmdOrCtrl+V' : 'CmdOrCtrl+Shift+V',
-  selectAll: isMac ? 'CmdOrCtrl+A' : 'CmdOrCtrl+Shift+A',
-  splitPaneRight: isMac ? 'CmdOrCtrl+D' : 'CmdOrCtrl+Shift+D',
-  splitPaneDown: isMac ? 'CmdOrCtrl+Shift+D' : 'CmdOrCtrl+Shift+E',
-  closePane: isMac ? 'CmdOrCtrl+W' : 'CmdOrCtrl+Shift+W',
-  nextPane: isMac ? 'CmdOrCtrl+]' : '',
-  prevPane: isMac ? 'CmdOrCtrl+[' : '',
-};
-const LEGACY_MAC_SHORTCUTS = {
-  openSearch: 'CmdOrCtrl+Shift+F',
-  copy: 'CmdOrCtrl+Shift+C',
-  paste: 'CmdOrCtrl+Shift+V',
-  selectAll: 'CmdOrCtrl+Shift+A',
-};
-
 function modToCmdOrCtrl(s) {
   if (!s) return '';
   return s.split('+').map(p => /^mod$/i.test(p.trim()) ? 'CmdOrCtrl' : p).join('+');
 }
+
+function toElectronShortcuts(shortcuts) {
+  const out = {};
+  for (const [key, shortcut] of Object.entries(shortcuts)) {
+    out[key] = modToCmdOrCtrl(shortcut);
+  }
+  return out;
+}
+
+const DEFAULT_SHORTCUTS = toElectronShortcuts(createDefaultShortcuts(isMac));
+const ELECTRON_LEGACY_MAC_SHORTCUTS = toElectronShortcuts(LEGACY_MAC_SHORTCUTS);
 
 function loadShortcuts() {
   try {
@@ -46,7 +38,7 @@ function loadShortcuts() {
     const out = {};
     for (const k of Object.keys(DEFAULT_SHORTCUTS)) {
       const shortcut = modToCmdOrCtrl(sc[k]) || DEFAULT_SHORTCUTS[k];
-      out[k] = isMac && shortcut === LEGACY_MAC_SHORTCUTS[k] ? DEFAULT_SHORTCUTS[k] : shortcut;
+      out[k] = isMac && shortcut === ELECTRON_LEGACY_MAC_SHORTCUTS[k] ? DEFAULT_SHORTCUTS[k] : shortcut;
     }
     return out;
   } catch {

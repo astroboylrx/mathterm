@@ -86,53 +86,51 @@ function cycleTab(direction) {
   }
 }
 
-// Pre-empt xterm at capture phase: intercept any configured shortcut before
-// it reaches the textarea, so escape sequences for modified navigation keys
-// (e.g. Ctrl+Shift+Up or Ctrl+PageDown) never get written to the PTY.
-document.addEventListener('keydown', e => {
-  if (document.activeElement === state.searchInput) return;
-  if (handlePaneShortcut(e)) return;
-  const tabCycleDirection = tabCycleDirectionForEvent(e);
-  if (tabCycleDirection) {
-    e.preventDefault();
-    e.stopPropagation();
-    cycleTab(tabCycleDirection);
-    return;
+function shortcutNameForEvent(e) {
+  for (const [name, parsed] of Object.entries(_bindings)) {
+    if (matchShortcut(parsed, e, isMac)) return name;
   }
-  if (isZoomShortcut(e, isMac)) {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.key === '-' ) zoomOutActiveTab();
-    else if (e.key === '0') resetActiveZoom();
-    else zoomInActiveTab();
-    return;
-  }
-  const sc = (settings.shortcuts || {});
-  for (const name of Object.keys(sc)) {
-    const parsed = parseShortcut(sc[name]);
-    if (parsed && matchShortcut(parsed, e, isMac)) {
-      e.preventDefault();
-      e.stopPropagation();
-      // Re-dispatch synthetic event on document at bubble phase so the
-      // existing handler runs the action.
-      const synth = new KeyboardEvent('keydown', {
-        key: e.key, code: e.code, location: e.location,
-        ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
-        bubbles: false, cancelable: true
-      });
-      synth._mtSynth = true;
-      // Inline action dispatch instead of redispatch — simpler.
-      _dispatchShortcut(name, e);
-      return;
-    }
-  }
-}, true);
+  return null;
+}
 
-function _dispatchShortcut(name, e) {
-  const tab = getActiveTab();
-  if (tab && name !== 'prevPrompt' && name !== 'nextPrompt') {
-    tab._promptJumpAnchorY = null;
+function isPromptNavigationShortcut(e) {
+  return matchShortcut(_bindings.prevPrompt, e, isMac) || matchShortcut(_bindings.nextPrompt, e, isMac);
+}
+
+function handleRichViewKey(e, tab) {
+  if (!tab?.richVisible) return false;
+  if (e.key === 'Escape' || e.key === 'q') {
+    e.preventDefault();
+    const { tabHideRichView } = require('./richView');
+    tabHideRichView(tab);
+  } else if (e.key === 'PageDown' || (e.shiftKey && e.key === 'PageDown')) {
+    e.preventDefault();
+    tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
+  } else if (e.key === 'PageUp' || (e.shiftKey && e.key === 'PageUp')) {
+    e.preventDefault();
+    tab.richView.scrollTop -= tab.richView.clientHeight * 0.9;
+  } else if (e.key === 'Home') {
+    e.preventDefault();
+    tab.richView.scrollTop = 0;
+  } else if (e.key === 'End') {
+    e.preventDefault();
+    tab.richView.scrollTop = tab.richView.scrollHeight;
+  } else if (e.key === 'ArrowDown') {
+    tab.richView.scrollTop += 40;
+  } else if (e.key === 'ArrowUp') {
+    tab.richView.scrollTop -= 40;
+  } else if (e.key === ' ') {
+    e.preventDefault();
+    tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
+  } else {
+    return false;
   }
+  e.stopPropagation();
+  return true;
+}
+
+function _dispatchShortcut(name) {
+  const tab = getActiveTab();
   switch (name) {
     case 'toggleMath':
       if (tab) toggleMathMode();
@@ -182,113 +180,55 @@ function _dispatchShortcut(name, e) {
   }
 }
 
+// Pre-empt xterm at capture phase: intercept shortcuts before they reach the
+// textarea, so modified navigation keys never get written to the PTY.
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
 
   const tab = getActiveTab();
-  if (tab && !matchShortcut(_bindings.prevPrompt, e, isMac) && !matchShortcut(_bindings.nextPrompt, e, isMac)) {
-    tab._promptJumpAnchorY = null;
+  if (tab && !isPromptNavigationShortcut(e)) tab._promptJumpAnchorY = null;
+
+  if (handlePaneShortcut(e)) return;
+
+  const tabCycleDirection = tabCycleDirectionForEvent(e);
+  if (tabCycleDirection) {
+    e.preventDefault();
+    e.stopPropagation();
+    cycleTab(tabCycleDirection);
+    return;
   }
 
-  if (matchShortcut(_bindings.toggleMath, e, isMac) && tab) {
+  if (isZoomShortcut(e, isMac)) {
     e.preventDefault();
-    toggleMathMode();
-    return;
-  }
-  if (matchShortcut(_bindings.openSearch, e, isMac)) {
-    e.preventDefault();
-    require('./search').openSearch();
-    return;
-  }
-  if (matchShortcut(_bindings.toggleAutoRender, e, isMac)) {
-    e.preventDefault();
-    window.toggleAutoRender();
-    return;
-  }
-  if (tab && tab.richVisible) {
-    if (matchShortcut(_bindings.copy, e, isMac)) {
-      e.preventDefault(); e.stopPropagation();
-      require('./clipboard').doCopy();
-      return;
-    }
-    if (matchShortcut(_bindings.paste, e, isMac)) {
-      e.preventDefault(); e.stopPropagation();
-      require('./clipboard').doPaste();
-      return;
-    }
-    if (matchShortcut(_bindings.selectAll, e, isMac)) {
-      e.preventDefault(); e.stopPropagation();
-      require('./clipboard').doSelectAll();
-      return;
-    }
-  }
-
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-  if (mod && !e.altKey && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
-    e.preventDefault();
+    e.stopPropagation();
     if (e.key === '-') zoomOutActiveTab();
     else if (e.key === '0') resetActiveZoom();
     else zoomInActiveTab();
     return;
   }
-  const tabCycleDirection = tabCycleDirectionForEvent(e);
-  if (tabCycleDirection) {
-    e.preventDefault();
-    cycleTab(tabCycleDirection);
-    return;
-  }
-  if (mod && e.key >= '1' && e.key <= '9') {
+
+  const mod = isMac ? e.metaKey : e.ctrlKey;
+  const otherMod = isMac ? e.ctrlKey : e.metaKey;
+  if (mod && !otherMod && !e.altKey && !e.shiftKey && e.key >= '1' && e.key <= '9') {
     const n = parseInt(e.key) - 1;
-    if (n < state.tabs.length) { e.preventDefault(); switchTab(state.tabs[n].id); }
-    return;
-  }
-
-  if (!tab) return;
-
-  if (tab.richVisible) {
-    if (e.key === 'Escape' || e.key === 'q') {
+    if (n < state.tabs.length) {
       e.preventDefault();
-      const { tabHideRichView } = require('./richView');
-      tabHideRichView(tab);
-    } else if (e.key === 'PageDown' || (e.shiftKey && e.key === 'PageDown')) {
-      e.preventDefault();
-      tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
-    } else if (e.key === 'PageUp' || (e.shiftKey && e.key === 'PageUp')) {
-      e.preventDefault();
-      tab.richView.scrollTop -= tab.richView.clientHeight * 0.9;
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      tab.richView.scrollTop = 0;
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      tab.richView.scrollTop = tab.richView.scrollHeight;
-    } else if (e.key === 'ArrowDown') {
-      tab.richView.scrollTop += 40;
-    } else if (e.key === 'ArrowUp') {
-      tab.richView.scrollTop -= 40;
-    } else if (e.key === ' ') {
-      e.preventDefault();
-      tab.richView.scrollTop += tab.richView.clientHeight * 0.9;
+      e.stopPropagation();
+      switchTab(state.tabs[n].id);
     }
     return;
   }
 
-  if (matchShortcut(_bindings.prevPrompt, e, isMac)) {
+  const shortcutName = shortcutNameForEvent(e);
+  if (shortcutName) {
     e.preventDefault();
-    jumpToPrevPrompt(tab);
+    e.stopPropagation();
+    _dispatchShortcut(shortcutName);
     return;
   }
-  if (matchShortcut(_bindings.nextPrompt, e, isMac)) {
-    e.preventDefault();
-    jumpToNextPrompt(tab);
-    return;
-  }
-  if (matchShortcut(_bindings.selectLastCommand, e, isMac)) {
-    e.preventDefault();
-    selectLastCommandOutput(tab);
-    return;
-  }
-});
+
+  if (handleRichViewKey(e, tab)) return;
+}, true);
 
 function selectLastCommandOutput(tab) {
   if (tab._commandStartY === undefined || tab._commandEndY === undefined) return;

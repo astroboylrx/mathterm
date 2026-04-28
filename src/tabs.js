@@ -172,36 +172,46 @@ function replaceNodeAtPath(root, path, newNode) {
 function removePaneFromLayout(root, paneId) {
   let replacementPaneId = null;
   function walk(node) {
-    if (!node) return null;
-    if (node.type === 'pane') return node.paneId === paneId ? null : node;
-    const children = [];
+    if (!node) return { node: null, removed: false };
+    if (node.type === 'pane') {
+      return node.paneId === paneId
+        ? { node: null, removed: true }
+        : { node, removed: false };
+    }
     const originalChildren = node.children || [];
-    let removedChildIndex = -1;
+    const originalSizes = node.sizes && node.sizes.length === originalChildren.length
+      ? node.sizes
+      : originalChildren.map(() => 1 / Math.max(1, originalChildren.length));
+    const kept = [];
+    let removed = false;
     for (let i = 0; i < originalChildren.length; i++) {
-      if (findLeafPath(originalChildren[i], paneId)) {
-        removedChildIndex = i;
-        break;
+      const result = walk(originalChildren[i]);
+      removed = removed || result.removed;
+      if (result.node) kept.push({ node: result.node, size: originalSizes[i] });
+    }
+    if (!removed) return { node, removed: false };
+    if (kept.length === 0) return { node: null, removed: true };
+    if (kept.length === 1) {
+      if (replacementPaneId === null) {
+        replacementPaneId = firstPaneIdInLayout(kept[0].node);
       }
+      return { node: kept[0].node, removed: true };
     }
-    for (const child of node.children || []) {
-      const kept = walk(child);
-      if (kept) children.push(kept);
-    }
-    if (children.length === 0) return null;
-    if (children.length === 1) {
-      if (removedChildIndex !== -1 && replacementPaneId === null) {
-        replacementPaneId = firstPaneIdInLayout(children[0]);
-      }
-      return children[0];
-    }
+    const total = kept.reduce((sum, entry) => sum + Math.max(0, entry.size || 0), 0);
+    const sizes = total > 0
+      ? kept.map(entry => Math.max(0, entry.size || 0) / total)
+      : kept.map(() => 1 / kept.length);
     return {
-      ...node,
-      children,
-      sizes: children.map(() => 1 / children.length)
+      node: {
+        ...node,
+        children: kept.map(entry => entry.node),
+        sizes
+      },
+      removed: true
     };
   }
-  const layout = walk(root);
-  return { layout, replacementPaneId };
+  const result = walk(root);
+  return { layout: result.node, replacementPaneId };
 }
 
 function firstPaneIdInLayout(root) {
@@ -223,16 +233,13 @@ function renderLayout(workspace) {
   if (!workspace || !workspace.container || !workspace.layout) return;
   const root = getWorkspaceRoot(workspace);
   root.className = 'workspace-pane-root';
-  root.replaceChildren();
 
   function renderNode(node) {
     if (node.type === 'pane') {
-      const leaf = document.createElement('div');
-      leaf.className = 'pane-leaf';
-      leaf.dataset.paneId = String(node.paneId);
-      leaf.classList.toggle('active', workspace.activePaneId === node.paneId);
-      leaf.addEventListener('mousedown', () => focusPane(node.paneId, { focusTerm: false }));
       const pane = workspace.panes.find(p => p.id === node.paneId);
+      const leaf = getPaneLeaf(workspace, node.paneId) || createPaneLeafElement(workspace, node.paneId);
+      leaf.className = 'pane-leaf';
+      leaf.classList.toggle('active', workspace.activePaneId === node.paneId);
       if (pane) {
         pane.leafEl = leaf;
         if (pane.richView) {
@@ -261,7 +268,10 @@ function renderLayout(workspace) {
     return split;
   }
 
-  root.appendChild(renderNode(workspace.layout));
+  const rendered = renderNode(workspace.layout);
+  if (root.firstElementChild !== rendered || root.children.length !== 1) {
+    root.replaceChildren(rendered);
+  }
 }
 
 function updatePaneActiveClasses(workspace) {
@@ -330,7 +340,7 @@ function createPaneLeafElement(workspace, paneId) {
   leaf.className = 'pane-leaf';
   leaf.dataset.paneId = String(paneId);
   leaf.classList.toggle('active', workspace.activePaneId === paneId);
-  leaf.addEventListener('mousedown', () => focusPane(paneId, { focusTerm: false }));
+  leaf.addEventListener('mousedown', () => focusPane(paneId, { focusTerm: false, clearFocusBacklink: true }));
   return leaf;
 }
 
@@ -354,7 +364,7 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
   const richViewEl = document.createElement('div');
   richViewEl.className = 'rich-view';
   richViewEl.tabIndex = 0;
-  richViewEl.addEventListener('mousedown', () => focusPane(id, { focusTerm: false }));
+  richViewEl.addEventListener('mousedown', () => focusPane(id, { focusTerm: false, clearFocusBacklink: true }));
   const richContentEl = document.createElement('div');
   richContentEl.className = 'rich-content';
   const richHintEl = document.createElement('div');
@@ -549,8 +559,8 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
       const exitCode = data.length > 2 ? data.slice(2).split(';')[0].trim() : '';
       pane._lastExitCode = exitCode;
       pane._commandEndY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
-      const paneIsActive = isActivePane(pane) && pane.workspace.id === state.activeWorkspaceId;
-      if (wasCommandRunning && settings.backgroundCommandMarker && !paneIsActive) {
+      const workspaceIsActive = pane.workspace.id === state.activeWorkspaceId;
+      if (wasCommandRunning && settings.backgroundCommandMarker && !workspaceIsActive) {
         const failed = exitCode !== '' && exitCode !== '0';
         pane.workspace.needsAttention = true;
         pane.workspace.attentionLevel = failed ? 'error' : 'success';
@@ -651,23 +661,24 @@ function activateWorkspaceShell(workspace) {
   workspace.tabEl.classList.add('active');
 }
 
-function switchTab(id) {
+function switchTab(id, opts = {}) {
   const workspace = state.workspaces.find(w => w.id === id);
   if (!workspace) return;
+  const targetPane = opts.paneId ? workspace.panes.find(p => p.id === opts.paneId) : null;
   if (id === state.activeWorkspaceId) {
-    const pane = getActivePane();
-    if (pane) focusPane(pane.id);
+    const pane = targetPane || getActivePane();
+    if (pane) focusPane(pane.id, { focusTerm: opts.focusTerm, clearFocusBacklink: true });
     return;
   }
   activateWorkspaceShell(workspace);
   updatePaneActiveClasses(workspace);
   updateTabBar();
-  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  const pane = targetPane || workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
   if (pane) {
     workspace.activePaneId = pane.id;
     requestAnimationFrame(() => {
       fitVisiblePanes(workspace);
-      focusPane(pane.id);
+      focusPane(pane.id, { focusTerm: opts.focusTerm, clearFocusBacklink: true });
     });
   }
 }
@@ -757,7 +768,11 @@ function focusPane(paneId, opts = {}) {
   const workspace = getPaneWorkspace(paneId);
   const pane = workspace ? workspace.panes.find(p => p.id === paneId) : null;
   if (!workspace || !pane) return;
-  if (workspace.id !== state.activeWorkspaceId) switchTab(workspace.id);
+  if (workspace.id !== state.activeWorkspaceId) switchTab(workspace.id, { paneId, focusTerm: opts.focusTerm });
+
+  if (opts.clearFocusBacklink) {
+    for (const p of workspace.panes) p._focusBacklink = null;
+  }
 
   const prevPane = getActivePane();
   if (prevPane && prevPane !== pane) {
@@ -781,7 +796,12 @@ function focusPane(paneId, opts = {}) {
   state.autoIndicator.className = pane.autoRender ? '' : 'off';
   mt.ipc.send('rebuild-menu', pane.autoRender);
   scheduleFitVisiblePanes(workspace);
-  if (opts.focusTerm !== false) requestAnimationFrame(() => pane.term?.focus());
+  if (opts.focusTerm !== false) {
+    requestAnimationFrame(() => {
+      if (pane.richVisible) pane.richView?.focus();
+      else pane.term?.focus();
+    });
+  }
 }
 
 function splitActivePane(direction) {
@@ -949,7 +969,7 @@ function focusPaneByOffset(delta) {
   const idx = panes.findIndex(p => p.id === active.id);
   if (idx === -1) return;
   const next = panes[(idx + delta + panes.length) % panes.length];
-  if (next) focusPane(next.id);
+  if (next) focusPane(next.id, { clearFocusBacklink: true });
 }
 
 function focusNextPane() {

@@ -5,7 +5,6 @@ function buildShortcutSections() {
   return [
     { section: 'Tabs', items: [
       { keys: isMac ? 'Mod+T' : 'Mod+Shift+T', desc: 'New tab' },
-      { keys: isMac ? '' : '', desc: 'Close workspace' },
       { keys: 'Mod+1 … Mod+9', desc: 'Switch to tab N' },
       { keys: isMac ? 'Mod+Shift+]' : 'Mod+PageDown', desc: 'Next tab' },
       { keys: isMac ? 'Mod+Shift+[' : 'Mod+PageUp', desc: 'Previous tab' },
@@ -35,7 +34,7 @@ function buildShortcutSections() {
     { section: 'Panes', items: [
       { id: 'splitPaneRight', keys: sc.splitPaneRight, desc: 'Split pane right' },
       { id: 'splitPaneDown', keys: sc.splitPaneDown, desc: 'Split pane down' },
-      { id: 'closePane', keys: sc.closePane, desc: 'Close active pane' },
+      { id: 'closePane', keys: sc.closePane, desc: 'Close active pane (last pane closes workspace)' },
       { id: 'nextPane', keys: sc.nextPane, desc: 'Next pane' },
       { id: 'prevPane', keys: sc.prevPane, desc: 'Previous pane' },
       { keys: isMac ? 'Mod+Option+Arrow' : 'Alt+Arrow', desc: 'Focus pane by direction' },
