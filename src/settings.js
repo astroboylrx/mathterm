@@ -44,13 +44,17 @@ function _migrateShortcutDefaults(shortcuts) {
       if (shortcuts[key] === legacyValue) shortcuts[key] = DEFAULT_SHORTCUTS[key];
     }
   }
+  if (!shortcuts.togglePaneMaximize) {
+    shortcuts.togglePaneMaximize = DEFAULT_SHORTCUTS.togglePaneMaximize;
+  }
   return shortcuts;
 }
 
 function _needsShortcutMigration(incoming) {
   const sc = (incoming && incoming.shortcuts) || {};
   return Object.keys(LEGACY_T14_SHORTCUTS).some(k => sc[k] === LEGACY_T14_SHORTCUTS[k])
-    || (isMac && Object.keys(LEGACY_MAC_SHORTCUTS).some(k => sc[k] === LEGACY_MAC_SHORTCUTS[k]));
+    || (isMac && Object.keys(LEGACY_MAC_SHORTCUTS).some(k => sc[k] === LEGACY_MAC_SHORTCUTS[k]))
+    || !sc.togglePaneMaximize;
 }
 
 function _mergeIncoming(incoming) {

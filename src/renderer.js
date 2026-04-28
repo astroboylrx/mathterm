@@ -36,6 +36,7 @@ window.createTab = createTab;
 window.splitPaneRight = require('./tabs').splitPaneRight;
 window.splitPaneDown = require('./tabs').splitPaneDown;
 window.closeActivePane = require('./tabs').closeActivePane;
+window.togglePaneMaximize = require('./tabs').togglePaneMaximize;
 window.toggleMathMode = toggleMathMode;
 window.toggleAutoRender = function() {
   const tab = getActiveTab();
@@ -176,6 +177,9 @@ function _dispatchShortcut(name) {
       break;
     case 'prevPane':
       require('./tabs').focusPrevPane();
+      break;
+    case 'togglePaneMaximize':
+      require('./tabs').togglePaneMaximize();
       break;
   }
 }

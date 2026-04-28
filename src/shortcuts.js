@@ -35,6 +35,7 @@ function buildShortcutSections() {
       { id: 'splitPaneRight', keys: sc.splitPaneRight, desc: 'Split pane right' },
       { id: 'splitPaneDown', keys: sc.splitPaneDown, desc: 'Split pane down' },
       { id: 'closePane', keys: sc.closePane, desc: 'Close active pane (last pane closes workspace)' },
+      { id: 'togglePaneMaximize', keys: sc.togglePaneMaximize, desc: 'Maximize or restore active pane' },
       { id: 'nextPane', keys: sc.nextPane, desc: 'Next pane' },
       { id: 'prevPane', keys: sc.prevPane, desc: 'Previous pane' },
       { keys: isMac ? 'Mod+Option+Arrow' : 'Alt+Arrow', desc: 'Focus pane by direction' },

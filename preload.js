@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('mathterm', {
         'next-tab', 'prev-tab', 'do-copy', 'do-paste', 'open-search',
         'select-all', 'zoom-in', 'zoom-out', 'reset-zoom',
         'export-rich-pdf', 'export-rich-png',
-        'split-pane-right', 'split-pane-down', 'close-pane',
+        'split-pane-right', 'split-pane-down', 'close-pane', 'toggle-pane-maximize',
         'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
         'focus-next-pane', 'focus-prev-pane'
       ];

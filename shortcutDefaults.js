@@ -15,6 +15,7 @@ function createDefaultShortcuts(isMac) {
     closePane: isMac ? 'Mod+W' : 'Mod+Shift+W',
     nextPane: isMac ? 'Mod+]' : null,
     prevPane: isMac ? 'Mod+[' : null,
+    togglePaneMaximize: 'Mod+Shift+Enter',
   };
 }
 

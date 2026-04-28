@@ -243,6 +243,12 @@ function buildMenu(autoRender) {
           registerAccelerator: false,
           click: () => sendFocused('close-pane')
         },
+        {
+          label: 'Maximize Pane',
+          accelerator: sc.togglePaneMaximize,
+          registerAccelerator: false,
+          click: () => sendFocused('toggle-pane-maximize')
+        },
         ...(isMac ? [
           {
             label: 'Next Pane',

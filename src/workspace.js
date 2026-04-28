@@ -9,6 +9,7 @@ class TabWorkspace {
     this.tabEl = null;
     this.panes = [];
     this.activePaneId = null;
+    this.maximizedPaneId = null;
     this.layout = null;
     this._customTitle = null;
     this.needsAttention = false;

@@ -169,6 +169,31 @@ function replaceNodeAtPath(root, path, newNode) {
   return next;
 }
 
+function getNodeAtPath(root, path) {
+  let cur = root;
+  for (const idx of path || []) {
+    if (!cur || cur.type === 'pane') return null;
+    cur = cur.children?.[idx] || null;
+  }
+  return cur;
+}
+
+function normalizedSizes(node) {
+  const count = node?.children?.length || 0;
+  if (!count) return [];
+  const raw = node.sizes && node.sizes.length === count
+    ? node.sizes.map(size => Math.max(0, Number(size) || 0))
+    : node.children.map(() => 1 / count);
+  const total = raw.reduce((sum, size) => sum + size, 0);
+  return total > 0 ? raw.map(size => size / total) : node.children.map(() => 1 / count);
+}
+
+function updateSplitSizesAtPath(root, path, sizes) {
+  const split = getNodeAtPath(root, path);
+  if (!split || split.type === 'pane') return root;
+  return replaceNodeAtPath(root, path, { ...split, sizes });
+}
+
 function removePaneFromLayout(root, paneId) {
   let replacementPaneId = null;
   function walk(node) {
@@ -233,8 +258,12 @@ function renderLayout(workspace) {
   if (!workspace || !workspace.container || !workspace.layout) return;
   const root = getWorkspaceRoot(workspace);
   root.className = 'workspace-pane-root';
+  const layout = workspace.maximizedPaneId
+    && workspace.panes.some(p => p.id === workspace.maximizedPaneId)
+    ? { type: 'pane', paneId: workspace.maximizedPaneId }
+    : workspace.layout;
 
-  function renderNode(node) {
+  function renderNode(node, path = []) {
     if (node.type === 'pane') {
       const pane = workspace.panes.find(p => p.id === node.paneId);
       const leaf = getPaneLeaf(workspace, node.paneId) || createPaneLeafElement(workspace, node.paneId);
@@ -252,26 +281,86 @@ function renderLayout(workspace) {
 
     const split = document.createElement('div');
     split.className = `pane-split ${node.direction}`;
-    const sizes = node.sizes && node.sizes.length === node.children.length
-      ? node.sizes
-      : node.children.map(() => 1 / node.children.length);
+    const sizes = normalizedSizes(node);
     node.children.forEach((child, idx) => {
-      const childEl = renderNode(child);
+      const childEl = renderNode(child, path.concat(idx));
       childEl.style.flex = `${Math.max(0.05, sizes[idx])} 1 0`;
       if (idx > 0) {
-        const gutter = document.createElement('div');
-        gutter.className = `pane-gutter ${node.direction}`;
-        split.appendChild(gutter);
+        split.appendChild(createGutterElement(workspace, path, idx, node.direction));
       }
       split.appendChild(childEl);
     });
     return split;
   }
 
-  const rendered = renderNode(workspace.layout);
+  const rendered = renderNode(layout);
   if (root.firstElementChild !== rendered || root.children.length !== 1) {
     root.replaceChildren(rendered);
   }
+}
+
+function createGutterElement(workspace, splitPath, gutterIndex, direction) {
+  const gutter = document.createElement('div');
+  gutter.className = `pane-gutter ${direction}`;
+  gutter.dataset.splitPath = JSON.stringify(splitPath);
+  gutter.dataset.gutterIndex = String(gutterIndex);
+  gutter.addEventListener('pointerdown', e => startGutterDrag(e, workspace, splitPath, gutterIndex));
+  return gutter;
+}
+
+function applySplitSizesToElement(splitEl, sizes) {
+  for (let i = 0; i < sizes.length; i++) {
+    const childEl = splitEl.children[i * 2];
+    if (childEl) childEl.style.flex = `${Math.max(0.05, sizes[i])} 1 0`;
+  }
+}
+
+function startGutterDrag(e, workspace, splitPath, gutterIndex) {
+  if (e.button !== 0) return;
+  const split = getNodeAtPath(workspace.layout, splitPath);
+  if (!split || split.type === 'pane') return;
+  const splitEl = e.currentTarget.parentElement;
+  const rect = splitEl?.getBoundingClientRect();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return;
+
+  e.preventDefault();
+  e.stopPropagation();
+  const direction = split.direction;
+  const axisSize = direction === 'row' ? rect.width : rect.height;
+  const minRatio = axisSize > 0 ? (direction === 'row' ? 160 : 80) / axisSize : 0.05;
+  const startCoord = direction === 'row' ? e.clientX : e.clientY;
+  const startSizes = normalizedSizes(split);
+  const beforeIdx = gutterIndex - 1;
+  const afterIdx = gutterIndex;
+  const combined = (startSizes[beforeIdx] || 0) + (startSizes[afterIdx] || 0);
+  if (combined <= 0) return;
+
+  const minBefore = Math.min(minRatio, combined / 2);
+  const minAfter = Math.min(minRatio, combined / 2);
+  const onMove = ev => {
+    const coord = direction === 'row' ? ev.clientX : ev.clientY;
+    const delta = (coord - startCoord) / axisSize;
+    const sizes = startSizes.slice();
+    const before = Math.min(
+      Math.max((startSizes[beforeIdx] || 0) + delta, minBefore),
+      combined - minAfter
+    );
+    sizes[beforeIdx] = before;
+    sizes[afterIdx] = combined - before;
+    workspace.layout = updateSplitSizesAtPath(workspace.layout, splitPath, sizes);
+    applySplitSizesToElement(splitEl, sizes);
+  };
+
+  const onUp = () => {
+    document.removeEventListener('pointermove', onMove, true);
+    document.removeEventListener('pointerup', onUp, true);
+    document.removeEventListener('pointercancel', onUp, true);
+    fitVisiblePanes(workspace);
+  };
+
+  document.addEventListener('pointermove', onMove, true);
+  document.addEventListener('pointerup', onUp, true);
+  document.addEventListener('pointercancel', onUp, true);
 }
 
 function updatePaneActiveClasses(workspace) {
@@ -713,6 +802,7 @@ function closePane(paneId) {
   workspace.panes.splice(idx, 1);
   const removal = removePaneFromLayout(workspace.layout, paneId);
   workspace.layout = removal.layout;
+  if (workspace.maximizedPaneId === paneId) workspace.maximizedPaneId = null;
   if (wasActive) workspace.activePaneId = removal.replacementPaneId || firstPaneIdInLayout(workspace.layout);
   renderLayout(workspace);
   updateTabBar();
@@ -770,6 +860,10 @@ function focusPane(paneId, opts = {}) {
   }
 
   workspace.activePaneId = paneId;
+  if (workspace.maximizedPaneId && workspace.maximizedPaneId !== paneId) {
+    workspace.maximizedPaneId = paneId;
+    renderLayout(workspace);
+  }
   workspace.needsAttention = false;
   workspace.attentionLevel = null;
   workspace.attentionMessage = '';
@@ -797,10 +891,12 @@ function splitActivePane(direction) {
   const pane = getActivePane();
   const workspace = getActiveWorkspace();
   if (!pane || !workspace) return;
+  if (workspace.maximizedPaneId) {
+    workspace.maximizedPaneId = null;
+    renderLayout(workspace);
+  }
   const path = findLeafPath(workspace.layout, pane.id);
   if (!path) return;
-  const oldLeaf = getPaneLeaf(workspace, pane.id);
-  if (!oldLeaf || !oldLeaf.parentNode) return;
 
   const newPaneId = state.paneIdCounter++;
   const newNode = {
@@ -815,9 +911,10 @@ function splitActivePane(direction) {
   workspace.layout = replaceNodeAtPath(workspace.layout, path, newNode);
   workspace.activePaneId = newPaneId;
 
-  const gutter = document.createElement('div');
-  gutter.className = `pane-gutter ${direction}`;
+  const gutter = createGutterElement(workspace, path, 1, direction);
   const newLeaf = createPaneLeafElement(workspace, newPaneId);
+  const oldLeaf = getPaneLeaf(workspace, pane.id);
+  if (!oldLeaf || !oldLeaf.parentNode) return;
 
   oldLeaf.style.flex = '0.5 1 0';
   newLeaf.style.flex = '0.5 1 0';
@@ -860,6 +957,17 @@ function splitPaneRight() {
 
 function splitPaneDown() {
   splitActivePane('column');
+}
+
+function togglePaneMaximize() {
+  const workspace = getActiveWorkspace();
+  const pane = getActivePane();
+  if (!workspace || !pane) return;
+  workspace.maximizedPaneId = workspace.maximizedPaneId === pane.id ? null : pane.id;
+  workspace.activePaneId = pane.id;
+  renderLayout(workspace);
+  focusPane(pane.id);
+  scheduleFitVisiblePanes(workspace);
 }
 
 function getPaneLeafRects(workspace) {
@@ -971,7 +1079,7 @@ function focusPrevPane() {
 
 function isPaneShortcut(e) {
   const sc = settings.shortcuts || {};
-  for (const key of ['splitPaneRight', 'splitPaneDown', 'closePane', 'nextPane', 'prevPane']) {
+  for (const key of ['splitPaneRight', 'splitPaneDown', 'closePane', 'nextPane', 'prevPane', 'togglePaneMaximize']) {
     const parsed = parseShortcut(sc[key]);
     if (parsed && matchShortcut(parsed, e, isMac)) return true;
   }
@@ -990,6 +1098,7 @@ function handlePaneShortcut(e) {
   else if (matchShortcut(parseShortcut(sc.closePane), e, isMac)) closeActivePane();
   else if (matchShortcut(parseShortcut(sc.nextPane), e, isMac)) focusNextPane();
   else if (matchShortcut(parseShortcut(sc.prevPane), e, isMac)) focusPrevPane();
+  else if (matchShortcut(parseShortcut(sc.togglePaneMaximize), e, isMac)) togglePaneMaximize();
   else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowLeft') focusPaneInDirection('left');
   else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowRight') focusPaneInDirection('right');
   else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowUp') focusPaneInDirection('up');
@@ -1162,6 +1271,7 @@ module.exports = {
   focusPaneInDirection,
   focusNextPane,
   focusPrevPane,
+  togglePaneMaximize,
   isPaneShortcut,
   handlePaneShortcut,
   fitVisiblePanes,
