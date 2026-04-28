@@ -295,11 +295,12 @@ ipcMain.on('rebuild-menu', (event, autoRender) => {
 });
 
 ipcMain.on('close-window', (event, opts = {}) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
   if (opts && opts.quitApp) {
+    if (win && !win.isDestroyed()) win.close();
     app.quit();
     return;
   }
-  const win = BrowserWindow.fromWebContents(event.sender);
   if (win) win.close();
 });
 

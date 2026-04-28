@@ -24,6 +24,13 @@ function isTabCycleShortcut(e) {
     && (e.key === 'PageDown' || e.key === 'PageUp');
 }
 
+function macOptionMetaSequence(e) {
+  if (!isMac || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
+  if (e.code === 'KeyF') return '\x1bf';
+  if (e.code === 'KeyB') return '\x1bb';
+  return null;
+}
+
 const { escapeHtml } = require('./ansi');
 const { TabSession } = require('./tabSession');
 const { createShellShim, buildShellArgs } = require('./shellShim');
@@ -123,8 +130,7 @@ function createTab(cwd) {
     },
     cursorBlink: true,
     cursorStyle: settings.cursorStyle,
-    scrollback: settings.scrollback,
-    macOptionIsMeta: isMac
+    scrollback: settings.scrollback
   });
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon();
@@ -142,6 +148,11 @@ function createTab(cwd) {
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
+    const optionMeta = macOptionMetaSequence(e);
+    if (optionMeta) {
+      if (!tab.richVisible && tab.ptyProc) tab.ptyProc.write(optionMeta);
+      return false;
+    }
     if (isTabCycleShortcut(e)) return false;
     if (isZoomShortcut(e, isMac)) return false;
     const sc = settings.shortcuts || {};
@@ -393,17 +404,13 @@ function switchTab(id) {
 function closeTab(id) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
-  if (state.tabs.length <= 1) {
-    mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
-    return;
-  }
   const tab = state.tabs[idx];
+  const wasActive = state.activeTabId === id;
   tab._closing = true;
   clearTimeout(tab.sectionTimer);
   tab.container.remove();
   tab.tabEl.remove();
   state.tabs.splice(idx, 1);
-  const wasActive = state.activeTabId === id;
   if (wasActive) state.activeTabId = null;
   try { if (tab.ptyProc) tab.ptyProc.kill(); } catch {}
   try { tab._searchResultDisposable?.dispose(); } catch {}
@@ -411,6 +418,10 @@ function closeTab(id) {
   if (tab._shimDir) {
     try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
     tab._shimDir = null;
+  }
+  if (state.tabs.length === 0) {
+    mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
+    return;
   }
   if (wasActive) {
     switchTab(state.tabs[Math.min(idx, state.tabs.length - 1)].id);
