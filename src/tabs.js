@@ -55,6 +55,7 @@ function attachMacImePunctuationBridge(tab) {
     if (!isMacImePunctuationKey(e)) return;
     clearPending();
     const fallback = e.key;
+    e.stopPropagation();
     tab._macImePunctuationPending = {
       fallback,
       timer: setTimeout(() => {
@@ -62,6 +63,11 @@ function attachMacImePunctuationBridge(tab) {
         tab._macImePunctuationPending = null;
       }, 50)
     };
+  }, true);
+
+  tab.xtermHolder.addEventListener('keypress', e => {
+    if (!tab._macImePunctuationPending) return;
+    e.stopPropagation();
   }, true);
 
   function handleTextInput(e) {
