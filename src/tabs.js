@@ -6,15 +6,34 @@ const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { WebglAddon } = require('@xterm/addon-webgl');
 const { CanvasAddon } = require('@xterm/addon-canvas');
 
-const { state, getActiveTab, getTabIndex, updateStatusBar, updateStatusBarCwd } = require('./state');
+const {
+  state,
+  getActiveWorkspace,
+  getActivePane,
+  getTabIndex,
+  getPaneWorkspace,
+  getPaneById,
+  isActivePane,
+  updateStatusBar,
+  updateStatusBarCwd
+} = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, matchShortcut } = require('./keybindings');
 const { applyZoomToTab, isZoomShortcut } = require('./zoom');
+const { escapeHtml } = require('./ansi');
+const { PaneSession } = require('./paneSession');
+const { TabWorkspace } = require('./workspace');
+const { createShellShim, buildShellArgs } = require('./shellShim');
+const { tabFeedSection } = require('./richView');
+const { tabTrackTitle, updateTabBar, refreshTabTitle } = require('./titleTrack');
 
-function updateRendererIndicator(tab) {
+const IMAGE_MAX_COUNT = 50;
+const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
+
+function updateRendererIndicator(pane) {
   const el = state.renderInd;
-  if (!el || !tab || tab.id !== state.activeTabId) return;
-  el.textContent = tab._renderer === 'webgl' ? 'GL' : tab._renderer === 'canvas' ? 'CV' : 'DOM';
+  if (!el || !pane || !isActivePane(pane)) return;
+  el.textContent = pane._renderer === 'webgl' ? 'GL' : pane._renderer === 'canvas' ? 'CV' : 'DOM';
 }
 
 function tabCycleDirectionForEvent(e) {
@@ -45,79 +64,70 @@ function isMacImePunctuationKey(e) {
   return /^[\x21-\x7e]$/.test(e.key) && !/^[A-Za-z0-9]$/.test(e.key);
 }
 
-function attachMacImePunctuationBridge(tab) {
-  if (!isMac || !tab.xtermHolder) return;
+function attachMacImePunctuationBridge(pane) {
+  if (!isMac || !pane.xtermHolder) return;
 
   function write(data) {
-    if (!data || tab.richVisible || !tab.ptyProc) return;
-    tab.ptyProc.write(data);
+    if (!data || pane.richVisible || !pane.ptyProc) return;
+    pane.ptyProc.write(data);
   }
 
   function clearPending() {
-    if (!tab._macImePunctuationPending) return;
-    clearTimeout(tab._macImePunctuationPending.timer);
-    tab._macImePunctuationPending = null;
+    if (!pane._macImePunctuationPending) return;
+    clearTimeout(pane._macImePunctuationPending.timer);
+    pane._macImePunctuationPending = null;
   }
 
-  tab.xtermHolder.addEventListener('keydown', e => {
+  pane.xtermHolder.addEventListener('keydown', e => {
     if (!isMacImePunctuationKey(e)) return;
     clearPending();
     const fallback = e.key;
     e.stopPropagation();
-    tab._macImePunctuationPending = {
+    pane._macImePunctuationPending = {
       fallback,
       timer: setTimeout(() => {
-        if (tab._macImePunctuationPending?.fallback === fallback) write(fallback);
-        tab._macImePunctuationPending = null;
+        if (pane._macImePunctuationPending?.fallback === fallback) write(fallback);
+        pane._macImePunctuationPending = null;
       }, 50)
     };
   }, true);
 
-  tab.xtermHolder.addEventListener('keypress', e => {
-    if (!tab._macImePunctuationPending) return;
+  pane.xtermHolder.addEventListener('keypress', e => {
+    if (!pane._macImePunctuationPending) return;
     e.stopPropagation();
   }, true);
 
   function handleTextInput(e) {
-    if (!tab._macImePunctuationPending || !e.data) return;
+    if (!pane._macImePunctuationPending || !e.data) return;
     const text = e.data;
     clearPending();
-    tab._macImePunctuationHandled = { text, until: Date.now() + 80 };
+    pane._macImePunctuationHandled = { text, until: Date.now() + 80 };
     e.preventDefault();
     e.stopPropagation();
     write(text);
   }
 
-  tab.xtermHolder.addEventListener('beforeinput', handleTextInput, true);
-  tab.xtermHolder.addEventListener('input', handleTextInput, true);
+  pane.xtermHolder.addEventListener('beforeinput', handleTextInput, true);
+  pane.xtermHolder.addEventListener('input', handleTextInput, true);
 }
 
-function shouldSuppressMacImeFallback(tab, data) {
-  const pending = tab._macImePunctuationPending;
+function shouldSuppressMacImeFallback(pane, data) {
+  const pending = pane._macImePunctuationPending;
   if (pending && data === pending.fallback) return true;
-  const handled = tab._macImePunctuationHandled;
+  const handled = pane._macImePunctuationHandled;
   if (handled && data === handled.text && Date.now() < handled.until) return true;
   return false;
 }
 
-const { escapeHtml } = require('./ansi');
-const { TabSession } = require('./tabSession');
-const { createShellShim, buildShellArgs } = require('./shellShim');
-const { tabFeedSection } = require('./richView');
-const { tabTrackTitle, updateTabBar } = require('./titleTrack');
-
-const IMAGE_MAX_COUNT = 50;
-const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
-
-function prunePromptTracking(tab, minY) {
-  for (const v of tab._promptYSet) {
-    if (v < minY) tab._promptYSet.delete(v);
+function prunePromptTracking(pane, minY) {
+  for (const v of pane._promptYSet) {
+    if (v < minY) pane._promptYSet.delete(v);
   }
-  for (const v of tab._promptStartYSet) {
-    if (v < minY) tab._promptStartYSet.delete(v);
+  for (const v of pane._promptStartYSet) {
+    if (v < minY) pane._promptStartYSet.delete(v);
   }
-  while (tab._promptStartYSet.size > 500) {
-    tab._promptStartYSet.delete(Math.min(...tab._promptStartYSet));
+  while (pane._promptStartYSet.size > 500) {
+    pane._promptStartYSet.delete(Math.min(...pane._promptStartYSet));
   }
 }
 
@@ -129,13 +139,208 @@ function trimInlineImages(arr) {
   }
 }
 
-function createTab(cwd) {
-  const id = state.tabIdCounter++;
-  const tab = new TabSession(id);
-  tab.autoRender = settings.autoRender;
+function paneIdsInLayout(node, out = []) {
+  if (!node) return out;
+  if (node.type === 'pane') out.push(node.paneId);
+  else for (const child of node.children || []) paneIdsInLayout(child, out);
+  return out;
+}
+
+function findLeafPath(node, paneId, path = []) {
+  if (!node) return null;
+  if (node.type === 'pane') return node.paneId === paneId ? path : null;
+  for (let i = 0; i < node.children.length; i++) {
+    const found = findLeafPath(node.children[i], paneId, path.concat(i));
+    if (found) return found;
+  }
+  return null;
+}
+
+function replaceNodeAtPath(root, path, newNode) {
+  if (!path || path.length === 0) return newNode;
+  const next = { ...root, children: root.children.slice() };
+  let cur = next;
+  for (let i = 0; i < path.length - 1; i++) {
+    const idx = path[i];
+    cur.children[idx] = { ...cur.children[idx], children: cur.children[idx].children.slice() };
+    cur = cur.children[idx];
+  }
+  cur.children[path[path.length - 1]] = newNode;
+  return next;
+}
+
+function removePaneFromLayout(root, paneId) {
+  let replacementPaneId = null;
+  function walk(node) {
+    if (!node) return null;
+    if (node.type === 'pane') return node.paneId === paneId ? null : node;
+    const children = [];
+    const originalChildren = node.children || [];
+    let removedChildIndex = -1;
+    for (let i = 0; i < originalChildren.length; i++) {
+      if (findLeafPath(originalChildren[i], paneId)) {
+        removedChildIndex = i;
+        break;
+      }
+    }
+    for (const child of node.children || []) {
+      const kept = walk(child);
+      if (kept) children.push(kept);
+    }
+    if (children.length === 0) return null;
+    if (children.length === 1) {
+      if (removedChildIndex !== -1 && replacementPaneId === null) {
+        replacementPaneId = firstPaneIdInLayout(children[0]);
+      }
+      return children[0];
+    }
+    return {
+      ...node,
+      children,
+      sizes: children.map(() => 1 / children.length)
+    };
+  }
+  const layout = walk(root);
+  return { layout, replacementPaneId };
+}
+
+function firstPaneIdInLayout(root) {
+  const ids = paneIdsInLayout(root);
+  return ids.length ? ids[0] : null;
+}
+
+function getWorkspaceRoot(workspace) {
+  let root = workspace.container.querySelector(':scope > .workspace-pane-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.className = 'workspace-pane-root';
+    workspace.container.appendChild(root);
+  }
+  return root;
+}
+
+function renderLayout(workspace) {
+  if (!workspace || !workspace.container || !workspace.layout) return;
+  const root = getWorkspaceRoot(workspace);
+  root.className = 'workspace-pane-root';
+  root.replaceChildren();
+
+  function renderNode(node) {
+    if (node.type === 'pane') {
+      const leaf = document.createElement('div');
+      leaf.className = 'pane-leaf';
+      leaf.dataset.paneId = String(node.paneId);
+      leaf.classList.toggle('active', workspace.activePaneId === node.paneId);
+      leaf.addEventListener('mousedown', () => focusPane(node.paneId, { focusTerm: false }));
+      const pane = workspace.panes.find(p => p.id === node.paneId);
+      if (pane) {
+        pane.leafEl = leaf;
+        if (pane.richView) {
+          pane.richView.classList.toggle('visible', !!pane.richVisible && workspace.id === state.activeWorkspaceId);
+        }
+        if (pane.container) leaf.appendChild(pane.container);
+      }
+      return leaf;
+    }
+
+    const split = document.createElement('div');
+    split.className = `pane-split ${node.direction}`;
+    const sizes = node.sizes && node.sizes.length === node.children.length
+      ? node.sizes
+      : node.children.map(() => 1 / node.children.length);
+    node.children.forEach((child, idx) => {
+      const childEl = renderNode(child);
+      childEl.style.flex = `${Math.max(0.05, sizes[idx])} 1 0`;
+      if (idx > 0) {
+        const gutter = document.createElement('div');
+        gutter.className = `pane-gutter ${node.direction}`;
+        split.appendChild(gutter);
+      }
+      split.appendChild(childEl);
+    });
+    return split;
+  }
+
+  root.appendChild(renderNode(workspace.layout));
+}
+
+function updatePaneActiveClasses(workspace) {
+  if (!workspace || !workspace.container) return;
+  workspace.container.querySelectorAll('.pane-leaf').forEach(leaf => {
+    leaf.classList.toggle('active', Number(leaf.dataset.paneId) === workspace.activePaneId);
+  });
+  for (const pane of workspace.panes) {
+    if (pane.richView) {
+      pane.richView.classList.toggle('visible', !!pane.richVisible && workspace.id === state.activeWorkspaceId);
+    }
+  }
+}
+
+function fitPane(pane) {
+  if (!pane || !pane.fitAddon || !pane.term || !pane.leafEl) return;
+  const workspace = pane.workspace;
+  if (!workspace || !workspace.container || !workspace.container.classList.contains('active')) return;
+  const rect = pane.leafEl.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+
+  const beforeCols = pane.term.cols;
+  const beforeRows = pane.term.rows;
+  try { pane.fitAddon.fit(); } catch {}
+  const cols = pane.term.cols;
+  const rows = pane.term.rows;
+  if (pane.ptyProc && (cols !== beforeCols || rows !== beforeRows)) {
+    try { pane.ptyProc.resize(cols, rows); } catch {}
+  }
+  try { pane.term.refresh(0, Math.max(0, pane.term.rows - 1)); } catch {}
+}
+
+function fitVisiblePanes(workspace = getActiveWorkspace()) {
+  if (!workspace || !workspace.container || !workspace.container.classList.contains('active')) return;
+  const rect = workspace.container.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return;
+  for (const pane of workspace.panes) fitPane(pane);
+}
+
+function scheduleFitVisiblePanes(workspace = getActiveWorkspace()) {
+  if (!workspace || workspace._fitRaf) return;
+  workspace._fitRaf = requestAnimationFrame(() => {
+    workspace._fitRaf = null;
+    fitVisiblePanes(workspace);
+  });
+}
+
+function stabilizeVisiblePanes(workspace = getActiveWorkspace(), focusPaneId = null) {
+  requestAnimationFrame(() => {
+    fitVisiblePanes(workspace);
+    requestAnimationFrame(() => {
+      fitVisiblePanes(workspace);
+      const pane = focusPaneId ? workspace?.panes.find(p => p.id === focusPaneId) : getActivePane();
+      try { pane?.term?.refresh(0, Math.max(0, pane.term.rows - 1)); } catch {}
+      try { pane?.term?.focus(); } catch {}
+    });
+  });
+}
+
+function getPaneLeaf(workspace, paneId) {
+  return workspace.container.querySelector(`.pane-leaf[data-pane-id="${paneId}"]`);
+}
+
+function createPaneLeafElement(workspace, paneId) {
+  const leaf = document.createElement('div');
+  leaf.className = 'pane-leaf';
+  leaf.dataset.paneId = String(paneId);
+  leaf.classList.toggle('active', workspace.activePaneId === paneId);
+  leaf.addEventListener('mousedown', () => focusPane(paneId, { focusTerm: false }));
+  return leaf;
+}
+
+function createPaneSession({ id, cwd, leafEl, workspace }) {
+  const pane = new PaneSession(id, workspace);
+  pane.autoRender = settings.autoRender;
+  pane.cwd = cwd || mt.os.env.HOME;
 
   const container = document.createElement('div');
-  container.className = 'tab-container';
+  container.className = 'pane-session';
   container.dataset.id = id;
 
   const xtermHolder = document.createElement('div');
@@ -149,6 +354,7 @@ function createTab(cwd) {
   const richViewEl = document.createElement('div');
   richViewEl.className = 'rich-view';
   richViewEl.tabIndex = 0;
+  richViewEl.addEventListener('mousedown', () => focusPane(id, { focusTerm: false }));
   const richContentEl = document.createElement('div');
   richContentEl.className = 'rich-content';
   const richHintEl = document.createElement('div');
@@ -177,14 +383,14 @@ function createTab(cwd) {
   richViewEl.appendChild(richHintEl);
   container.appendChild(richViewEl);
 
-  state.termContainer.appendChild(container);
-
-  tab.container = container;
-  tab.xtermHolder = xtermHolder;
-  tab.searchHighlightLayer = searchHighlightLayer;
-  tab.richView = richViewEl;
-  tab.richContent = richContentEl;
-  tab.richHint = richHintEl;
+  pane.container = container;
+  pane.leafEl = leafEl;
+  pane.xtermHolder = xtermHolder;
+  pane.searchHighlightLayer = searchHighlightLayer;
+  pane.richView = richViewEl;
+  pane.richContent = richContentEl;
+  pane.richHint = richHintEl;
+  if (leafEl) leafEl.appendChild(container);
 
   const { resolveTheme, selectionBgFor } = require('./themes');
   const themeColors = resolveTheme(settings.theme);
@@ -214,17 +420,18 @@ function createTab(cwd) {
   }));
   term.open(xtermHolder);
   xtermHolder.appendChild(searchHighlightLayer);
-  attachMacImePunctuationBridge(tab);
+  attachMacImePunctuationBridge(pane);
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
     const optionMeta = macOptionMetaSequence(e);
     if (optionMeta) {
-      if (!tab.richVisible && tab.ptyProc) tab.ptyProc.write(optionMeta);
+      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(optionMeta);
       return false;
     }
     if (isTabCycleShortcut(e)) return false;
     if (isZoomShortcut(e, isMac)) return false;
+    if (isPaneShortcut(e)) return false;
     const sc = settings.shortcuts || {};
     for (const name of Object.keys(sc)) {
       const parsed = parseShortcut(sc[name]);
@@ -235,32 +442,35 @@ function createTab(cwd) {
 
   try {
     const webgl = new WebglAddon();
-    webgl.onContextLoss(() => { webgl.dispose(); tab._renderer = 'canvas'; try { term.loadAddon(new CanvasAddon()); } catch {} updateRendererIndicator(tab); });
+    webgl.onContextLoss(() => {
+      webgl.dispose();
+      pane._renderer = 'canvas';
+      try { term.loadAddon(new CanvasAddon()); } catch {}
+      updateRendererIndicator(pane);
+    });
     term.loadAddon(webgl);
-    tab._renderer = 'webgl';
+    pane._renderer = 'webgl';
   } catch {
-    try { term.loadAddon(new CanvasAddon()); tab._renderer = 'canvas'; } catch { tab._renderer = 'dom'; }
+    try { term.loadAddon(new CanvasAddon()); pane._renderer = 'canvas'; } catch { pane._renderer = 'dom'; }
   }
 
-  tab.term = term;
-  tab.fitAddon = fitAddon;
-  tab.searchAddon = searchAddon;
-  require('./search').attachSearchResultListener(tab);
+  pane.term = term;
+  pane.fitAddon = fitAddon;
+  pane.searchAddon = searchAddon;
+  workspace.panes.push(pane);
+  require('./search').attachSearchResultListener(pane);
 
-  const spawnCwd = cwd
-    || (settings.inheritCwd ? (getActiveTab()?.cwd || mt.os.env.HOME) : null)
-    || mt.os.env.HOME;
-  tab.cwd = spawnCwd;
+  fitPane(pane);
 
   const shellCmd = mt.os.env.SHELL || '/bin/bash';
   const shimDir = createShellShim(shellCmd);
-  tab._shimDir = shimDir;
+  pane._shimDir = shimDir;
   const { args: shellArgs, env: shellEnv } = buildShellArgs(shellCmd, shimDir);
   const ptyProc = mt.pty.spawn(shellCmd, shellArgs, {
     name: 'xterm-256color',
     cols: term.cols,
     rows: term.rows,
-    cwd: spawnCwd,
+    cwd: pane.cwd,
     env: {
       ...shellEnv,
       TERM_PROGRAM: 'MathTerm',
@@ -268,34 +478,43 @@ function createTab(cwd) {
       COLORTERM: 'truecolor'
     }
   });
-  tab.ptyProc = ptyProc;
+  pane.ptyProc = ptyProc;
 
   ptyProc.onExit(() => {
-    if (tab._shimDir) {
-      try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
-      tab._shimDir = null;
+    if (pane._shimDir) {
+      try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
+      pane._shimDir = null;
     }
-    tab.ptyProc = null;
-    if (!tab._closing && getTabIndex(tab.id) !== -1) {
-      setTimeout(() => closeTab(tab.id), 0);
+    pane.ptyProc = null;
+    if (!pane._closing && getPaneById(pane.id)) {
+      setTimeout(() => closePane(pane.id), 0);
     }
   });
 
+  xtermHolder.addEventListener('focusin', () => focusPane(pane.id, { focusTerm: false }));
+
   term.onData(data => {
-    if (shouldSuppressMacImeFallback(tab, data)) return;
-    if (tab.richVisible) {
+    if (shouldSuppressMacImeFallback(pane, data)) return;
+    focusPane(pane.id, { focusTerm: false });
+    if (pane.richVisible) {
       const { tabHideRichView } = require('./richView');
-      if (tab.richAutoTriggered && (data === 'q' || data === '\x1b')) {
-        tabHideRichView(tab);
-      } else if (!tab.richAutoTriggered && data === '\x1b') {
-        tabHideRichView(tab);
+      if (pane.richAutoTriggered && (data === 'q' || data === '\x1b')) {
+        tabHideRichView(pane);
+      } else if (!pane.richAutoTriggered && data === '\x1b') {
+        tabHideRichView(pane);
       }
       return;
     }
     ptyProc.write(data);
   });
 
-  term.onResize(({ cols, rows }) => ptyProc.resize(cols, rows));
+  term.onResize(({ cols, rows }) => {
+    if (!pane.ptyProc) return;
+    if (pane._ptyCols === cols && pane._ptyRows === rows) return;
+    pane._ptyCols = cols;
+    pane._ptyRows = rows;
+    try { pane.ptyProc.resize(cols, rows); } catch {}
+  });
 
   term.onSelectionChange(() => {
     if (!settings.copyOnSelect) return;
@@ -305,79 +524,482 @@ function createTab(cwd) {
 
   term.parser.registerOscHandler(133, (data) => {
     if (data.startsWith('A')) {
-      const buf = tab.term.buffer.active;
-      tab._promptStartY = buf.baseY + buf.cursorY;
-      tab._promptBHandled = false;
-      tab._promptJumpAnchorY = null;
-      tab._promptYSet.add(tab._promptStartY);
-      tab._promptStartYSet.add(tab._promptStartY);
-      if (tab._promptYSet.size > 500 || tab._promptStartYSet.size > 500) {
+      const buf = pane.term.buffer.active;
+      pane._promptStartY = buf.baseY + buf.cursorY;
+      pane._promptBHandled = false;
+      pane._promptJumpAnchorY = null;
+      pane._promptYSet.add(pane._promptStartY);
+      pane._promptStartYSet.add(pane._promptStartY);
+      if (pane._promptYSet.size > 500 || pane._promptStartYSet.size > 500) {
         const minY = buf.baseY - settings.scrollback;
-        prunePromptTracking(tab, minY);
+        prunePromptTracking(pane, minY);
       }
     } else if (data.startsWith('B')) {
-      // Prompt end — mark all lines from prompt start to here as prompt.
-      // Guarded against re-fires (e.g. zsh zle-line-init on widget changes):
-      // only act on the first ;B following a ;A.
-      if (tab._promptStartY !== undefined && !tab._promptBHandled) {
-        const endY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
-        for (let y = tab._promptStartY; y <= endY; y++) {
-          tab._promptYSet.add(y);
-        }
-        tab._promptBHandled = true;
+      if (pane._promptStartY !== undefined && !pane._promptBHandled) {
+        const endY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
+        for (let y = pane._promptStartY; y <= endY; y++) pane._promptYSet.add(y);
+        pane._promptBHandled = true;
       }
     } else if (data.startsWith('C')) {
-      tab._commandRunning = true;
-      tab._commandStartY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
+      pane._commandRunning = true;
+      pane._commandStartY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
     } else if (data.startsWith('D')) {
-      const wasCommandRunning = tab._commandRunning;
-      tab._commandRunning = false;
+      const wasCommandRunning = pane._commandRunning;
+      pane._commandRunning = false;
       const exitCode = data.length > 2 ? data.slice(2).split(';')[0].trim() : '';
-      tab._lastExitCode = exitCode;
-      tab._commandEndY = tab.term.buffer.active.baseY + tab.term.buffer.active.cursorY;
-      if (wasCommandRunning && settings.backgroundCommandMarker && tab.id !== state.activeTabId) {
+      pane._lastExitCode = exitCode;
+      pane._commandEndY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
+      const paneIsActive = isActivePane(pane) && pane.workspace.id === state.activeWorkspaceId;
+      if (wasCommandRunning && settings.backgroundCommandMarker && !paneIsActive) {
         const failed = exitCode !== '' && exitCode !== '0';
-        tab.needsAttention = true;
-        tab.attentionLevel = failed ? 'error' : 'success';
-        tab.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
+        pane.workspace.needsAttention = true;
+        pane.workspace.attentionLevel = failed ? 'error' : 'success';
+        pane.workspace.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
         updateTabBar();
       }
       const { tabFlushSectionOnCommandEnd } = require('./richView');
-      tabFlushSectionOnCommandEnd(tab);
+      tabFlushSectionOnCommandEnd(pane);
     }
     return false;
   });
 
   ptyProc.onData(data => {
-    const { images, cleanData } = tab.osc1337Parser.feed(data);
+    const { images, cleanData } = pane.osc1337Parser.feed(data);
     if (images.length) {
       const y = term.buffer.active.baseY + term.buffer.active.cursorY;
-      for (const img of images) {
-        tab.inlineImages.push({ ...img, lineY: y });
-      }
-      trimInlineImages(tab.inlineImages);
+      for (const img of images) pane.inlineImages.push({ ...img, lineY: y });
+      trimInlineImages(pane.inlineImages);
     }
     term.write(cleanData);
     if (images.length) {
-      // Force-render math view as soon as the image is parsed,
-      // bypassing the AUTO toggle and the section delay.
       setTimeout(() => {
         const { showManualRichView } = require('./richView');
-        showManualRichView(tab);
+        showManualRichView(pane);
       }, 0);
     }
-    tabFeedSection(tab, cleanData);
-    tabTrackTitle(tab, cleanData);
+    tabFeedSection(pane, cleanData);
+    tabTrackTitle(pane, cleanData);
   });
 
-  state.tabs.push(tab);
+  return pane;
+}
+
+function createTab(cwd) {
+  const previousPane = getActivePane();
+  const spawnCwd = cwd
+    || (settings.inheritCwd ? (previousPane?.cwd || mt.os.env.HOME) : null)
+    || mt.os.env.HOME;
+
+  const id = state.tabIdCounter++;
+  const workspace = new TabWorkspace(id);
+  workspace.cwd = spawnCwd;
+
+  const container = document.createElement('div');
+  container.className = 'tab-container';
+  container.dataset.id = id;
+  workspace.container = container;
+  state.termContainer.appendChild(container);
+  if (typeof ResizeObserver !== 'undefined') {
+    workspace._resizeObserver = new ResizeObserver(() => scheduleFitVisiblePanes(workspace));
+    workspace._resizeObserver.observe(container);
+  }
+
+  const paneId = state.paneIdCounter++;
+  workspace.activePaneId = paneId;
+  workspace.layout = { type: 'pane', paneId };
 
   const tabEl = document.createElement('div');
   tabEl.className = 'tab-item';
   tabEl.dataset.id = id;
   tabEl.draggable = true;
-  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(tab.title) + '</span><span class="tab-close">\u00d7</span>';
+  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace.title) + '</span><span class="tab-close">\u00d7</span>';
+  attachTabElementListeners(workspace, tabEl);
+  workspace.tabEl = tabEl;
+  state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
+  state.workspaces.push(workspace);
 
+  activateWorkspaceShell(workspace);
+  const root = getWorkspaceRoot(workspace);
+  root.className = 'workspace-pane-root';
+  root.replaceChildren();
+  const leaf = createPaneLeafElement(workspace, paneId);
+  leaf.style.flex = '1 1 0';
+  root.appendChild(leaf);
+  const pane = createPaneSession({ id: paneId, cwd: spawnCwd, leafEl: leaf, workspace });
+  refreshTabTitle(pane);
+  focusPane(pane.id);
+  return workspace;
+}
+
+function activateWorkspaceShell(workspace) {
+  const prev = getActiveWorkspace();
+  if (prev && prev !== workspace) {
+    const { saveSearchState } = require('./search');
+    const prevPane = getActivePane();
+    if (prevPane) saveSearchState(prevPane);
+    prev.container.classList.remove('active');
+    prev.tabEl.classList.remove('active');
+    for (const pane of prev.panes) {
+      if (pane.richVisible) pane.richView.classList.remove('visible');
+    }
+  }
+  state.activeWorkspaceId = workspace.id;
+  workspace.needsAttention = false;
+  workspace.attentionLevel = null;
+  workspace.attentionMessage = '';
+  workspace.container.classList.add('active');
+  workspace.tabEl.classList.add('active');
+}
+
+function switchTab(id) {
+  const workspace = state.workspaces.find(w => w.id === id);
+  if (!workspace) return;
+  if (id === state.activeWorkspaceId) {
+    const pane = getActivePane();
+    if (pane) focusPane(pane.id);
+    return;
+  }
+  activateWorkspaceShell(workspace);
+  updatePaneActiveClasses(workspace);
+  updateTabBar();
+  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (pane) {
+    workspace.activePaneId = pane.id;
+    requestAnimationFrame(() => {
+      fitVisiblePanes(workspace);
+      focusPane(pane.id);
+    });
+  }
+}
+
+function disposePane(pane) {
+  pane._closing = true;
+  clearTimeout(pane.sectionTimer);
+  clearTimeout(pane._promptJumpFlashTimer);
+  try { if (pane.ptyProc) pane.ptyProc.kill(); } catch {}
+  try { pane._searchResultDisposable?.dispose(); } catch {}
+  try { pane.term?.dispose(); } catch {}
+  if (pane._shimDir) {
+    try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
+    pane._shimDir = null;
+  }
+  try { pane.container?.remove(); } catch {}
+}
+
+function closePane(paneId) {
+  const workspace = getPaneWorkspace(paneId);
+  if (!workspace) return;
+  if (workspace.panes.length <= 1) {
+    closeTab(workspace.id);
+    return;
+  }
+
+  const idx = workspace.panes.findIndex(p => p.id === paneId);
+  if (idx === -1) return;
+  const pane = workspace.panes[idx];
+  const wasActive = workspace.activePaneId === paneId;
+  disposePane(pane);
+  workspace.panes.splice(idx, 1);
+  const removal = removePaneFromLayout(workspace.layout, paneId);
+  workspace.layout = removal.layout;
+  if (wasActive) workspace.activePaneId = removal.replacementPaneId || firstPaneIdInLayout(workspace.layout);
+  const root = getWorkspaceRoot(workspace);
+  const remainingLeaf = getPaneLeaf(workspace, workspace.activePaneId);
+  if (workspace.layout?.type === 'pane' && remainingLeaf && remainingLeaf.parentNode === root) {
+    for (const child of Array.from(root.children)) {
+      if (child !== remainingLeaf) child.remove();
+    }
+    root.className = 'workspace-pane-root';
+    remainingLeaf.style.flex = '1 1 0';
+    remainingLeaf.classList.add('active');
+  } else {
+    renderLayout(workspace);
+  }
+  updateTabBar();
+  const next = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (next) {
+    workspace.activePaneId = next.id;
+    focusPane(next.id);
+  }
+  scheduleFitVisiblePanes(workspace);
+}
+
+function closeActivePane() {
+  const pane = getActivePane();
+  if (pane) closePane(pane.id);
+}
+
+function closeTab(id) {
+  const idx = getTabIndex(id);
+  if (idx === -1) return;
+  const workspace = state.workspaces[idx];
+  const wasActive = state.activeWorkspaceId === id;
+  for (const pane of [...workspace.panes]) disposePane(pane);
+  if (workspace._fitRaf) {
+    cancelAnimationFrame(workspace._fitRaf);
+    workspace._fitRaf = null;
+  }
+  try { workspace._resizeObserver?.disconnect(); } catch {}
+  workspace.container.remove();
+  workspace.tabEl.remove();
+  state.workspaces.splice(idx, 1);
+  if (wasActive) state.activeWorkspaceId = null;
+  if (state.workspaces.length === 0) {
+    mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
+    return;
+  }
+  if (wasActive) {
+    switchTab(state.workspaces[Math.min(idx, state.workspaces.length - 1)].id);
+  }
+}
+
+function focusPane(paneId, opts = {}) {
+  const workspace = getPaneWorkspace(paneId);
+  const pane = workspace ? workspace.panes.find(p => p.id === paneId) : null;
+  if (!workspace || !pane) return;
+  if (workspace.id !== state.activeWorkspaceId) switchTab(workspace.id);
+
+  const prevPane = getActivePane();
+  if (prevPane && prevPane !== pane) {
+    const { saveSearchState } = require('./search');
+    saveSearchState(prevPane);
+  }
+
+  workspace.activePaneId = paneId;
+  workspace.needsAttention = false;
+  workspace.attentionLevel = null;
+  workspace.attentionMessage = '';
+  updatePaneActiveClasses(workspace);
+  updateTabBar();
+  const { attachSearchBarToPane, hydrateSearchBar } = require('./search');
+  attachSearchBarToPane(pane);
+  hydrateSearchBar(pane);
+  updateStatusBar(pane);
+  updateStatusBarCwd(pane);
+  updateRendererIndicator(pane);
+  state.autoIndicator.textContent = 'AUTO';
+  state.autoIndicator.className = pane.autoRender ? '' : 'off';
+  mt.ipc.send('rebuild-menu', pane.autoRender);
+  scheduleFitVisiblePanes(workspace);
+  if (opts.focusTerm !== false) requestAnimationFrame(() => pane.term?.focus());
+}
+
+function splitActivePane(direction) {
+  const pane = getActivePane();
+  const workspace = getActiveWorkspace();
+  if (!pane || !workspace) return;
+  const path = findLeafPath(workspace.layout, pane.id);
+  if (!path) return;
+  const oldLeaf = getPaneLeaf(workspace, pane.id);
+  if (!oldLeaf || !oldLeaf.parentNode) return;
+
+  const newPaneId = state.paneIdCounter++;
+  const newNode = {
+    type: 'split',
+    direction,
+    sizes: [0.5, 0.5],
+    children: [
+      { type: 'pane', paneId: pane.id },
+      { type: 'pane', paneId: newPaneId }
+    ]
+  };
+  workspace.layout = replaceNodeAtPath(workspace.layout, path, newNode);
+  workspace.activePaneId = newPaneId;
+
+  const gutter = document.createElement('div');
+  gutter.className = `pane-gutter ${direction}`;
+  const newLeaf = createPaneLeafElement(workspace, newPaneId);
+
+  oldLeaf.style.flex = '0.5 1 0';
+  newLeaf.style.flex = '0.5 1 0';
+  const parent = oldLeaf.parentNode;
+  if (parent.classList.contains('workspace-pane-root') && parent.children.length === 1) {
+    parent.classList.add('pane-split', direction);
+    parent.classList.remove(direction === 'row' ? 'column' : 'row');
+    parent.appendChild(gutter);
+    parent.appendChild(newLeaf);
+  } else {
+    const splitEl = document.createElement('div');
+    splitEl.className = `pane-split ${direction}`;
+    splitEl.style.flex = oldLeaf.style.flex || '1 1 0';
+    parent.insertBefore(splitEl, oldLeaf);
+    splitEl.appendChild(oldLeaf);
+    splitEl.appendChild(gutter);
+    splitEl.appendChild(newLeaf);
+  }
+  pane.leafEl = oldLeaf;
+  oldLeaf.classList.remove('active');
+  newLeaf.classList.add('active');
+
+  stabilizeVisiblePanes(workspace, pane.id);
+  requestAnimationFrame(() => {
+    const newPane = createPaneSession({
+      id: newPaneId,
+      cwd: pane.cwd || mt.os.env.HOME,
+      leafEl: newLeaf,
+      workspace
+    });
+    focusPane(newPane.id);
+    refreshTabTitle(newPane);
+    stabilizeVisiblePanes(workspace, newPane.id);
+  });
+}
+
+function splitPaneRight() {
+  splitActivePane('row');
+}
+
+function splitPaneDown() {
+  splitActivePane('column');
+}
+
+function getPaneLeafRects(workspace) {
+  return workspace.panes.map(pane => {
+    const leaf = getPaneLeaf(workspace, pane.id);
+    if (!leaf) return null;
+    const rect = leaf.getBoundingClientRect();
+    return {
+      pane,
+      rect,
+      cx: rect.left + rect.width / 2,
+      cy: rect.top + rect.height / 2
+    };
+  }).filter(Boolean);
+}
+
+function rectOverlap(a1, a2, b1, b2) {
+  return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+}
+
+function oppositeDirection(direction) {
+  return { left: 'right', right: 'left', up: 'down', down: 'up' }[direction] || null;
+}
+
+function focusPaneInDirection(direction) {
+  const workspace = getActiveWorkspace();
+  const active = getActivePane();
+  if (!workspace || !active) return;
+  const backlink = active._focusBacklink;
+  if (backlink
+    && backlink.direction === oppositeDirection(direction)
+    && workspace.panes.some(p => p.id === backlink.fromPaneId)) {
+    active._focusBacklink = null;
+    focusPane(backlink.fromPaneId);
+    return;
+  }
+  const rects = getPaneLeafRects(workspace);
+  const cur = rects.find(r => r.pane.id === active.id);
+  if (!cur) return;
+  const EPS = 2;
+  const candidates = rects.map(r => {
+    if (r.pane.id === active.id) return false;
+    let primaryGap;
+    let secondaryDistance;
+    let overlap;
+    if (direction === 'left') {
+      if (r.rect.right > cur.rect.left - EPS) return false;
+      primaryGap = cur.rect.left - r.rect.right;
+      secondaryDistance = Math.abs(r.cy - cur.cy);
+      overlap = rectOverlap(cur.rect.top, cur.rect.bottom, r.rect.top, r.rect.bottom);
+    } else if (direction === 'right') {
+      if (r.rect.left < cur.rect.right + EPS) return false;
+      primaryGap = r.rect.left - cur.rect.right;
+      secondaryDistance = Math.abs(r.cy - cur.cy);
+      overlap = rectOverlap(cur.rect.top, cur.rect.bottom, r.rect.top, r.rect.bottom);
+    } else if (direction === 'up') {
+      if (r.rect.bottom > cur.rect.top - EPS) return false;
+      primaryGap = cur.rect.top - r.rect.bottom;
+      secondaryDistance = Math.abs(r.cx - cur.cx);
+      overlap = rectOverlap(cur.rect.left, cur.rect.right, r.rect.left, r.rect.right);
+    } else if (direction === 'down') {
+      if (r.rect.top < cur.rect.bottom + EPS) return false;
+      primaryGap = r.rect.top - cur.rect.bottom;
+      secondaryDistance = Math.abs(r.cx - cur.cx);
+      overlap = rectOverlap(cur.rect.left, cur.rect.right, r.rect.left, r.rect.right);
+    } else {
+      return false;
+    }
+    return { ...r, primaryGap, secondaryDistance, overlaps: overlap > EPS, overlap };
+  }).filter(Boolean);
+  candidates.sort((a, b) => {
+    if (a.overlaps !== b.overlaps) return a.overlaps ? -1 : 1;
+    if (a.primaryGap !== b.primaryGap) return a.primaryGap - b.primaryGap;
+    if (a.secondaryDistance !== b.secondaryDistance) return a.secondaryDistance - b.secondaryDistance;
+    if (a.overlap !== b.overlap) return b.overlap - a.overlap;
+    return a.pane.id - b.pane.id;
+  });
+  if (candidates[0]) {
+    const next = candidates[0].pane;
+    next._focusBacklink = { fromPaneId: active.id, direction };
+    focusPane(next.id);
+  }
+}
+
+function paneOrder(workspace = getActiveWorkspace()) {
+  if (!workspace) return [];
+  const ids = paneIdsInLayout(workspace.layout);
+  return ids.map(id => workspace.panes.find(p => p.id === id)).filter(Boolean);
+}
+
+function focusPaneByOffset(delta) {
+  const workspace = getActiveWorkspace();
+  const active = getActivePane();
+  const panes = paneOrder(workspace);
+  if (!workspace || !active || panes.length < 2) return;
+  const idx = panes.findIndex(p => p.id === active.id);
+  if (idx === -1) return;
+  const next = panes[(idx + delta + panes.length) % panes.length];
+  if (next) focusPane(next.id);
+}
+
+function focusNextPane() {
+  focusPaneByOffset(1);
+}
+
+function focusPrevPane() {
+  focusPaneByOffset(-1);
+}
+
+function isPaneShortcut(e) {
+  const sc = settings.shortcuts || {};
+  for (const key of ['splitPaneRight', 'splitPaneDown', 'closePane', 'nextPane', 'prevPane']) {
+    const parsed = parseShortcut(sc[key]);
+    if (parsed && matchShortcut(parsed, e, isMac)) return true;
+  }
+  if (isMac && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
+  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
+  return false;
+}
+
+function handlePaneShortcut(e) {
+  if (!isPaneShortcut(e)) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  const sc = settings.shortcuts || {};
+  if (matchShortcut(parseShortcut(sc.splitPaneRight), e, isMac)) splitPaneRight();
+  else if (matchShortcut(parseShortcut(sc.splitPaneDown), e, isMac)) splitPaneDown();
+  else if (matchShortcut(parseShortcut(sc.closePane), e, isMac)) closeActivePane();
+  else if (matchShortcut(parseShortcut(sc.nextPane), e, isMac)) focusNextPane();
+  else if (matchShortcut(parseShortcut(sc.prevPane), e, isMac)) focusPrevPane();
+  else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowLeft') focusPaneInDirection('left');
+  else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowRight') focusPaneInDirection('right');
+  else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowUp') focusPaneInDirection('up');
+  else if (isMac && e.metaKey && e.altKey && e.key === 'ArrowDown') focusPaneInDirection('down');
+  else if (!isMac && e.altKey && e.key === 'ArrowLeft') focusPaneInDirection('left');
+  else if (!isMac && e.altKey && e.key === 'ArrowRight') focusPaneInDirection('right');
+  else if (!isMac && e.altKey && e.key === 'ArrowUp') focusPaneInDirection('up');
+  else if (!isMac && e.altKey && e.key === 'ArrowDown') focusPaneInDirection('down');
+  return true;
+}
+
+function rebuildTabBarDOM() {
+  const newBtn = document.getElementById('new-tab-btn');
+  for (const workspace of state.workspaces) state.tabBar.removeChild(workspace.tabEl);
+  for (const workspace of state.workspaces) state.tabBar.insertBefore(workspace.tabEl, newBtn);
+}
+
+function attachTabElementListeners(workspace, tabEl) {
+  const id = workspace.id;
   tabEl.addEventListener('click', e => {
     if (e.target.classList.contains('tab-close')) closeTab(id);
     else if (!e.target.classList.contains('tab-title') || !e.target.isContentEditable) switchTab(id);
@@ -424,96 +1046,21 @@ function createTab(cwd) {
     const rect = tabEl.getBoundingClientRect();
     const mid = rect.left + rect.width / 2;
     const insertBefore = e.clientX < mid;
-    const [moved] = state.tabs.splice(fromIdx, 1);
+    const [moved] = state.workspaces.splice(fromIdx, 1);
     let newIdx = getTabIndex(id);
     if (!insertBefore) newIdx++;
-    state.tabs.splice(newIdx, 0, moved);
+    state.workspaces.splice(newIdx, 0, moved);
     rebuildTabBarDOM();
   });
-
-  state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
-  tab.tabEl = tabEl;
-
-  switchTab(id);
-  return tab;
-}
-
-function switchTab(id) {
-  if (id === state.activeTabId) return;
-  const prev = getActiveTab();
-  if (prev) {
-    const { saveSearchState } = require('./search');
-    saveSearchState(prev);
-    prev.container.classList.remove('active');
-    prev.tabEl.classList.remove('active');
-    if (prev.richVisible) prev.richView.classList.remove('visible');
-  }
-  state.activeTabId = id;
-  const tab = getActiveTab();
-  tab.needsAttention = false;
-  tab.attentionLevel = null;
-  tab.attentionMessage = '';
-  tab.container.classList.add('active');
-  tab.tabEl.classList.add('active');
-  const { hydrateSearchBar } = require('./search');
-  hydrateSearchBar(tab);
-  updateTabBar();
-  requestAnimationFrame(() => {
-    tab.fitAddon.fit();
-    applyZoomToTab(tab);
-    if (tab.richVisible) tab.richView.classList.add('visible');
-    tab.term.focus();
-  });
-  updateStatusBar(tab);
-  updateStatusBarCwd(tab);
-  updateRendererIndicator(tab);
-  state.autoIndicator.textContent = 'AUTO';
-  state.autoIndicator.className = tab.autoRender ? '' : 'off';
-  mt.ipc.send('rebuild-menu', tab.autoRender);
-}
-
-function closeTab(id) {
-  const idx = getTabIndex(id);
-  if (idx === -1) return;
-  const tab = state.tabs[idx];
-  const wasActive = state.activeTabId === id;
-  tab._closing = true;
-  clearTimeout(tab.sectionTimer);
-  tab.container.remove();
-  tab.tabEl.remove();
-  state.tabs.splice(idx, 1);
-  if (wasActive) state.activeTabId = null;
-  try { if (tab.ptyProc) tab.ptyProc.kill(); } catch {}
-  try { tab._searchResultDisposable?.dispose(); } catch {}
-  try { tab.term.dispose(); } catch {}
-  if (tab._shimDir) {
-    try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
-    tab._shimDir = null;
-  }
-  if (state.tabs.length === 0) {
-    mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
-    return;
-  }
-  if (wasActive) {
-    switchTab(state.tabs[Math.min(idx, state.tabs.length - 1)].id);
-  }
-}
-
-function rebuildTabBarDOM() {
-  const newBtn = document.getElementById('new-tab-btn');
-  for (const tab of state.tabs) {
-    state.tabBar.removeChild(tab.tabEl);
-  }
-  for (const tab of state.tabs) {
-    state.tabBar.insertBefore(tab.tabEl, newBtn);
-  }
 }
 
 function showTabContextMenu(id, x, y) {
   state.tabContextMenuId = id;
   const idx = getTabIndex(id);
+  const workspace = state.workspaces.find(w => w.id === id);
   document.getElementById('tctx-moveleft').classList.toggle('disabled', idx <= 0);
-  document.getElementById('tctx-moveright').classList.toggle('disabled', idx >= state.tabs.length - 1);
+  document.getElementById('tctx-moveright').classList.toggle('disabled', idx >= state.workspaces.length - 1);
+  document.getElementById('tctx-detach').classList.toggle('disabled', !!workspace && workspace.panes.length > 1);
   const menu = document.getElementById('tab-context-menu');
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
@@ -526,11 +1073,11 @@ function hideTabContextMenu() {
 }
 
 function renameTab(id) {
-  const tab = state.tabs.find(t => t.id === id);
-  if (!tab) return;
-  const titleEl = tab.tabEl.querySelector('.tab-title');
+  const workspace = state.workspaces.find(w => w.id === id);
+  if (!workspace) return;
+  const titleEl = workspace.tabEl.querySelector('.tab-title');
   if (!titleEl) return;
-  titleEl.textContent = tab._customTitle || tab.title;
+  titleEl.textContent = workspace._customTitle || workspace.title;
   titleEl.contentEditable = 'true';
   titleEl.focus();
   const range = document.createRange();
@@ -542,18 +1089,17 @@ function renameTab(id) {
   function finish() {
     titleEl.contentEditable = 'false';
     const newName = titleEl.textContent.trim();
-    if (newName) {
-      tab._customTitle = newName;
-    } else {
-      tab._customTitle = null;
-      titleEl.textContent = tab.title;
+    if (newName) workspace._customTitle = newName;
+    else {
+      workspace._customTitle = null;
+      titleEl.textContent = workspace.title;
     }
     titleEl.removeEventListener('blur', finish);
     titleEl.removeEventListener('keydown', onKey);
   }
   function onKey(e) {
     if (e.key === 'Enter') { e.preventDefault(); finish(); }
-    if (e.key === 'Escape') { titleEl.textContent = tab._customTitle || tab.title; finish(); }
+    if (e.key === 'Escape') { titleEl.textContent = workspace._customTitle || workspace.title; finish(); }
     e.stopPropagation();
   }
   titleEl.addEventListener('blur', finish);
@@ -564,17 +1110,18 @@ function moveTab(id, direction) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
   const newIdx = idx + direction;
-  if (newIdx < 0 || newIdx >= state.tabs.length) return;
-  [state.tabs[idx], state.tabs[newIdx]] = [state.tabs[newIdx], state.tabs[idx]];
+  if (newIdx < 0 || newIdx >= state.workspaces.length) return;
+  [state.workspaces[idx], state.workspaces[newIdx]] = [state.workspaces[newIdx], state.workspaces[idx]];
   rebuildTabBarDOM();
 }
 
 function detachTab(id) {
-  const tab = state.tabs.find(t => t.id === id);
-  if (!tab) return;
+  const workspace = state.workspaces.find(w => w.id === id);
+  if (!workspace || workspace.panes.length > 1) return;
+  const pane = workspace.panes[0];
   mt.ipc.send('detach-tab', {
-    cwd: tab.cwd,
-    title: tab._customTitle || tab.title
+    cwd: pane.cwd,
+    title: workspace._customTitle || workspace.title
   });
   closeTab(id);
 }
@@ -583,7 +1130,11 @@ function initTabContextListeners() {
   document.getElementById('tctx-rename').addEventListener('click', () => { renameTab(state.tabContextMenuId); hideTabContextMenu(); });
   document.getElementById('tctx-moveleft').addEventListener('click', () => { moveTab(state.tabContextMenuId, -1); hideTabContextMenu(); });
   document.getElementById('tctx-moveright').addEventListener('click', () => { moveTab(state.tabContextMenuId, 1); hideTabContextMenu(); });
-  document.getElementById('tctx-detach').addEventListener('click', () => { detachTab(state.tabContextMenuId); hideTabContextMenu(); });
+  document.getElementById('tctx-detach').addEventListener('click', () => {
+    const el = document.getElementById('tctx-detach');
+    if (!el.classList.contains('disabled')) detachTab(state.tabContextMenuId);
+    hideTabContextMenu();
+  });
   document.getElementById('tctx-close').addEventListener('click', () => { closeTab(state.tabContextMenuId); hideTabContextMenu(); });
   document.addEventListener('click', e => {
     if (!document.getElementById('tab-context-menu').contains(e.target)) hideTabContextMenu();
@@ -591,7 +1142,27 @@ function initTabContextListeners() {
 }
 
 module.exports = {
-  createTab, switchTab, closeTab,
-  rebuildTabBarDOM, showTabContextMenu, hideTabContextMenu,
-  renameTab, moveTab, detachTab, initTabContextListeners
+  createTab,
+  switchTab,
+  closeTab,
+  closePane,
+  closeActivePane,
+  splitPaneRight,
+  splitPaneDown,
+  focusPane,
+  focusPaneInDirection,
+  focusNextPane,
+  focusPrevPane,
+  isPaneShortcut,
+  handlePaneShortcut,
+  fitVisiblePanes,
+  scheduleFitVisiblePanes,
+  updateRendererIndicator,
+  rebuildTabBarDOM,
+  showTabContextMenu,
+  hideTabContextMenu,
+  renameTab,
+  moveTab,
+  detachTab,
+  initTabContextListeners
 };

@@ -5,7 +5,7 @@ function buildShortcutSections() {
   return [
     { section: 'Tabs', items: [
       { keys: isMac ? 'Mod+T' : 'Mod+Shift+T', desc: 'New tab' },
-      { keys: isMac ? 'Mod+W' : 'Mod+Shift+W', desc: 'Close tab' },
+      { keys: isMac ? '' : '', desc: 'Close workspace' },
       { keys: 'Mod+1 … Mod+9', desc: 'Switch to tab N' },
       { keys: isMac ? 'Mod+Shift+]' : 'Mod+PageDown', desc: 'Next tab' },
       { keys: isMac ? 'Mod+Shift+[' : 'Mod+PageUp', desc: 'Previous tab' },
@@ -31,6 +31,14 @@ function buildShortcutSections() {
       { keys: 'Mod+=', desc: 'Zoom in' },
       { keys: 'Mod+-', desc: 'Zoom out' },
       { keys: 'Mod+0', desc: 'Reset zoom' },
+    ]},
+    { section: 'Panes', items: [
+      { id: 'splitPaneRight', keys: sc.splitPaneRight, desc: 'Split pane right' },
+      { id: 'splitPaneDown', keys: sc.splitPaneDown, desc: 'Split pane down' },
+      { id: 'closePane', keys: sc.closePane, desc: 'Close active pane' },
+      { id: 'nextPane', keys: sc.nextPane, desc: 'Next pane' },
+      { id: 'prevPane', keys: sc.prevPane, desc: 'Previous pane' },
+      { keys: isMac ? 'Mod+Option+Arrow' : 'Alt+Arrow', desc: 'Focus pane by direction' },
     ]},
     { section: 'In Math View', items: [
       { keys: 'Esc / q', desc: 'Exit math view' },

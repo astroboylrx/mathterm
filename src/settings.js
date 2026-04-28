@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { state, getActiveTab, updateStatusBar } = require('./state');
+const { state, getActiveTab, forEachPane } = require('./state');
 
 const isMac = mt.os.platform === 'darwin';
 
@@ -17,6 +17,11 @@ const DEFAULT_SHORTCUTS = {
   nextPrompt: 'Mod+Shift+Down',
   selectLastCommand: null,
   scrollToCursor: null,
+  splitPaneRight: isMac ? 'Mod+D' : 'Mod+Shift+D',
+  splitPaneDown: isMac ? 'Mod+Shift+D' : 'Mod+Shift+E',
+  closePane: isMac ? 'Mod+W' : 'Mod+Shift+W',
+  nextPane: isMac ? 'Mod+]' : null,
+  prevPane: isMac ? 'Mod+[' : null,
 };
 
 const DEFAULTS = {
@@ -196,17 +201,21 @@ function applySettings() {
   state.autoIndicator.className = active ? '' : 'off';
   document.documentElement.style.setProperty('--ui-font-size', settings.fontSize + 'px');
   applyButtonTitles();
-  for (const tab of state.tabs) {
-    tab.term.options.fontFamily = settings.fontFamily;
-    tab.term.options.theme = {
+  forEachPane((pane) => {
+    pane.term.options.fontFamily = settings.fontFamily;
+    pane.term.options.theme = {
       background: c.bg,
       foreground: c.fg,
       cursor: c.accent,
       selectionBackground: selectionBgFor(c)
     };
-    tab.term.options.cursorStyle = settings.cursorStyle;
-    applyZoomToTab(tab);
-    if (tab.container.classList.contains('active')) tab.fitAddon.fit();
+    pane.term.options.cursorStyle = settings.cursorStyle;
+    applyZoomToTab(pane);
+  });
+  const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+  if (activeWorkspace) {
+    const { fitVisiblePanes } = require('./tabs');
+    fitVisiblePanes(activeWorkspace);
   }
   mt.ipc.send('rebuild-menu', active);
 }

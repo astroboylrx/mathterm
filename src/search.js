@@ -1,4 +1,11 @@
-const { state, getActiveTab } = require('./state');
+const { state, getActiveTab, isActivePane } = require('./state');
+
+function attachSearchBarToPane(tab = getActiveTab()) {
+  if (!state.searchBar || !tab?.leafEl) return;
+  if (state.searchBar.parentNode !== tab.leafEl) {
+    tab.leafEl.appendChild(state.searchBar);
+  }
+}
 
 function attachSearchResultListener(tab) {
   if (!tab || !tab.term) return;
@@ -24,6 +31,7 @@ function saveSearchState(tab = getActiveTab()) {
 
 function hydrateSearchBar(tab = getActiveTab(), { focus = false, refresh = false } = {}) {
   if (!state.searchBar || !state.searchInput || !state.searchCount) return;
+  attachSearchBarToPane(tab);
   if (!tab || !tab.searchOpen) {
     state.searchBar.classList.remove('open');
     state.searchInput.value = '';
@@ -45,6 +53,7 @@ function hydrateSearchBar(tab = getActiveTab(), { focus = false, refresh = false
 function openSearch() {
   const tab = getActiveTab();
   if (!tab) return;
+  attachSearchBarToPane(tab);
   const { tabHideRichView } = require('./richView');
   if (tab.richVisible) tabHideRichView(tab);
   tab.searchOpen = true;
@@ -56,6 +65,7 @@ function openSearch() {
 function closeSearch() {
   const tab = getActiveTab();
   if (tab) {
+    attachSearchBarToPane(tab);
     tab.searchOpen = false;
     tab.searchQuery = state.searchInput.value;
     tab.searchCountText = '';
@@ -132,7 +142,7 @@ function updateSearchResults(tab) {
   const active = activeMatchIndex(tab, matches);
   tab.activeSearchIndex = active;
   tab.searchCountText = matches.length ? `${active >= 0 ? active + 1 : '?'}/${matches.length}` : '0/0';
-  if (tab.id === state.activeTabId && state.searchCount) {
+  if (isActivePane(tab) && state.searchCount) {
     state.searchCount.textContent = tab.searchCountText;
   }
 }
@@ -194,7 +204,7 @@ function renderSearchHighlights(tab = getActiveTab()) {
   const active = activeMatchIndex(tab, matches);
   tab.activeSearchIndex = active;
   tab.searchCountText = matches.length ? `${active >= 0 ? active + 1 : '?'}/${matches.length}` : '0/0';
-  if (tab.id === state.activeTabId && state.searchCount) state.searchCount.textContent = tab.searchCountText;
+  if (isActivePane(tab) && state.searchCount) state.searchCount.textContent = tab.searchCountText;
 
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
@@ -218,6 +228,7 @@ module.exports = {
   initSearchListeners,
   saveSearchState,
   hydrateSearchBar,
+  attachSearchBarToPane,
   attachSearchResultListener,
   renderSearchHighlights,
 };

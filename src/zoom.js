@@ -1,4 +1,4 @@
-const { state, getActiveTab, updateStatusBar } = require('./state');
+const { getActiveTab, isActivePane, updateStatusBar } = require('./state');
 const { settings } = require('./settings');
 
 const MIN_ZOOM = 0.5;
@@ -18,10 +18,10 @@ function applyZoomToTab(tab) {
   const fontSize = zoomFontSize(tab);
   if (tab.term) tab.term.options.fontSize = fontSize;
   if (tab.richView) tab.richView.style.fontSize = fontSize + 'px';
-  if (tab.fitAddon && tab.id === state.activeTabId) {
+  if (tab.fitAddon && isActivePane(tab)) {
     requestAnimationFrame(() => tab.fitAddon.fit());
   }
-  if (tab.id === state.activeTabId) updateStatusBar(tab);
+  if (isActivePane(tab)) updateStatusBar(tab);
 }
 
 function setZoom(tab, value) {

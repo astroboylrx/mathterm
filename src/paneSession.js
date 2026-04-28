@@ -1,9 +1,10 @@
 const { state } = require('./state');
 const { Osc1337Parser } = require('./osc1337');
 
-class TabSession {
-  constructor(id) {
+class PaneSession {
+  constructor(id, workspace = null) {
     this.id = id;
+    this.workspace = workspace;
     this.title = state._hostname + ': ~';
     this.cwd = window.mathterm.os.env.HOME;
     this.ptyProc = null;
@@ -18,6 +19,7 @@ class TabSession {
     this.activeSearchIndex = -1;
     this._searchResultDisposable = null;
     this.container = null;
+    this.leafEl = null;
     this.xtermHolder = null;
     this.searchHighlightLayer = null;
     this.richView = null;
@@ -30,7 +32,6 @@ class TabSession {
     this.sectionHasLatex = false;
     this.sectionStartY = 0;
     this._sectionStartTime = 0;
-    this.tabEl = null;
     this._promptPrefix = null;
     this._promptYSet = new Set();
     this._promptStartYSet = new Set();
@@ -57,4 +58,4 @@ class TabSession {
   }
 }
 
-module.exports = { TabSession };
+module.exports = { PaneSession };

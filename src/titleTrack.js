@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { state, updateStatusBarCwd } = require('./state');
+const { state, getActivePane, updateStatusBarCwd } = require('./state');
 
 function formatTabCwd(cwd) {
   const home = mt.os.homedir();
@@ -13,25 +13,37 @@ function resolveTildePath(p) {
   return p;
 }
 
-function computeTabTitle(tab) {
-  if (tab._customTitle) return tab._customTitle;
-  return state._hostname + ': ' + formatTabCwd(tab.cwd);
+function computePaneTitle(pane) {
+  return state._hostname + ': ' + formatTabCwd(pane.cwd);
 }
 
-function refreshTabTitle(tab) {
-  tab.title = computeTabTitle(tab);
+function computeTabTitle(workspace) {
+  if (workspace._customTitle) return workspace._customTitle;
+  if (!workspace.panes || workspace.panes.length === 0) return workspace.title || state._hostname + ': ~';
+  const activePane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (workspace.panes.length === 1) return computePaneTitle(activePane);
+  return `${workspace.panes.length} panes - ${formatTabCwd(activePane.cwd)}`;
+}
+
+function refreshTabTitle(pane) {
+  pane.title = computePaneTitle(pane);
+  const workspace = pane.workspace;
+  if (!workspace) return;
+  workspace.cwd = pane.cwd;
+  workspace.title = computeTabTitle(workspace);
   updateTabBar();
-  if (tab.id === state.activeTabId) updateStatusBarCwd(tab);
+  if (pane.id === getActivePane()?.id) updateStatusBarCwd(pane);
 }
 
 function updateTabBar() {
-  for (const tab of state.tabs) {
-    const el = tab.tabEl?.querySelector('.tab-title');
-    if (el && !el.isContentEditable) el.textContent = tab._customTitle || tab.title;
-    if (tab.tabEl) {
-      tab.tabEl.classList.toggle('needs-attention', !!tab.needsAttention);
-      tab.tabEl.classList.toggle('attention-error', tab.attentionLevel === 'error');
-      tab.tabEl.title = tab.needsAttention ? (tab.attentionMessage || 'Command finished') : '';
+  for (const workspace of state.workspaces) {
+    workspace.title = computeTabTitle(workspace);
+    const el = workspace.tabEl?.querySelector('.tab-title');
+    if (el && !el.isContentEditable) el.textContent = workspace._customTitle || workspace.title;
+    if (workspace.tabEl) {
+      workspace.tabEl.classList.toggle('needs-attention', !!workspace.needsAttention);
+      workspace.tabEl.classList.toggle('attention-error', workspace.attentionLevel === 'error');
+      workspace.tabEl.title = workspace.needsAttention ? (workspace.attentionMessage || 'Command finished') : '';
     }
   }
 }

@@ -1,4 +1,4 @@
-const { state, getActiveTab, updateStatusBar } = require('./state');
+const { getActiveTab, isActivePane, updateStatusBar } = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
 const { hasLatex, splitLatexSmart } = require('./latex');
@@ -377,7 +377,7 @@ function tabShowRichView(tab, auto) {
   const hintTextEl = tab.richHint.querySelector('.rich-hint-text');
   if (hintTextEl) hintTextEl.textContent = hintText;
   else tab.richHint.textContent = hintText;
-  if (tab.id === state.activeTabId) {
+  if (isActivePane(tab)) {
     updateStatusBar(tab);
   }
 }
@@ -387,7 +387,7 @@ function tabHideRichView(tab) {
   tab.richVisible = false;
   tab.richAutoTriggered = false;
   tab.richView.classList.remove('visible');
-  if (tab.id === state.activeTabId) {
+  if (isActivePane(tab)) {
     updateStatusBar(tab);
   }
   tab.term.focus();

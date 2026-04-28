@@ -28,7 +28,10 @@ contextBridge.exposeInMainWorld('mathterm', {
         'show-shortcuts', 'open-settings', 'new-tab', 'close-tab',
         'next-tab', 'prev-tab', 'do-copy', 'do-paste', 'open-search',
         'select-all', 'zoom-in', 'zoom-out', 'reset-zoom',
-        'export-rich-pdf', 'export-rich-png'
+        'export-rich-pdf', 'export-rich-png',
+        'split-pane-right', 'split-pane-down', 'close-pane',
+        'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
+        'focus-next-pane', 'focus-prev-pane'
       ];
       if (allowed.includes(channel)) {
         ipcRenderer.on(channel, (event, ...args) => callback(...args));

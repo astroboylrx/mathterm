@@ -1,10 +1,10 @@
 const mt = window.mathterm;
-const { state, getActiveTab } = require('./state');
+const { state, getActiveTab, getActiveWorkspace } = require('./state');
 const { settings, openSettings } = require('./settings');
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
-const { createTab, closeTab, switchTab } = require('./tabs');
+const { createTab, closeTab, switchTab, splitPaneRight, splitPaneDown, closeActivePane, focusPaneInDirection, focusNextPane, focusPrevPane } = require('./tabs');
 const { openShortcuts } = require('./shortcuts');
 const { exportPdf, exportPng } = require('./export');
 const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom } = require('./zoom');
@@ -39,15 +39,24 @@ function initIpc() {
   mt.ipc.on('show-shortcuts', () => openShortcuts());
   mt.ipc.on('open-settings', () => openSettings());
   mt.ipc.on('new-tab', () => createTab());
-  mt.ipc.on('close-tab', () => { const t = getActiveTab(); if (t) closeTab(t.id); });
+  mt.ipc.on('close-tab', () => { const w = getActiveWorkspace(); if (w) closeTab(w.id); });
   mt.ipc.on('next-tab', () => {
-    const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
+    const idx = state.tabs.findIndex(t => t.id === state.activeWorkspaceId);
     if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx + 1) % state.tabs.length].id);
   });
   mt.ipc.on('prev-tab', () => {
-    const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
+    const idx = state.tabs.findIndex(t => t.id === state.activeWorkspaceId);
     if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx - 1 + state.tabs.length) % state.tabs.length].id);
   });
+  mt.ipc.on('split-pane-right', () => splitPaneRight());
+  mt.ipc.on('split-pane-down', () => splitPaneDown());
+  mt.ipc.on('close-pane', () => closeActivePane());
+  mt.ipc.on('focus-pane-left', () => focusPaneInDirection('left'));
+  mt.ipc.on('focus-pane-right', () => focusPaneInDirection('right'));
+  mt.ipc.on('focus-pane-up', () => focusPaneInDirection('up'));
+  mt.ipc.on('focus-pane-down', () => focusPaneInDirection('down'));
+  mt.ipc.on('focus-next-pane', () => focusNextPane());
+  mt.ipc.on('focus-prev-pane', () => focusPrevPane());
   mt.ipc.on('do-copy', () => doCopy());
   mt.ipc.on('do-paste', () => doPaste());
   mt.ipc.on('open-search', () => openSearch());

@@ -1,7 +1,7 @@
-const { state, getActiveTab, getTabIndex } = require('./state');
+const { state, getActiveTab } = require('./state');
 const { settings, isMac, applySettings } = require('./settings');
 const { loadUserThemes } = require('./themes');
-const { createTab, switchTab } = require('./tabs');
+const { createTab, switchTab, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
 const { closeSettings } = require('./settings');
@@ -33,6 +33,9 @@ loadUserThemes();
 applySettings();
 
 window.createTab = createTab;
+window.splitPaneRight = require('./tabs').splitPaneRight;
+window.splitPaneDown = require('./tabs').splitPaneDown;
+window.closeActivePane = require('./tabs').closeActivePane;
 window.toggleMathMode = toggleMathMode;
 window.toggleAutoRender = function() {
   const tab = getActiveTab();
@@ -77,7 +80,7 @@ function isTabCycleShortcut(e) {
 }
 
 function cycleTab(direction) {
-  const idx = state.tabs.findIndex(t => t.id === state.activeTabId);
+  const idx = state.tabs.findIndex(t => t.id === state.activeWorkspaceId);
   if (idx !== -1 && state.tabs.length > 1) {
     switchTab(state.tabs[(idx + direction + state.tabs.length) % state.tabs.length].id);
   }
@@ -88,6 +91,7 @@ function cycleTab(direction) {
 // (e.g. Ctrl+Shift+Up or Ctrl+PageDown) never get written to the PTY.
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
+  if (handlePaneShortcut(e)) return;
   const tabCycleDirection = tabCycleDirectionForEvent(e);
   if (tabCycleDirection) {
     e.preventDefault();
@@ -159,6 +163,21 @@ function _dispatchShortcut(name, e) {
       break;
     case 'scrollToCursor':
       if (tab && !tab.richVisible) scrollToCursor(tab);
+      break;
+    case 'splitPaneRight':
+      require('./tabs').splitPaneRight();
+      break;
+    case 'splitPaneDown':
+      require('./tabs').splitPaneDown();
+      break;
+    case 'closePane':
+      require('./tabs').closeActivePane();
+      break;
+    case 'nextPane':
+      require('./tabs').focusNextPane();
+      break;
+    case 'prevPane':
+      require('./tabs').focusPrevPane();
       break;
   }
 }
@@ -448,9 +467,7 @@ function jumpToNextPrompt(tab) {
 }
 
 window.addEventListener('resize', () => {
-  for (const tab of state.tabs) {
-    if (tab.container.classList.contains('active')) tab.fitAddon.fit();
-  }
+  for (const workspace of state.tabs) fitVisiblePanes(workspace);
 });
 
 initIpc();

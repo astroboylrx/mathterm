@@ -20,6 +20,11 @@ const DEFAULT_SHORTCUTS = {
   copy: isMac ? 'CmdOrCtrl+C' : 'CmdOrCtrl+Shift+C',
   paste: isMac ? 'CmdOrCtrl+V' : 'CmdOrCtrl+Shift+V',
   selectAll: isMac ? 'CmdOrCtrl+A' : 'CmdOrCtrl+Shift+A',
+  splitPaneRight: isMac ? 'CmdOrCtrl+D' : 'CmdOrCtrl+Shift+D',
+  splitPaneDown: isMac ? 'CmdOrCtrl+Shift+D' : 'CmdOrCtrl+Shift+E',
+  closePane: isMac ? 'CmdOrCtrl+W' : 'CmdOrCtrl+Shift+W',
+  nextPane: isMac ? 'CmdOrCtrl+]' : '',
+  prevPane: isMac ? 'CmdOrCtrl+[' : '',
 };
 const LEGACY_MAC_SHORTCUTS = {
   openSearch: 'CmdOrCtrl+Shift+F',
@@ -139,8 +144,7 @@ function buildMenu(autoRender) {
           click: () => sendFocused('new-tab')
         },
         {
-          label: 'Close Tab',
-          accelerator: isMac ? 'CmdOrCtrl+W' : 'CmdOrCtrl+Shift+W',
+          label: 'Close Workspace',
           click: () => sendFocused('close-tab')
         },
         ...(isMac ? [] : [
@@ -227,6 +231,64 @@ function buildMenu(autoRender) {
           registerAccelerator: false,
           checked: autoRender,
           click: item => sendFocused('set-auto-render', item.checked)
+        },
+        { type: 'separator' },
+        {
+          label: 'Split Pane Right',
+          accelerator: sc.splitPaneRight,
+          registerAccelerator: false,
+          click: () => sendFocused('split-pane-right')
+        },
+        {
+          label: 'Split Pane Down',
+          accelerator: sc.splitPaneDown,
+          registerAccelerator: false,
+          click: () => sendFocused('split-pane-down')
+        },
+        {
+          label: 'Close Pane',
+          accelerator: sc.closePane,
+          registerAccelerator: false,
+          click: () => sendFocused('close-pane')
+        },
+        ...(isMac ? [
+          {
+            label: 'Next Pane',
+            accelerator: sc.nextPane,
+            registerAccelerator: false,
+            click: () => sendFocused('focus-next-pane')
+          },
+          {
+            label: 'Previous Pane',
+            accelerator: sc.prevPane,
+            registerAccelerator: false,
+            click: () => sendFocused('focus-prev-pane')
+          }
+        ] : []),
+        { type: 'separator' },
+        {
+          label: 'Focus Pane Left',
+          accelerator: isMac ? 'CmdOrCtrl+Alt+Left' : 'Alt+Left',
+          registerAccelerator: false,
+          click: () => sendFocused('focus-pane-left')
+        },
+        {
+          label: 'Focus Pane Right',
+          accelerator: isMac ? 'CmdOrCtrl+Alt+Right' : 'Alt+Right',
+          registerAccelerator: false,
+          click: () => sendFocused('focus-pane-right')
+        },
+        {
+          label: 'Focus Pane Up',
+          accelerator: isMac ? 'CmdOrCtrl+Alt+Up' : 'Alt+Up',
+          registerAccelerator: false,
+          click: () => sendFocused('focus-pane-up')
+        },
+        {
+          label: 'Focus Pane Down',
+          accelerator: isMac ? 'CmdOrCtrl+Alt+Down' : 'Alt+Down',
+          registerAccelerator: false,
+          click: () => sendFocused('focus-pane-down')
         },
         { type: 'separator' },
         { role: 'reload' },
