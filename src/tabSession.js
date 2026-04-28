@@ -11,8 +11,15 @@ class TabSession {
     this.term = null;
     this.fitAddon = null;
     this.searchAddon = null;
+    this.searchOpen = false;
+    this.searchQuery = '';
+    this.searchCountText = '';
+    this.searchMatches = [];
+    this.activeSearchIndex = -1;
+    this._searchResultDisposable = null;
     this.container = null;
     this.xtermHolder = null;
+    this.searchHighlightLayer = null;
     this.richView = null;
     this.richContent = null;
     this.richHint = null;

@@ -214,8 +214,22 @@ function _luminance(hex) {
 }
 
 function selectionBgFor(c) {
-  const alpha = _luminance(c.bg) > 0.5 ? 0.1 : 0.2;
+  const alpha = _luminance(c.bg) > 0.5 ? 0.24 : 0.34;
   return hexToRgba(c.accent, alpha);
+}
+
+function searchMatchBgFor(c) {
+  const alpha = _luminance(c.bg) > 0.5 ? 0.26 : 0.32;
+  return hexToRgba(c.highlight || c.accent, alpha);
+}
+
+function searchActiveBgFor(c) {
+  const alpha = _luminance(c.bg) > 0.5 ? 0.42 : 0.55;
+  return hexToRgba(c.highlight || c.accent, alpha);
+}
+
+function searchOutlineFor(c) {
+  return _luminance(c.bg) > 0.5 ? c.bgDark : c.fg;
 }
 
 function resolveTheme(id) {
@@ -288,6 +302,12 @@ function applyTheme(id) {
   root.setProperty('--accent', c.accent);
   root.setProperty('--accent-subtle', hexToRgba(c.accent, 0.15));
   root.setProperty('--selection-bg', selectionBgFor(c));
+  root.setProperty('--search-match-bg', searchMatchBgFor(c));
+  root.setProperty('--search-match-border', hexToRgba(c.highlight || c.accent, 0.8));
+  root.setProperty('--search-match-shadow', hexToRgba(c.bg, 0.2));
+  root.setProperty('--search-active-bg', searchActiveBgFor(c));
+  root.setProperty('--search-active-border', c.highlight || c.accent);
+  root.setProperty('--search-active-outline', searchOutlineFor(c));
   root.setProperty('--border', c.border);
   root.setProperty('--red', c.red);
   root.setProperty('--yellow', c.yellow);

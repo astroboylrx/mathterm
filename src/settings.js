@@ -30,6 +30,7 @@ const DEFAULTS = {
   inheritCwd: false,
   copyOnSelect: true,
   backgroundCommandMarker: true,
+  quitWhenLastTabClosed: false,
   _copyOnSelectDefaultVersion: 2,
   shortcuts: DEFAULT_SHORTCUTS,
 };
@@ -150,6 +151,10 @@ function openSettings() {
   document.getElementById('s-inheritcwd').checked = settings.inheritCwd;
   document.getElementById('s-copyonselect').checked = settings.copyOnSelect;
   document.getElementById('s-attentionmarker').checked = settings.backgroundCommandMarker;
+  const quitLastTabRow = document.getElementById('s-quitlasttab-row');
+  const quitLastTab = document.getElementById('s-quitlasttab');
+  if (quitLastTabRow) quitLastTabRow.classList.toggle('hidden', !isMac);
+  if (quitLastTab) quitLastTab.checked = !!settings.quitWhenLastTabClosed;
   const cfgNote = document.getElementById('s-config-path');
   if (cfgNote) cfgNote.textContent = `For shortcuts and custom themes, edit files in ${mt.path.join(configHome, 'mathterm')}.`;
   document.getElementById('settings-dialog').showModal();
@@ -171,6 +176,8 @@ function saveSettings() {
   settings.inheritCwd = document.getElementById('s-inheritcwd').checked;
   settings.copyOnSelect = document.getElementById('s-copyonselect').checked;
   settings.backgroundCommandMarker = document.getElementById('s-attentionmarker').checked;
+  const quitLastTab = document.getElementById('s-quitlasttab');
+  settings.quitWhenLastTabClosed = isMac && quitLastTab ? quitLastTab.checked : false;
 
   saveSettingsFile(settings);
   applySettings();

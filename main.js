@@ -294,7 +294,11 @@ ipcMain.on('rebuild-menu', (event, autoRender) => {
   Menu.setApplicationMenu(buildMenu(autoRender));
 });
 
-ipcMain.on('close-window', (event) => {
+ipcMain.on('close-window', (event, opts = {}) => {
+  if (opts && opts.quitApp) {
+    app.quit();
+    return;
+  }
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) win.close();
 });

@@ -66,6 +66,10 @@ function createTab(cwd) {
   xtermHolder.className = 'xterm-holder';
   container.appendChild(xtermHolder);
 
+  const searchHighlightLayer = document.createElement('div');
+  searchHighlightLayer.className = 'search-highlight-layer';
+  xtermHolder.appendChild(searchHighlightLayer);
+
   const richViewEl = document.createElement('div');
   richViewEl.className = 'rich-view';
   richViewEl.tabIndex = 0;
@@ -101,6 +105,7 @@ function createTab(cwd) {
 
   tab.container = container;
   tab.xtermHolder = xtermHolder;
+  tab.searchHighlightLayer = searchHighlightLayer;
   tab.richView = richViewEl;
   tab.richContent = richContentEl;
   tab.richHint = richHintEl;
@@ -118,7 +123,8 @@ function createTab(cwd) {
     },
     cursorBlink: true,
     cursorStyle: settings.cursorStyle,
-    scrollback: settings.scrollback
+    scrollback: settings.scrollback,
+    macOptionIsMeta: isMac
   });
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon();
@@ -132,6 +138,7 @@ function createTab(cwd) {
     } catch {}
   }));
   term.open(xtermHolder);
+  xtermHolder.appendChild(searchHighlightLayer);
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
@@ -157,6 +164,7 @@ function createTab(cwd) {
   tab.term = term;
   tab.fitAddon = fitAddon;
   tab.searchAddon = searchAddon;
+  require('./search').attachSearchResultListener(tab);
 
   const spawnCwd = cwd
     || (settings.inheritCwd ? (getActiveTab()?.cwd || mt.os.env.HOME) : null)
@@ -352,6 +360,8 @@ function switchTab(id) {
   if (id === state.activeTabId) return;
   const prev = getActiveTab();
   if (prev) {
+    const { saveSearchState } = require('./search');
+    saveSearchState(prev);
     prev.container.classList.remove('active');
     prev.tabEl.classList.remove('active');
     if (prev.richVisible) prev.richView.classList.remove('visible');
@@ -363,6 +373,8 @@ function switchTab(id) {
   tab.attentionMessage = '';
   tab.container.classList.add('active');
   tab.tabEl.classList.add('active');
+  const { hydrateSearchBar } = require('./search');
+  hydrateSearchBar(tab);
   updateTabBar();
   requestAnimationFrame(() => {
     tab.fitAddon.fit();
@@ -381,7 +393,10 @@ function switchTab(id) {
 function closeTab(id) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
-  if (state.tabs.length <= 1) { mt.ipc.send('close-window'); return; }
+  if (state.tabs.length <= 1) {
+    mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
+    return;
+  }
   const tab = state.tabs[idx];
   tab._closing = true;
   clearTimeout(tab.sectionTimer);
@@ -391,6 +406,7 @@ function closeTab(id) {
   const wasActive = state.activeTabId === id;
   if (wasActive) state.activeTabId = null;
   try { if (tab.ptyProc) tab.ptyProc.kill(); } catch {}
+  try { tab._searchResultDisposable?.dispose(); } catch {}
   try { tab.term.dispose(); } catch {}
   if (tab._shimDir) {
     try { mt.fs.rmSync(tab._shimDir, { recursive: true, force: true }); } catch {}
