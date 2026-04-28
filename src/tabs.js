@@ -33,7 +33,8 @@ function macOptionMetaSequence(e) {
 
 function isMacImePunctuationKey(e) {
   if (!isMac || e.ctrlKey || e.altKey || e.metaKey) return false;
-  return e.key === '.' || e.key === ',' || e.key === '?';
+  if (!e.key || e.key.length !== 1) return false;
+  return /^[\x21-\x7e]$/.test(e.key) && !/^[A-Za-z0-9]$/.test(e.key);
 }
 
 function attachMacImePunctuationBridge(tab) {
@@ -61,6 +62,12 @@ function attachMacImePunctuationBridge(tab) {
         tab._macImePunctuationPending = null;
       }, 30)
     };
+  }, true);
+
+  tab.xtermHolder.addEventListener('keypress', e => {
+    if (!tab._macImePunctuationPending) return;
+    e.preventDefault();
+    e.stopPropagation();
   }, true);
 
   function handleTextInput(e) {
