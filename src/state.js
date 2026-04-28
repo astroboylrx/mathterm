@@ -111,7 +111,7 @@ function updateStatusBar(tab) {
     const pct = Math.round((tab.zoomFactor || 1) * 100);
     state.zoomInd.textContent = pct === 100 ? '' : pct + '%';
     state.zoomInd.classList.toggle('hidden', pct === 100);
-    state.zoomInd.title = pct === 100 ? '' : `Tab zoom: ${pct}%`;
+    state.zoomInd.title = pct === 100 ? '' : `Pane zoom: ${pct}%`;
   }
 }
 

@@ -1,4 +1,4 @@
-const { getActiveTab, isActivePane, updateStatusBar } = require('./state');
+const { getActivePane, isActivePane, updateStatusBar } = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
 const { hasLatex, splitLatexSmart } = require('./latex');
@@ -394,7 +394,7 @@ function tabHideRichView(tab) {
 }
 
 function toggleMathMode() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   if (tab.richVisible) tabHideRichView(tab);
   else showManualRichView(tab);

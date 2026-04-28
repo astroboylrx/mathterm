@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { state, getActiveTab, forEachPane } = require('./state');
+const { state, getActivePane, forEachPane } = require('./state');
 const { createDefaultShortcuts, LEGACY_T14_SHORTCUTS, LEGACY_MAC_SHORTCUTS } = require('../shortcutDefaults');
 
 const isMac = mt.os.platform === 'darwin';
@@ -170,7 +170,7 @@ function applySettings() {
   const { applyZoomToTab } = require('./zoom');
   const c = applyTheme(settings.theme);
 
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (tab) tab.autoRender = settings.autoRender;
   const active = tab ? tab.autoRender : settings.autoRender;
   state.autoIndicator.textContent = 'AUTO';

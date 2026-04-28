@@ -1,10 +1,10 @@
 const mt = window.mathterm;
-const { getActiveTab } = require('./state');
+const { getActivePane } = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
 
 function getSelectionText() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return '';
   if (tab.richVisible) {
     const sel = window.getSelection();
@@ -19,14 +19,14 @@ function doCopy() {
 }
 
 function doPaste() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   const text = mt.clipboard.readText();
   if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
 }
 
 function doSelectAll() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   if (tab.richVisible) {
     const range = document.createRange();
@@ -40,7 +40,7 @@ function doSelectAll() {
 }
 
 function hasSelection() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return false;
   if (tab.richVisible) {
     const sel = window.getSelection();
@@ -50,7 +50,7 @@ function hasSelection() {
 }
 
 function showContextMenu(x, y) {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   const state = require('./state').state;
   const copyItem = document.getElementById('ctx-copy');
   if (hasSelection()) copyItem.classList.remove('disabled');
@@ -98,7 +98,7 @@ function initClipboardListeners() {
 
   document.addEventListener('mouseup', () => {
     if (!settings.copyOnSelect) return;
-    const tab = getActiveTab();
+    const tab = getActivePane();
     if (!tab || !tab.richVisible) return;
     const sel = window.getSelection();
     if (sel && sel.toString().length > 0) {

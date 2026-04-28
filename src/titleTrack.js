@@ -29,7 +29,9 @@ function refreshTabTitle(pane) {
   pane.title = computePaneTitle(pane);
   const workspace = pane.workspace;
   if (!workspace) return;
-  workspace.cwd = pane.cwd;
+  if (workspace.panes.length <= 1 || workspace.activePaneId === pane.id) {
+    workspace.cwd = pane.cwd;
+  }
   workspace.title = computeTabTitle(workspace);
   updateTabBar();
   if (pane.id === getActivePane()?.id) updateStatusBarCwd(pane);

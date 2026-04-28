@@ -1,4 +1,4 @@
-const { state, getActiveTab } = require('./state');
+const { state, getActivePane } = require('./state');
 const { settings, isMac, applySettings } = require('./settings');
 const { loadUserThemes } = require('./themes');
 const { createTab, switchTab, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
@@ -39,7 +39,7 @@ window.closeActivePane = require('./tabs').closeActivePane;
 window.togglePaneMaximize = require('./tabs').togglePaneMaximize;
 window.toggleMathMode = toggleMathMode;
 window.toggleAutoRender = function() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   tab.autoRender = !tab.autoRender;
   state.autoIndicator.textContent = 'AUTO';
@@ -131,7 +131,7 @@ function handleRichViewKey(e, tab) {
 }
 
 function _dispatchShortcut(name) {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   switch (name) {
     case 'toggleMath':
       if (tab) toggleMathMode();
@@ -189,7 +189,7 @@ function _dispatchShortcut(name) {
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
 
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (tab && !isPromptNavigationShortcut(e)) tab._promptJumpAnchorY = null;
 
   if (handlePaneShortcut(e)) return;
@@ -434,7 +434,7 @@ const urlCwd = new URLSearchParams(window.location.search).get('cwd');
 
   createTab(urlCwd || undefined);
 
-  const firstTab = getActiveTab();
+  const firstTab = getActivePane();
   if (firstTab) {
     state.autoIndicator.textContent = 'AUTO';
     state.autoIndicator.className = firstTab.autoRender ? '' : 'off';

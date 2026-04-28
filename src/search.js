@@ -1,6 +1,6 @@
-const { state, getActiveTab, isActivePane } = require('./state');
+const { state, getActivePane, isActivePane } = require('./state');
 
-function attachSearchBarToPane(tab = getActiveTab()) {
+function attachSearchBarToPane(tab = getActivePane()) {
   if (!state.searchBar || !tab?.leafEl) return;
   if (state.searchBar.parentNode !== tab.leafEl) {
     tab.leafEl.appendChild(state.searchBar);
@@ -22,14 +22,14 @@ function attachSearchResultListener(tab) {
   };
 }
 
-function saveSearchState(tab = getActiveTab()) {
+function saveSearchState(tab = getActivePane()) {
   if (!tab || !state.searchInput || !state.searchCount) return;
   tab.searchOpen = state.searchBar.classList.contains('open');
   tab.searchQuery = state.searchInput.value;
   tab.searchCountText = state.searchCount.textContent || '';
 }
 
-function hydrateSearchBar(tab = getActiveTab(), { focus = false, refresh = false } = {}) {
+function hydrateSearchBar(tab = getActivePane(), { focus = false, refresh = false } = {}) {
   if (!state.searchBar || !state.searchInput || !state.searchCount) return;
   attachSearchBarToPane(tab);
   if (!tab || !tab.searchOpen) {
@@ -51,7 +51,7 @@ function hydrateSearchBar(tab = getActiveTab(), { focus = false, refresh = false
 }
 
 function openSearch() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   attachSearchBarToPane(tab);
   const { tabHideRichView } = require('./richView');
@@ -63,7 +63,7 @@ function openSearch() {
 }
 
 function closeSearch() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (tab) {
     attachSearchBarToPane(tab);
     tab.searchOpen = false;
@@ -81,7 +81,7 @@ function closeSearch() {
 }
 
 function doSearchNext() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   const q = state.searchInput.value;
   if (!q) return;
@@ -90,7 +90,7 @@ function doSearchNext() {
 }
 
 function doSearchPrev() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   const q = state.searchInput.value;
   if (!q) return;
@@ -100,7 +100,7 @@ function doSearchPrev() {
 
 function initSearchListeners() {
   state.searchInput.addEventListener('input', () => {
-    const tab = getActiveTab();
+    const tab = getActivePane();
     if (!tab) return;
     const q = state.searchInput.value;
     tab.searchOpen = true;
@@ -181,7 +181,7 @@ function activeMatchIndex(tab, matches) {
   return idx === -1 && matches.length ? 0 : idx;
 }
 
-function renderSearchHighlights(tab = getActiveTab()) {
+function renderSearchHighlights(tab = getActivePane()) {
   if (!tab || !tab.searchHighlightLayer) return;
   const layer = tab.searchHighlightLayer;
   layer.replaceChildren();

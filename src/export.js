@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { getActiveTab } = require('./state');
+const { getActivePane } = require('./state');
 
 const MAX_CANVAS_DIM = 32767;
 const MAX_CANVAS_AREA = 32768 * 8192;
@@ -29,7 +29,7 @@ function _finishExportResult(kind, result) {
 }
 
 async function exportPdf() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab || !tab.richVisible) {
     return _showExportFailure('PDF', 'Math view must be open to export.');
   }
@@ -174,7 +174,7 @@ function _loadImage(url) {
 }
 
 async function exportPng() {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab || !tab.richVisible) {
     return _showExportFailure('PNG', 'Math view must be open to export.');
   }

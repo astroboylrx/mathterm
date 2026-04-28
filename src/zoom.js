@@ -1,4 +1,4 @@
-const { getActiveTab, isActivePane, updateStatusBar } = require('./state');
+const { getActivePane, isActivePane, updateStatusBar } = require('./state');
 const { settings } = require('./settings');
 
 const MIN_ZOOM = 0.5;
@@ -31,13 +31,13 @@ function setZoom(tab, value) {
 }
 
 function zoomActive(delta) {
-  const tab = getActiveTab();
+  const tab = getActivePane();
   if (!tab) return;
   setZoom(tab, (tab.zoomFactor || 1) + delta);
 }
 
 function resetActiveZoom() {
-  setZoom(getActiveTab(), 1);
+  setZoom(getActivePane(), 1);
 }
 
 function zoomInActiveTab() {

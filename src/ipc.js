@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { state, getActiveTab, getActiveWorkspace } = require('./state');
+const { state, getActivePane, getActiveWorkspace } = require('./state');
 const { settings, openSettings } = require('./settings');
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
@@ -12,7 +12,7 @@ const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom } = require('./zoom')
 function initIpc() {
   mt.ipc.on('toggle-math-mode', () => toggleMathMode());
   mt.ipc.on('set-auto-render', (val) => {
-    const tab = getActiveTab();
+    const tab = getActivePane();
     if (tab) tab.autoRender = val;
     const active = tab ? tab.autoRender : false;
     state.autoIndicator.textContent = 'AUTO';
@@ -20,7 +20,7 @@ function initIpc() {
     mt.ipc.send('rebuild-menu', active);
   });
   mt.ipc.on('clear-terminal', () => {
-    const tab = getActiveTab();
+    const tab = getActivePane();
     if (!tab) return;
     if (tab.richVisible) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
@@ -32,7 +32,7 @@ function initIpc() {
       return mt.fs.readFileAsync(filePath, 'utf8');
     }).then(content => {
       if (!content) return;
-      const tab = getActiveTab();
+      const tab = getActivePane();
       if (tab) renderFileContent(tab, content, filePath);
     }).catch(err => console.error('Failed to open file:', err));
   });
