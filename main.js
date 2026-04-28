@@ -241,13 +241,13 @@ function buildMenu(autoRender) {
       submenu: [
         {
           label: 'Next Tab',
-          accelerator: 'CmdOrCtrl+PageDown',
+          accelerator: isMac ? 'CmdOrCtrl+Shift+]' : 'CmdOrCtrl+PageDown',
           registerAccelerator: false,
           click: () => sendFocused('next-tab')
         },
         {
           label: 'Previous Tab',
-          accelerator: 'CmdOrCtrl+PageUp',
+          accelerator: isMac ? 'CmdOrCtrl+Shift+[' : 'CmdOrCtrl+PageUp',
           registerAccelerator: false,
           click: () => sendFocused('prev-tab')
         }

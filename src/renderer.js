@@ -61,11 +61,19 @@ function rebuildBindings() {
 }
 rebuildBindings();
 
-function isTabCycleShortcut(e) {
+function tabCycleDirectionForEvent(e) {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   const otherMod = isMac ? e.ctrlKey : e.metaKey;
-  return mod && !otherMod && !e.altKey && !e.shiftKey
-    && (e.key === 'PageDown' || e.key === 'PageUp');
+  if (!mod || otherMod || e.altKey) return 0;
+  if (!e.shiftKey && e.key === 'PageDown') return 1;
+  if (!e.shiftKey && e.key === 'PageUp') return -1;
+  if (isMac && e.shiftKey && e.code === 'BracketRight') return 1;
+  if (isMac && e.shiftKey && e.code === 'BracketLeft') return -1;
+  return 0;
+}
+
+function isTabCycleShortcut(e) {
+  return tabCycleDirectionForEvent(e) !== 0;
 }
 
 function cycleTab(direction) {
@@ -80,10 +88,11 @@ function cycleTab(direction) {
 // (e.g. Ctrl+Shift+Up or Ctrl+PageDown) never get written to the PTY.
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput) return;
-  if (isTabCycleShortcut(e)) {
+  const tabCycleDirection = tabCycleDirectionForEvent(e);
+  if (tabCycleDirection) {
     e.preventDefault();
     e.stopPropagation();
-    cycleTab(e.key === 'PageDown' ? 1 : -1);
+    cycleTab(tabCycleDirection);
     return;
   }
   if (isZoomShortcut(e, isMac)) {
@@ -203,14 +212,10 @@ document.addEventListener('keydown', e => {
     else zoomInActiveTab();
     return;
   }
-  if (mod && e.key === 'PageDown') {
+  const tabCycleDirection = tabCycleDirectionForEvent(e);
+  if (tabCycleDirection) {
     e.preventDefault();
-    cycleTab(1);
-    return;
-  }
-  if (mod && e.key === 'PageUp') {
-    e.preventDefault();
-    cycleTab(-1);
+    cycleTab(tabCycleDirection);
     return;
   }
   if (mod && e.key >= '1' && e.key <= '9') {

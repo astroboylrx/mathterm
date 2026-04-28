@@ -7,8 +7,8 @@ function buildShortcutSections() {
       { keys: isMac ? 'Mod+T' : 'Mod+Shift+T', desc: 'New tab' },
       { keys: isMac ? 'Mod+W' : 'Mod+Shift+W', desc: 'Close tab' },
       { keys: 'Mod+1 … Mod+9', desc: 'Switch to tab N' },
-      { keys: 'Mod+PageDown', desc: 'Next tab' },
-      { keys: 'Mod+PageUp', desc: 'Previous tab' },
+      { keys: isMac ? 'Mod+Shift+]' : 'Mod+PageDown', desc: 'Next tab' },
+      { keys: isMac ? 'Mod+Shift+[' : 'Mod+PageUp', desc: 'Previous tab' },
     ]},
     { section: 'Math', items: [
       { id: 'toggleMath', keys: sc.toggleMath, desc: 'Toggle Math mode' },

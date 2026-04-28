@@ -17,11 +17,19 @@ function updateRendererIndicator(tab) {
   el.textContent = tab._renderer === 'webgl' ? 'GL' : tab._renderer === 'canvas' ? 'CV' : 'DOM';
 }
 
-function isTabCycleShortcut(e) {
+function tabCycleDirectionForEvent(e) {
   const mod = isMac ? e.metaKey : e.ctrlKey;
   const otherMod = isMac ? e.ctrlKey : e.metaKey;
-  return mod && !otherMod && !e.altKey && !e.shiftKey
-    && (e.key === 'PageDown' || e.key === 'PageUp');
+  if (!mod || otherMod || e.altKey) return 0;
+  if (!e.shiftKey && e.key === 'PageDown') return 1;
+  if (!e.shiftKey && e.key === 'PageUp') return -1;
+  if (isMac && e.shiftKey && e.code === 'BracketRight') return 1;
+  if (isMac && e.shiftKey && e.code === 'BracketLeft') return -1;
+  return 0;
+}
+
+function isTabCycleShortcut(e) {
+  return tabCycleDirectionForEvent(e) !== 0;
 }
 
 function macOptionMetaSequence(e) {
