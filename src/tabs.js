@@ -31,6 +31,51 @@ function macOptionMetaSequence(e) {
   return null;
 }
 
+function isMacImePunctuationKey(e) {
+  if (!isMac || e.ctrlKey || e.altKey || e.metaKey) return false;
+  return e.key === '.' || e.key === ',' || e.key === '?';
+}
+
+function attachMacImePunctuationBridge(tab) {
+  if (!isMac || !tab.xtermHolder) return;
+
+  function write(data) {
+    if (!data || tab.richVisible || !tab.ptyProc) return;
+    tab.ptyProc.write(data);
+  }
+
+  function clearPending() {
+    if (!tab._macImePunctuationPending) return;
+    clearTimeout(tab._macImePunctuationPending.timer);
+    tab._macImePunctuationPending = null;
+  }
+
+  tab.xtermHolder.addEventListener('keydown', e => {
+    if (!isMacImePunctuationKey(e)) return;
+    clearPending();
+    const fallback = e.key;
+    e.stopPropagation();
+    tab._macImePunctuationPending = {
+      timer: setTimeout(() => {
+        write(fallback);
+        tab._macImePunctuationPending = null;
+      }, 30)
+    };
+  }, true);
+
+  function handleTextInput(e) {
+    if (!tab._macImePunctuationPending || !e.data) return;
+    const text = e.data;
+    clearPending();
+    e.preventDefault();
+    e.stopPropagation();
+    write(text);
+  }
+
+  tab.xtermHolder.addEventListener('beforeinput', handleTextInput, true);
+  tab.xtermHolder.addEventListener('input', handleTextInput, true);
+}
+
 const { escapeHtml } = require('./ansi');
 const { TabSession } = require('./tabSession');
 const { createShellShim, buildShellArgs } = require('./shellShim');
@@ -145,6 +190,7 @@ function createTab(cwd) {
   }));
   term.open(xtermHolder);
   xtermHolder.appendChild(searchHighlightLayer);
+  attachMacImePunctuationBridge(tab);
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
