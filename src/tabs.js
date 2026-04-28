@@ -55,25 +55,20 @@ function attachMacImePunctuationBridge(tab) {
     if (!isMacImePunctuationKey(e)) return;
     clearPending();
     const fallback = e.key;
-    e.stopPropagation();
     tab._macImePunctuationPending = {
+      fallback,
       timer: setTimeout(() => {
-        write(fallback);
+        if (tab._macImePunctuationPending?.fallback === fallback) write(fallback);
         tab._macImePunctuationPending = null;
-      }, 30)
+      }, 50)
     };
-  }, true);
-
-  tab.xtermHolder.addEventListener('keypress', e => {
-    if (!tab._macImePunctuationPending) return;
-    e.preventDefault();
-    e.stopPropagation();
   }, true);
 
   function handleTextInput(e) {
     if (!tab._macImePunctuationPending || !e.data) return;
     const text = e.data;
     clearPending();
+    tab._macImePunctuationHandled = { text, until: Date.now() + 80 };
     e.preventDefault();
     e.stopPropagation();
     write(text);
@@ -81,6 +76,14 @@ function attachMacImePunctuationBridge(tab) {
 
   tab.xtermHolder.addEventListener('beforeinput', handleTextInput, true);
   tab.xtermHolder.addEventListener('input', handleTextInput, true);
+}
+
+function shouldSuppressMacImeFallback(tab, data) {
+  const pending = tab._macImePunctuationPending;
+  if (pending && data === pending.fallback) return true;
+  const handled = tab._macImePunctuationHandled;
+  if (handled && data === handled.text && Date.now() < handled.until) return true;
+  return false;
 }
 
 const { escapeHtml } = require('./ansi');
@@ -265,6 +268,7 @@ function createTab(cwd) {
   });
 
   term.onData(data => {
+    if (shouldSuppressMacImeFallback(tab, data)) return;
     if (tab.richVisible) {
       const { tabHideRichView } = require('./richView');
       if (tab.richAutoTriggered && (data === 'q' || data === '\x1b')) {

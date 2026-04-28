@@ -46,6 +46,7 @@ class TabSession {
     this._promptJumpAnchorY = null;
     this._lastExitCode = '';
     this._macImePunctuationPending = null;
+    this._macImePunctuationHandled = null;
     this.needsAttention = false;
     this.attentionLevel = null;
     this.attentionMessage = '';
