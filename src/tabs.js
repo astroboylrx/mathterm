@@ -714,18 +714,7 @@ function closePane(paneId) {
   const removal = removePaneFromLayout(workspace.layout, paneId);
   workspace.layout = removal.layout;
   if (wasActive) workspace.activePaneId = removal.replacementPaneId || firstPaneIdInLayout(workspace.layout);
-  const root = getWorkspaceRoot(workspace);
-  const remainingLeaf = getPaneLeaf(workspace, workspace.activePaneId);
-  if (workspace.layout?.type === 'pane' && remainingLeaf && remainingLeaf.parentNode === root) {
-    for (const child of Array.from(root.children)) {
-      if (child !== remainingLeaf) child.remove();
-    }
-    root.className = 'workspace-pane-root';
-    remainingLeaf.style.flex = '1 1 0';
-    remainingLeaf.classList.add('active');
-  } else {
-    renderLayout(workspace);
-  }
+  renderLayout(workspace);
   updateTabBar();
   const next = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
   if (next) {
