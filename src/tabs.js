@@ -258,7 +258,7 @@ function renderLayout(workspace) {
   if (!workspace || !workspace.container || !workspace.layout) return;
   const root = getWorkspaceRoot(workspace);
   root.className = 'workspace-pane-root';
-  const layout = workspace.maximizedPaneId
+  const layout = workspace.maximizedPaneId != null
     && workspace.panes.some(p => p.id === workspace.maximizedPaneId)
     ? { type: 'pane', paneId: workspace.maximizedPaneId }
     : workspace.layout;
@@ -860,7 +860,7 @@ function focusPane(paneId, opts = {}) {
   }
 
   workspace.activePaneId = paneId;
-  if (workspace.maximizedPaneId && workspace.maximizedPaneId !== paneId) {
+  if (workspace.maximizedPaneId != null && workspace.maximizedPaneId !== paneId) {
     workspace.maximizedPaneId = paneId;
     renderLayout(workspace);
   }
@@ -891,7 +891,7 @@ function splitActivePane(direction) {
   const pane = getActivePane();
   const workspace = getActiveWorkspace();
   if (!pane || !workspace) return;
-  if (workspace.maximizedPaneId) {
+  if (workspace.maximizedPaneId != null) {
     workspace.maximizedPaneId = null;
     renderLayout(workspace);
   }
