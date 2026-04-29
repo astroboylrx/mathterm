@@ -1,4 +1,8 @@
 
+// Model note: a workspace is the user-visible tab; each workspace owns one or
+// more panes. We keep "tab" compatibility aliases because users and older code
+// are used to terminal tabs, but new terminal-session logic should say pane.
+
 const state = {
   workspaces: [],
   activeWorkspaceId: null,

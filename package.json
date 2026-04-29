@@ -1,12 +1,13 @@
 {
   "name": "mathterm",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
   "main": "main.js",
   "scripts": {
     "build": "node build.js",
+    "test": "node test/layoutTree.test.js",
     "start": "npm run build && electron .",
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run dist:linux",

@@ -1,6 +1,7 @@
 const { state } = require('./state');
 const { Osc1337Parser } = require('./osc1337');
 
+// A pane session is one terminal inside a workspace/tab.
 class PaneSession {
   constructor(id, workspace = null) {
     this.id = id;

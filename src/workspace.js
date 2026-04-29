@@ -1,5 +1,7 @@
 const { state } = require('./state');
 
+// Workspaces are the internal model for user-visible tabs. Each workspace owns
+// a layout tree and one or more pane sessions.
 class TabWorkspace {
   constructor(id) {
     this.id = id;
