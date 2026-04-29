@@ -380,7 +380,8 @@ ipcMain.on('close-window', (event, opts = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (opts && opts.quitApp) {
     if (win && !win.isDestroyed()) win.close();
-    app.quit();
+    const openWindows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w !== win);
+    if (openWindows.length === 0) app.quit();
     return;
   }
   if (win) win.close();
