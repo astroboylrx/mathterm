@@ -74,6 +74,33 @@ function sendFocused(channel, ...args) {
   if (wc) wc.send(channel, ...args);
 }
 
+function isToggleDevToolsInput(input) {
+  if (isMac) {
+    return input.meta && input.alt && !input.control && !input.shift && String(input.key).toLowerCase() === 'i';
+  }
+  return (input.control && input.shift && !input.alt && !input.meta && String(input.key).toLowerCase() === 'i')
+    || input.key === 'F12';
+}
+
+function createWindow(opts = {}) {
+  const win = new BrowserWindow({
+    width: 960,
+    height: 700,
+    title: 'MathTerm',
+    webPreferences: webPrefs
+  });
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
+      event.preventDefault();
+      win.webContents.toggleDevTools();
+    }
+  });
+  const params = new URLSearchParams();
+  if (opts.cwd) params.set('cwd', opts.cwd);
+  win.loadFile('index.html', { query: params.toString() || undefined });
+  return win;
+}
+
 function openFileInMathMode() {
   const win = BrowserWindow.getFocusedWindow() || mainWindow;
   dialog.showOpenDialog(win, {
@@ -131,6 +158,11 @@ function buildMenu(autoRender) {
         },
         { type: 'separator' },
         {
+          label: 'New Window',
+          accelerator: isMac ? 'CmdOrCtrl+N' : 'CmdOrCtrl+Shift+N',
+          click: () => { mainWindow = createWindow(); }
+        },
+        {
           label: 'New Tab',
           accelerator: isMac ? 'CmdOrCtrl+T' : 'CmdOrCtrl+Shift+T',
           click: () => sendFocused('new-tab')
@@ -172,11 +204,6 @@ function buildMenu(autoRender) {
           accelerator: sc.openSearch,
           registerAccelerator: false,
           click: () => sendFocused('open-search')
-        },
-        { type: 'separator' },
-        {
-          label: 'Clear Terminal',
-          click: () => sendFocused('clear-terminal')
         },
         ...(isMac ? [] : [
           { type: 'separator' },
@@ -289,10 +316,6 @@ function buildMenu(autoRender) {
           click: () => sendFocused('focus-pane-down')
         },
         { type: 'separator' },
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
         { role: 'togglefullscreen' }
       ]
     },
@@ -334,13 +357,7 @@ function buildMenu(autoRender) {
 }
 
 app.whenReady().then(() => {
-  mainWindow = new BrowserWindow({
-    width: 960,
-    height: 700,
-    title: 'MathTerm',
-    webPreferences: webPrefs
-  });
-  mainWindow.loadFile('index.html');
+  mainWindow = createWindow();
   Menu.setApplicationMenu(buildMenu(true));
 });
 
@@ -350,13 +367,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = new BrowserWindow({
-      width: 960,
-      height: 700,
-      title: 'MathTerm',
-      webPreferences: webPrefs
-    });
-    mainWindow.loadFile('index.html');
+    mainWindow = createWindow();
     Menu.setApplicationMenu(buildMenu(true));
   }
 });
@@ -376,15 +387,7 @@ ipcMain.on('close-window', (event, opts = {}) => {
 });
 
 ipcMain.on('detach-tab', (event, opts) => {
-  const win = new BrowserWindow({
-    width: 960,
-    height: 700,
-    title: 'MathTerm',
-    webPreferences: webPrefs
-  });
-  const params = new URLSearchParams();
-  if (opts?.cwd) params.set('cwd', opts.cwd);
-  win.loadFile('index.html', { query: params.toString() || undefined });
+  createWindow({ cwd: opts?.cwd });
 });
 
 ipcMain.handle('export-pdf', async (event) => {

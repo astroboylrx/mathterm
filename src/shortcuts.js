@@ -4,6 +4,7 @@ function buildShortcutSections() {
   const sc = settings.shortcuts || {};
   return [
     { section: 'Tabs', items: [
+      { keys: isMac ? 'Mod+N' : 'Mod+Shift+N', desc: 'New window' },
       { keys: isMac ? 'Mod+T' : 'Mod+Shift+T', desc: 'New tab' },
       { keys: 'Mod+1 … Mod+9', desc: 'Switch to tab N' },
       { keys: isMac ? 'Mod+Shift+]' : 'Mod+PageDown', desc: 'Next tab' },
