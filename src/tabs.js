@@ -68,6 +68,8 @@ function macOptionMetaBinding(e) {
   if (!isMac || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
   if (e.code === 'KeyF') return { sequence: '\x1bf', text: '\u0192' };
   if (e.code === 'KeyB') return { sequence: '\x1bb', text: '\u222b' };
+  if (e.code === 'KeyD') return { sequence: '\x1bd', text: '\u2202' };
+  if (e.key === 'Backspace') return { sequence: '\x1b\x7f', text: null };
   return null;
 }
 
@@ -78,6 +80,7 @@ function clearMacOptionMetaPending(pane) {
 }
 
 function markMacOptionMetaPending(pane, binding) {
+  if (!binding.text) return;
   clearMacOptionMetaPending(pane);
   const until = Date.now() + 120;
   pane._macOptionMetaPending = {
@@ -1027,8 +1030,9 @@ function isPaneShortcut(e) {
     const parsed = parseShortcut(sc[key]);
     if (parsed && matchShortcut(parsed, e, isMac)) return true;
   }
-  if (isMac && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
-  if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return true;
+  const arrows = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+  if (isMac && e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey && arrows.includes(e.key)) return true;
+  if (!isMac && e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && arrows.includes(e.key)) return true;
   return false;
 }
 
