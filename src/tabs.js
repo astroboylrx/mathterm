@@ -64,11 +64,29 @@ function isTabCycleShortcut(e) {
   return tabCycleDirectionForEvent(e) !== 0;
 }
 
-function macOptionMetaSequence(e) {
+function macOptionMetaBinding(e) {
   if (!isMac || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
-  if (e.code === 'KeyF') return '\x1bf';
-  if (e.code === 'KeyB') return '\x1bb';
+  if (e.code === 'KeyF') return { sequence: '\x1bf', text: '\u0192' };
+  if (e.code === 'KeyB') return { sequence: '\x1bb', text: '\u222b' };
   return null;
+}
+
+function clearMacOptionMetaPending(pane) {
+  if (!pane?._macOptionMetaPending) return;
+  clearTimeout(pane._macOptionMetaPending.timer);
+  pane._macOptionMetaPending = null;
+}
+
+function markMacOptionMetaPending(pane, binding) {
+  clearMacOptionMetaPending(pane);
+  const until = Date.now() + 120;
+  pane._macOptionMetaPending = {
+    text: binding.text,
+    until,
+    timer: setTimeout(() => {
+      if (pane._macOptionMetaPending?.until === until) pane._macOptionMetaPending = null;
+    }, 120)
+  };
 }
 
 function isMacImePunctuationKey(e) {
@@ -89,6 +107,15 @@ function attachMacImePunctuationBridge(pane) {
     if (!pane._macImePunctuationPending) return;
     clearTimeout(pane._macImePunctuationPending.timer);
     pane._macImePunctuationPending = null;
+  }
+
+  function suppressOptionMetaTextInput(e) {
+    const pending = pane._macOptionMetaPending;
+    if (!pending || !e.data || e.data !== pending.text || Date.now() > pending.until) return;
+    e.preventDefault();
+    e.stopPropagation();
+    pane._macOptionMetaHandled = { text: pending.text, until: Date.now() + 80 };
+    clearMacOptionMetaPending(pane);
   }
 
   pane.xtermHolder.addEventListener('keydown', e => {
@@ -120,11 +147,20 @@ function attachMacImePunctuationBridge(pane) {
     write(text);
   }
 
+  pane.xtermHolder.addEventListener('beforeinput', suppressOptionMetaTextInput, true);
+  pane.xtermHolder.addEventListener('input', suppressOptionMetaTextInput, true);
   pane.xtermHolder.addEventListener('beforeinput', handleTextInput, true);
   pane.xtermHolder.addEventListener('input', handleTextInput, true);
 }
 
-function shouldSuppressMacImeFallback(pane, data) {
+function shouldSuppressMacFallbackData(pane, data) {
+  const optionPending = pane._macOptionMetaPending;
+  if (optionPending && data === optionPending.text && Date.now() <= optionPending.until) {
+    clearMacOptionMetaPending(pane);
+    return true;
+  }
+  const optionHandled = pane._macOptionMetaHandled;
+  if (optionHandled && data === optionHandled.text && Date.now() < optionHandled.until) return true;
   const pending = pane._macImePunctuationPending;
   if (pending && data === pending.fallback) return true;
   const handled = pane._macImePunctuationHandled;
@@ -434,9 +470,12 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
-    const optionMeta = macOptionMetaSequence(e);
+    const optionMeta = macOptionMetaBinding(e);
     if (optionMeta) {
-      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(optionMeta);
+      e.preventDefault();
+      e.stopPropagation();
+      markMacOptionMetaPending(pane, optionMeta);
+      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(optionMeta.sequence);
       return false;
     }
     if (isTabCycleShortcut(e)) return false;
@@ -504,7 +543,7 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
   xtermHolder.addEventListener('focusin', () => focusPane(pane.id, { focusTerm: false }));
 
   term.onData(data => {
-    if (shouldSuppressMacImeFallback(pane, data)) return;
+    if (shouldSuppressMacFallbackData(pane, data)) return;
     focusPane(pane.id, { focusTerm: false });
     if (pane.richVisible) {
       const { tabHideRichView } = require('./richView');
