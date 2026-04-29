@@ -37,7 +37,6 @@ class PaneSession {
     this._promptYSet = new Set();
     this._promptStartYSet = new Set();
     this._shimDir = null;
-    this._customTitle = null;
     this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;
@@ -49,9 +48,6 @@ class PaneSession {
     this._lastExitCode = '';
     this._macImePunctuationPending = null;
     this._macImePunctuationHandled = null;
-    this.needsAttention = false;
-    this.attentionLevel = null;
-    this.attentionMessage = '';
     this.autoRender = false;
     this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();

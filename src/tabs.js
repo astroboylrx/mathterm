@@ -233,6 +233,8 @@ function startGutterDrag(e, workspace, splitPath, gutterIndex) {
 
   e.preventDefault();
   e.stopPropagation();
+  const gutterEl = e.currentTarget;
+  try { gutterEl.setPointerCapture?.(e.pointerId); } catch {}
   const direction = split.direction;
   const axisSize = direction === 'row' ? rect.width : rect.height;
   const minRatio = axisSize > 0 ? (direction === 'row' ? 160 : 80) / axisSize : 0.05;
@@ -259,10 +261,11 @@ function startGutterDrag(e, workspace, splitPath, gutterIndex) {
     applySplitSizesToElement(splitEl, sizes);
   };
 
-  const onUp = () => {
+  const onUp = ev => {
     document.removeEventListener('pointermove', onMove, true);
     document.removeEventListener('pointerup', onUp, true);
     document.removeEventListener('pointercancel', onUp, true);
+    try { gutterEl.releasePointerCapture?.(ev.pointerId); } catch {}
     fitVisiblePanes(workspace);
   };
 
@@ -824,23 +827,17 @@ function splitActivePane(direction) {
   const oldLeaf = getPaneLeaf(workspace, pane.id);
   if (!oldLeaf || !oldLeaf.parentNode) return;
 
+  const parent = oldLeaf.parentNode;
+  const splitFlex = oldLeaf.style.flex || '1 1 0';
+  const splitEl = document.createElement('div');
+  splitEl.className = `pane-split ${direction}`;
+  splitEl.style.flex = splitFlex;
+  parent.insertBefore(splitEl, oldLeaf);
   oldLeaf.style.flex = '0.5 1 0';
   newLeaf.style.flex = '0.5 1 0';
-  const parent = oldLeaf.parentNode;
-  if (parent.classList.contains('workspace-pane-root') && parent.children.length === 1) {
-    parent.classList.add('pane-split', direction);
-    parent.classList.remove(direction === 'row' ? 'column' : 'row');
-    parent.appendChild(gutter);
-    parent.appendChild(newLeaf);
-  } else {
-    const splitEl = document.createElement('div');
-    splitEl.className = `pane-split ${direction}`;
-    splitEl.style.flex = oldLeaf.style.flex || '1 1 0';
-    parent.insertBefore(splitEl, oldLeaf);
-    splitEl.appendChild(oldLeaf);
-    splitEl.appendChild(gutter);
-    splitEl.appendChild(newLeaf);
-  }
+  splitEl.appendChild(oldLeaf);
+  splitEl.appendChild(gutter);
+  splitEl.appendChild(newLeaf);
   pane.leafEl = oldLeaf;
   oldLeaf.classList.remove('active');
   newLeaf.classList.add('active');
