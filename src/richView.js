@@ -538,6 +538,7 @@ function tabHideRichView(tab) {
   tab.richVisible = false;
   tab.richAutoTriggered = false;
   tab.richView.classList.remove('visible');
+  if (tab.richContent) tab.richContent.replaceChildren();
   if (isActivePane(tab)) {
     updateStatusBar(tab);
   }
