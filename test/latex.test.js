@@ -35,6 +35,7 @@ function testShellVariablesAreNotLatex() {
   assert.strictEqual(hasLatex('$(git_prompt_info) ${HOST%%-*} $((1+2))'), false);
   assert.strictEqual(hasLatex('echo $$'), false);
   assert.strictEqual(hasLatex('echo $$$$'), false);
+  assert.strictEqual(hasLatex('echo $1 $? $@'), false);
   assert.strictEqual(hasLatex('price $5 and $10'), false);
 
   assert.deepStrictEqual(partsSummary('export OMPI_CC=$CC; export OMPI_CXX=$CXX'), [
@@ -65,9 +66,27 @@ function testZshPromptEscapesAreNotLatex() {
 function testInlineMathStillWorks() {
   assert.strictEqual(hasLatex('cost is $x^2$'), true);
   assert.strictEqual(hasLatex('let $a_b$ be a coefficient'), true);
+  assert.strictEqual(hasLatex('temperature $2500\\,{\\rm K}$ is fiducial'), true);
+  assert.strictEqual(hasLatex('range $10$-$20\\,{\\rm m\\,s^{-1}}$ is optimistic'), true);
+  assert.strictEqual(hasLatex('radius $10\\,{\\rm m}$ because $a_\\infty<10\\,{\\rm m}$'), true);
+  assert.strictEqual(hasLatex('$-\\sin\\phi = +1$'), true);
+  assert.strictEqual(hasLatex('smallest ($(1-\\alpha)^3$)'), true);
+  assert.strictEqual(hasLatex('**The integral $I(\\alpha) > 0$ for all $0 < \\alpha < 1$**'), true);
   assert.deepStrictEqual(partsSummary('cost is $x^2$'), [
     { type: 'text', closed: undefined, raw: 'cost is ', content: 'cost is ' },
     { type: 'inline', closed: true, raw: '$x^2$', content: 'x^2' }
+  ]);
+  assert.deepStrictEqual(partsSummary('temperature $2500\\,{\\rm K}$ is fiducial'), [
+    { type: 'text', closed: undefined, raw: 'temperature ', content: 'temperature ' },
+    { type: 'inline', closed: true, raw: '$2500\\,{\\rm K}$', content: '2500\\,{\\rm K}' },
+    { type: 'text', closed: undefined, raw: ' is fiducial', content: ' is fiducial' }
+  ]);
+  assert.deepStrictEqual(partsSummary('where $-\\sin\\phi = +1$ and smallest ($(1-\\alpha)^3$)'), [
+    { type: 'text', closed: undefined, raw: 'where ', content: 'where ' },
+    { type: 'inline', closed: true, raw: '$-\\sin\\phi = +1$', content: '-\\sin\\phi = +1' },
+    { type: 'text', closed: undefined, raw: ' and smallest (', content: ' and smallest (' },
+    { type: 'inline', closed: true, raw: '$(1-\\alpha)^3$', content: '(1-\\alpha)^3' },
+    { type: 'text', closed: undefined, raw: ')', content: ')' }
   ]);
 }
 

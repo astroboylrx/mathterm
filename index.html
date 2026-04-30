@@ -303,6 +303,24 @@
       font-size: 1.3em;
     }
     .latex-pending { color: var(--fg-dim); font-style: italic; }
+    .markdown-image-line {
+      margin: 10px 0;
+      white-space: normal;
+    }
+    .markdown-image-line img {
+      display: block;
+      max-width: min(100%, 1680px);
+      max-height: 1050px;
+      object-fit: contain;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg-dark);
+    }
+    .markdown-image-caption {
+      margin-top: 4px;
+      color: var(--fg-muted);
+      font-size: 0.9em;
+    }
 
     table.box-table {
       border-collapse: collapse;

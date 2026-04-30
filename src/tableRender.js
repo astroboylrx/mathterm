@@ -1,5 +1,5 @@
-const katex = require('katex');
 const { hasLatex, splitLatexSmart } = require('./latex');
+const { renderKatexInto } = require('./katexRender');
 
 const H_BORDER = /^[┌┬┐└┴┘├┼┤─━\s]+$/;
 const V_SEPS = new Set(['│', '┃']);
@@ -34,36 +34,107 @@ function isTableRow(item) {
   return t.length > 0 && V_SEPS.has(t[0]) && V_SEPS.has(t[t.length - 1]);
 }
 
-function renderInlineLatex(text) {
-  if (!text || !hasLatex(text)) {
-    const span = document.createElement('span');
-    span.textContent = text;
-    return span;
-  }
-  const frag = document.createDocumentFragment();
-  const parts = splitLatexSmart(text);
-  for (const part of parts) {
-    if (part.type === 'inline' && part.closed) {
-      const span = document.createElement('span');
-      try { katex.render(part.content, span, { displayMode: false, throwOnError: false }); }
-      catch { span.textContent = part.raw; }
-      frag.appendChild(span);
-    } else if (part.type === 'display' && part.closed) {
-      const span = document.createElement('span');
-      try { katex.render(part.content, span, { displayMode: true, throwOnError: false }); }
-      catch { span.textContent = part.raw; }
-      frag.appendChild(span);
-    } else if (!part.closed && part.type !== 'text') {
-      const span = document.createElement('span');
-      span.className = 'latex-pending';
-      span.textContent = part.raw;
-      frag.appendChild(span);
+function tokenizeInlineMarkdownText(text, tokens) {
+  let start = 0;
+  let i = 0;
+  while (i < text.length) {
+    const isStrong = text[i] === '*' && text[i + 1] === '*';
+    const isEm = text[i] === '*' && text[i + 1] !== '*' && text[i - 1] !== '*';
+    if (!isStrong && !isEm) {
+      i++;
+      continue;
+    }
+    if (i > start) tokens.push({ type: 'text', content: text.slice(start, i) });
+    if (isStrong) {
+      tokens.push({ type: 'marker', kind: 'strong', raw: '**' });
+      i += 2;
     } else {
-      const span = document.createElement('span');
-      span.textContent = part.content;
-      frag.appendChild(span);
+      tokens.push({ type: 'marker', kind: 'em', raw: '*' });
+      i++;
+    }
+    start = i;
+  }
+  if (start < text.length) tokens.push({ type: 'text', content: text.slice(start) });
+}
+
+function inlineRenderTokens(parts) {
+  const tokens = [];
+  for (const part of parts) {
+    if (part.type === 'text') tokenizeInlineMarkdownText(part.content, tokens);
+    else tokens.push(part);
+  }
+
+  const open = { strong: [], em: [] };
+  for (const token of tokens) {
+    if (token.type !== 'marker') continue;
+    const stack = open[token.kind];
+    if (stack.length > 0) {
+      const opener = stack.pop();
+      opener.action = 'open';
+      token.action = 'close';
+    } else {
+      stack.push(token);
     }
   }
+  for (const kind of Object.keys(open)) {
+    for (const token of open[kind]) {
+      token.type = 'text';
+      token.content = token.raw;
+    }
+  }
+  return tokens;
+}
+
+function appendInlineToken(token, parent, stack) {
+  const target = stack.length ? stack[stack.length - 1].node : parent;
+  if (token.type === 'marker') {
+    if (token.action === 'open') {
+      const node = document.createElement(token.kind);
+      target.appendChild(node);
+      stack.push({ kind: token.kind, node });
+    } else if (token.action === 'close') {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].kind === token.kind) {
+          stack.length = i;
+          break;
+        }
+      }
+    } else {
+      target.appendChild(document.createTextNode(token.raw));
+    }
+    return;
+  }
+
+  if (token.type === 'code') {
+    const code = document.createElement('code');
+    code.textContent = token.content;
+    target.appendChild(code);
+  } else if (token.type === 'inline' && token.closed) {
+    const span = document.createElement('span');
+    renderKatexInto(token.content, span, false);
+    target.appendChild(span);
+  } else if (token.type === 'display' && token.closed) {
+    const span = document.createElement('span');
+    renderKatexInto(token.content, span, true);
+    target.appendChild(span);
+  } else if (!token.closed && token.type !== 'text') {
+    const span = document.createElement('span');
+    span.className = 'latex-pending';
+    span.textContent = token.raw;
+    target.appendChild(span);
+  } else {
+    target.appendChild(document.createTextNode(token.content));
+  }
+}
+
+function renderInlineLatex(text) {
+  const frag = document.createDocumentFragment();
+  const parts = hasLatex(text) || /[*`]/.test(text)
+    ? splitLatexSmart(text)
+    : [{ type: 'text', content: text || '', raw: text || '' }];
+  const tokens = inlineRenderTokens(parts);
+  const stack = [];
+  for (const token of tokens) appendInlineToken(token, frag, stack);
   return frag;
 }
 

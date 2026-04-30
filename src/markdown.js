@@ -1,15 +1,15 @@
 const { Marked } = require('marked');
-const katex = require('katex');
+const { renderKatexHtml } = require('./katexRender');
 
-function renderKatexHtml(latex, displayMode) {
-  const span = document.createElement('span');
-  if (displayMode) span.className = 'display-math';
+function renderKatexBlockHtml(latex, displayMode) {
   try {
-    katex.render(latex, span, { displayMode, throwOnError: false });
+    return renderKatexHtml(latex, displayMode);
   } catch {
+    const span = document.createElement('span');
+    if (displayMode) span.className = 'display-math';
     span.textContent = displayMode ? `$$${latex}$$` : `$${latex}$`;
+    return span.outerHTML;
   }
-  return span.outerHTML;
 }
 
 const PLACEHOLDER_PREFIX = '<!--MATH';
@@ -41,7 +41,7 @@ function extractDisplayMath(text) {
       if (end !== -1) {
         const latex = text.slice(i + 2, end);
         const idx = placeholderMap.length;
-        placeholderMap.push(renderKatexHtml(latex, true));
+        placeholderMap.push(renderKatexBlockHtml(latex, true));
         result += `${PLACEHOLDER_PREFIX}${idx}${PLACEHOLDER_SUFFIX}`;
         i = end + 2;
         continue;
@@ -72,7 +72,7 @@ const katexInlineExtension = {
     }
   },
   renderer(token) {
-    return renderKatexHtml(token.latex, false);
+    return renderKatexBlockHtml(token.latex, false);
   }
 };
 

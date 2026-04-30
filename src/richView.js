@@ -7,31 +7,67 @@ const { isPromptLine } = require('./promptTrack');
 const { refreshTabTitle } = require('./titleTrack');
 const { isTableBorder, tryParseTableBlock, tryParseMarkdownTable } = require('./tableRender');
 const { renderMarkdownBlock, renderMarkdownFile } = require('./markdown');
+const { renderKatexInto } = require('./katexRender');
 
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
 
 const _katexQueue = [];
 let _katexRaf = 0;
-const KATEX_CHUNK = 8;
+const KATEX_CHUNK = 48;
+const KATEX_FRAME_BUDGET_MS = 12;
 
 function queueKatex(latex, el, displayMode) {
   el.textContent = latex;
   el.dataset.katexPending = '1';
   _katexQueue.push({ latex, el, displayMode });
-  if (!_katexRaf) _katexRaf = requestAnimationFrame(_flushKatex);
+  scheduleKatexFlush();
+}
+
+function scheduleKatexFlush() {
+  if (_katexRaf) return;
+  _katexRaf = requestAnimationFrame(() => {
+    _katexRaf = requestAnimationFrame(_flushKatex);
+  });
+}
+
+function prioritizeKatexQueue(viewportEl) {
+  if (!_katexQueue.length || !viewportEl) return;
+  const top = Math.max(0, viewportEl.scrollTop - viewportEl.clientHeight);
+  const bottom = viewportEl.scrollTop + viewportEl.clientHeight * 2;
+  const scored = _katexQueue.map((entry, index) => ({
+    entry,
+    index,
+    score: katexViewportScore(entry.el, top, bottom)
+  }));
+  scored.sort((a, b) => a.score - b.score || a.index - b.index);
+  _katexQueue.length = 0;
+  for (const item of scored) _katexQueue.push(item.entry);
+}
+
+function katexViewportScore(el, top, bottom) {
+  if (!el.isConnected) return Number.MAX_SAFE_INTEGER;
+  const line = el.closest('.rline, .display-math') || el;
+  const elTop = line.offsetTop;
+  const elBottom = elTop + line.offsetHeight;
+  if (elBottom >= top && elTop <= bottom) return 0;
+  return Math.min(Math.abs(elBottom - top), Math.abs(elTop - bottom));
 }
 
 function _flushKatex() {
-  const batch = _katexQueue.splice(0, KATEX_CHUNK);
-  for (const { latex, el, displayMode } of batch) {
-    try {
-      require('katex').render(latex, el, { displayMode, throwOnError: false });
-    } catch {
-      el.textContent = displayMode ? `$$${latex}$$` : `$${latex}$`;
-    }
+  const started = performance.now();
+  let rendered = 0;
+  let consumed = 0;
+  while (consumed < _katexQueue.length
+    && (rendered < KATEX_CHUNK || performance.now() - started < KATEX_FRAME_BUDGET_MS)) {
+    const { latex, el, displayMode } = _katexQueue[consumed];
+    consumed++;
+    if (!el.isConnected) continue;
+    renderKatexInto(latex, el, displayMode);
     delete el.dataset.katexPending;
+    rendered++;
   }
+  if (consumed > 0) _katexQueue.splice(0, consumed);
   if (_katexQueue.length > 0) {
     _katexRaf = requestAnimationFrame(_flushKatex);
   } else {
@@ -138,7 +174,53 @@ function isBoxRule(text) {
   return t.length >= 6 && BOX_RULE_RE.test(t);
 }
 
+function filePathToUrl(filePath) {
+  if (!filePath.startsWith('/')) return '';
+  return 'file://' + filePath.split('/').map(encodeURIComponent).join('/');
+}
+
+function markdownImageTargetToSrc(target) {
+  let src = target.trim();
+  if (src.startsWith('<') && src.endsWith('>')) src = src.slice(1, -1).trim();
+  const titleMatch = src.match(/^(.*?)\s+["'][^"']*["']$/);
+  if (titleMatch) src = titleMatch[1].trim();
+  if (!/\.(?:png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(src)) return '';
+  if (/^(?:https?:|data:image\/)/i.test(src)) return src;
+  if (src.startsWith('file://')) return src;
+  if (src.startsWith('/')
+    && typeof window.mathterm?.fs?.existsSync === 'function'
+    && window.mathterm.fs.existsSync(src)) return filePathToUrl(src);
+  return '';
+}
+
+function renderMarkdownImageLine(item, text) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^!\[([^\]]*)\]\((.+)\)$/);
+  if (!match) return null;
+  const src = markdownImageTargetToSrc(match[2]);
+  if (!src) return null;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'rline markdown-image-line';
+  if (typeof item === 'object' && item.y !== undefined) wrap.dataset.y = item.y;
+  const img = document.createElement('img');
+  img.src = src;
+  img.alt = match[1] || 'image';
+  img.loading = 'lazy';
+  wrap.appendChild(img);
+  if (match[1]) {
+    const caption = document.createElement('div');
+    caption.className = 'markdown-image-caption';
+    caption.textContent = match[1];
+    wrap.appendChild(caption);
+  }
+  return wrap;
+}
+
 function renderRichLine(item, text, isPrompt) {
+  const imageEl = renderMarkdownImageLine(item, text);
+  if (imageEl) return imageEl;
+
   const el = document.createElement('div');
   if (typeof item === 'object' && item.y !== undefined) el.dataset.y = item.y;
   const trimmed = text.trimStart();
@@ -325,38 +407,106 @@ function insertImagesIntoContainer(container, tab, startY, endY) {
   }
 }
 
-function renderInlineLatexToEl(text, el) {
-  const parts = splitLatexSmart(text);
-  for (const part of parts) {
-    if (part.type === 'code') {
-      const code = document.createElement('code');
-      code.textContent = part.content;
-      el.appendChild(code);
-    } else if (part.type === 'inline' && part.closed) {
-      const span = document.createElement('span');
-      queueKatex(part.content, span, false);
-      el.appendChild(span);
-    } else if (part.type === 'display' && part.closed) {
-      const span = document.createElement('span');
-      span.className = 'display-math';
-      queueKatex(part.content, span, true);
-      el.appendChild(span);
-    } else if (!part.closed && part.type !== 'text') {
-      const span = document.createElement('span');
-      span.className = 'latex-pending';
-      span.textContent = part.raw;
-      el.appendChild(span);
+function tokenizeInlineMarkdownText(text, tokens) {
+  let start = 0;
+  let i = 0;
+  while (i < text.length) {
+    const isStrong = text[i] === '*' && text[i + 1] === '*';
+    const isEm = text[i] === '*' && text[i + 1] !== '*' && text[i - 1] !== '*';
+    if (!isStrong && !isEm) {
+      i++;
+      continue;
+    }
+    if (i > start) tokens.push({ type: 'text', content: text.slice(start, i) });
+    if (isStrong) {
+      tokens.push({ type: 'marker', kind: 'strong', raw: '**' });
+      i += 2;
     } else {
-      const content = part.content;
-      if (/\*\*[^*]+\*\*|\*[^*]+\*/.test(content)) {
-        applyInlineMarkdown(content, el);
-      } else {
-        const span = document.createElement('span');
-        span.textContent = content;
-        el.appendChild(span);
-      }
+      tokens.push({ type: 'marker', kind: 'em', raw: '*' });
+      i++;
+    }
+    start = i;
+  }
+  if (start < text.length) tokens.push({ type: 'text', content: text.slice(start) });
+}
+
+function inlineRenderTokens(parts) {
+  const tokens = [];
+  for (const part of parts) {
+    if (part.type === 'text') {
+      tokenizeInlineMarkdownText(part.content, tokens);
+    } else {
+      tokens.push(part);
     }
   }
+
+  const open = { strong: [], em: [] };
+  for (const token of tokens) {
+    if (token.type !== 'marker') continue;
+    const stack = open[token.kind];
+    if (stack.length > 0) {
+      const opener = stack.pop();
+      opener.action = 'open';
+      token.action = 'close';
+    } else {
+      stack.push(token);
+    }
+  }
+  for (const kind of Object.keys(open)) {
+    for (const token of open[kind]) {
+      token.type = 'text';
+      token.content = token.raw;
+    }
+  }
+  return tokens;
+}
+
+function appendInlineToken(token, el, stack) {
+  const parent = stack.length ? stack[stack.length - 1].node : el;
+  if (token.type === 'marker') {
+    if (token.action === 'open') {
+      const node = document.createElement(token.kind);
+      parent.appendChild(node);
+      stack.push({ kind: token.kind, node });
+    } else if (token.action === 'close') {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].kind === token.kind) {
+          stack.length = i;
+          break;
+        }
+      }
+    } else {
+      parent.appendChild(document.createTextNode(token.raw));
+    }
+    return;
+  }
+  if (token.type === 'code') {
+    const code = document.createElement('code');
+    code.textContent = token.content;
+    parent.appendChild(code);
+  } else if (token.type === 'inline' && token.closed) {
+    const span = document.createElement('span');
+    queueKatex(token.content, span, false);
+    parent.appendChild(span);
+  } else if (token.type === 'display' && token.closed) {
+    const span = document.createElement('span');
+    span.className = 'display-math';
+    queueKatex(token.content, span, true);
+    parent.appendChild(span);
+  } else if (!token.closed && token.type !== 'text') {
+    const span = document.createElement('span');
+    span.className = 'latex-pending';
+    span.textContent = token.raw;
+    parent.appendChild(span);
+  } else {
+    parent.appendChild(document.createTextNode(token.content));
+  }
+}
+
+function renderInlineLatexToEl(text, el) {
+  const tokens = inlineRenderTokens(splitLatexSmart(text));
+  const stack = [];
+  for (const token of tokens) appendInlineToken(token, el, stack);
 }
 
 function tabShowRichView(tab, auto) {
@@ -369,6 +519,7 @@ function tabShowRichView(tab, auto) {
   requestAnimationFrame(() => {
     tab.richView.scrollTop = tab.richView.scrollHeight > tab.richView.clientHeight + 10
       ? 0 : tab.richView.scrollHeight;
+    prioritizeKatexQueue(tab.richView);
   });
   const mathChord = formatShortcut(parseShortcut(settings.shortcuts.toggleMath), isMac);
   const hintText = auto
@@ -515,6 +666,7 @@ function showManualRichView(tab) {
         }
         tab.richView.scrollTop = target ? target.offsetTop : tab.richView.scrollHeight;
       }
+      prioritizeKatexQueue(tab.richView);
     });
   }
 }
@@ -533,7 +685,10 @@ function renderFileContent(tab, content, filePath) {
     if (foundContent) { tabShowRichView(tab, false); shown = true; }
   }
   if (shown) {
-    requestAnimationFrame(() => { tab.richView.scrollTop = 0; });
+    requestAnimationFrame(() => {
+      tab.richView.scrollTop = 0;
+      prioritizeKatexQueue(tab.richView);
+    });
   }
 }
 

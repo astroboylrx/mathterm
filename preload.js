@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('mathterm', {
   },
 
   fs: {
+    existsSync: (p) => fs.existsSync(p),
     readFileSync: (p, enc) => fs.readFileSync(p, enc),
     writeFileSync: (p, data) => fs.writeFileSync(p, data),
     mkdirSync: (p, opts) => fs.mkdirSync(p, opts),

@@ -27,9 +27,17 @@ function findNextUnescapedDollar(text, pos) {
   return idx;
 }
 
+function looksLikeShellCommandSubstitution(body) {
+  const trimmed = body.trim();
+  if (!trimmed) return false;
+  if (/[;|&`]/.test(trimmed)) return true;
+  return /^[A-Za-z_./-][A-Za-z0-9_./-]*(?:\s|$)/.test(trimmed);
+}
+
 function hasStrongInlineMathSignal(inner) {
   const trimmed = inner.trim();
   if (/^[a-z]$/.test(trimmed)) return true;
+  if (/^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) return true;
   if (LATEX_COMMANDS.test(trimmed)) return true;
   if (/[_^]/.test(trimmed)) return true;
   if (/\\/.test(trimmed)) return true;
@@ -39,10 +47,20 @@ function hasStrongInlineMathSignal(inner) {
 function parseShellDollar(text, pos) {
   if (text[pos] !== '$' || isEscapedDollar(text, pos)) return null;
   const next = text[pos + 1] || '';
-  if (/[$?!#*@-]/.test(next)) return { raw: text.slice(pos, pos + 2), end: pos + 2, kind: 'special' };
+  if (/[$?!#*@-]/.test(next)) {
+    if (next === '-') {
+      const closing = findNextUnescapedDollar(text, pos + 2);
+      if (closing !== -1 && hasStrongInlineMathSignal(text.slice(pos + 1, closing))) return null;
+    }
+    return { raw: text.slice(pos, pos + 2), end: pos + 2, kind: 'special' };
+  }
   if (/[0-9]/.test(next)) {
     let end = pos + 2;
     while (/[0-9]/.test(text[end] || '')) end++;
+    const closing = findNextUnescapedDollar(text, end);
+    const afterClosing = closing === -1 ? '' : (text[closing + 1] || '');
+    if (closing !== -1 && !/[?!#@]/.test(afterClosing)
+      && hasStrongInlineMathSignal(text.slice(pos + 1, closing))) return null;
     return { raw: text.slice(pos, end), end, kind: 'positional' };
   }
   if (/[A-Za-z_]/.test(next)) {
@@ -69,6 +87,11 @@ function parseShellDollar(text, pos) {
   }
   if (next === '(') {
     const end = findBalancedShellEnd(text, pos + 2, '(', ')');
+    if (end !== -1 && looksLikeShellCommandSubstitution(text.slice(pos + 2, end - 1))) {
+      return { raw: text.slice(pos, end), end, kind: 'command' };
+    }
+    const closing = findNextUnescapedDollar(text, pos + 2);
+    if (closing !== -1 && hasStrongInlineMathSignal(text.slice(pos + 1, closing))) return null;
     if (end !== -1) return { raw: text.slice(pos, end), end, kind: 'command' };
   }
   return null;
