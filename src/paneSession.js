@@ -54,6 +54,10 @@ class PaneSession {
     this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();
     this.inlineImages = [];
+    this.richVirtual = null;
+    this._richRenderToken = 0;
+    this._richScrollRaf = 0;
+    this._richScrollListener = null;
   }
 }
 
