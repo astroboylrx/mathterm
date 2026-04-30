@@ -45,6 +45,49 @@ function coerceRenderToken(token) {
   return String(token);
 }
 
+// Expand the render start backward to cover the start of multi-line
+// structures (display math, box tables, markdown tables, wrapped rows).
+// `buf.getLine(y)` is expected to return either falsy (out of range) or
+// `{ isWrapped, translateToString(trimRight) }`.
+function expandStartForStructure(buf, startY, sourceStartY, maxBackscan) {
+  let expanded = startY;
+  let inStructure = false;
+  const stopY = Math.max(sourceStartY, startY - maxBackscan);
+  for (let y = startY - 1; y >= stopY; y--) {
+    let line;
+    try { line = buf.getLine(y); } catch { break; }
+    if (!line) break;
+    if (line.isWrapped) { expanded = y; continue; }
+    const text = line.translateToString(true);
+    const trimmed = text.trim();
+    if (trimmed === '$$') {
+      expanded = y;
+      // Found a `$$`. If we were already inside the body of a $$ block
+      // (walked past math content to get here), this is the opener and
+      // we're done. Otherwise we just entered a block and should keep
+      // walking through math content to find the opener.
+      if (inStructure) break;
+      inStructure = true;
+      continue;
+    }
+    if (/^[┌┬┐└┴┘├┼┤─━]+$/.test(trimmed)
+        || /^[│┃]/.test(trimmed)
+        || (/^\|/.test(trimmed) && /\|$/.test(trimmed))) {
+      expanded = y;
+      inStructure = true;
+      continue;
+    }
+    if (inStructure) {
+      // Inside a multi-line structure — math body, sparse table row,
+      // etc. Keep walking back until we find the delimiter.
+      expanded = y;
+      continue;
+    }
+    break;
+  }
+  return expanded;
+}
+
 module.exports = {
   RICH_VIRTUAL_OVERSCAN_ROWS,
   RICH_VIRTUAL_MAX_RENDERED_ROWS,
@@ -56,5 +99,6 @@ module.exports = {
   scrollTopToRow,
   computeSpacerHeights,
   applyHeightSmoothing,
-  coerceRenderToken
+  coerceRenderToken,
+  expandStartForStructure
 };

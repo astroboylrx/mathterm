@@ -19,7 +19,8 @@ const {
   scrollTopToRow,
   computeSpacerHeights,
   applyHeightSmoothing,
-  coerceRenderToken
+  coerceRenderToken,
+  expandStartForStructure
 } = require('./richVirtual');
 
 const SECTION_BUFFER_MAX = 256 * 1024;
@@ -572,36 +573,6 @@ function getRichEstimatedLineHeight(pane) {
     if (Number.isFinite(fontSize) && fontSize > 0) return fontSize * 1.5;
   } catch {}
   return RICH_VIRTUAL_DEFAULT_LINE_HEIGHT;
-}
-
-function expandStartForStructure(buf, startY, sourceStartY, maxBackscan) {
-  let expanded = startY;
-  let dollarSeen = false;
-  let pipeSeen = false;
-  for (let y = startY - 1; y >= Math.max(sourceStartY, startY - maxBackscan); y--) {
-    let line;
-    try { line = buf.getLine(y); } catch { break; }
-    if (!line) break;
-    if (line.isWrapped) { expanded = y; continue; }
-    const text = line.translateToString(true);
-    const trimmed = text.trim();
-    if (trimmed === '$$') {
-      expanded = y;
-      if (dollarSeen) break;
-      dollarSeen = true;
-      continue;
-    }
-    if (/^[┌┬┐└┴┘├┼┤─━]+$/.test(trimmed)
-        || /^[│┃]/.test(trimmed)
-        || (/^\|/.test(trimmed) && /\|$/.test(trimmed))) {
-      expanded = y;
-      pipeSeen = true;
-      continue;
-    }
-    if (dollarSeen || pipeSeen) break;
-    break;
-  }
-  return expanded;
 }
 
 function findFirstVisibleAnchor(pane) {

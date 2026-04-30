@@ -5,8 +5,22 @@ const {
   computeSpacerHeights,
   applyHeightSmoothing,
   coerceRenderToken,
+  expandStartForStructure,
   RICH_VIRTUAL_DEFAULT_LINE_HEIGHT
 } = require('../src/richVirtual');
+
+function makeBuf(rows) {
+  return {
+    getLine(y) {
+      const r = rows[y];
+      if (!r) return null;
+      return {
+        isWrapped: !!r.wrapped,
+        translateToString: () => r.text || ''
+      };
+    }
+  };
+}
 
 function testClampRowRangeBasic() {
   const r = clampRowRange(500, 0, 9999, 80, 320);
@@ -101,6 +115,105 @@ function testAnchorPreservationMath() {
   assert.strictEqual(newScrollTop, 730);
 }
 
+function testBackscanNoStructureReturnsStart() {
+  // Plain non-wrapped text immediately above startY breaks the scan.
+  const buf = makeBuf({
+    99: { text: 'plain prior line' },
+    100: { text: 'window starts here' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 100, 0, 50), 100);
+}
+
+function testBackscanWalksThroughWrapped() {
+  // Wrapped rows above startY are part of the same logical line — backscan
+  // should expand to cover them, then stop at the first non-wrapped row.
+  const buf = makeBuf({
+    97: { text: 'first half ' },
+    98: { text: 'middle of wrap', wrapped: true },
+    99: { text: 'tail of wrap', wrapped: true },
+    100: { text: 'window starts here' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 100, 0, 50), 98);
+}
+
+function testBackscanFindsDisplayMathOpener() {
+  // startY=4 sits just below the closing $$ of a 3-row math block.
+  // Walking back: 3='$$' (enters block), 2='+ c^2' (math body),
+  // 1='a^2 + b^2' (math body), 0='$$' (opener; break).
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'a^2 + b^2' },
+    2: { text: '+ c^2' },
+    3: { text: '$$' },
+    4: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 4, 0, 50), 0);
+}
+
+function testBackscanStopsAtBlankAboveStructure() {
+  // Blank line between the window and the structure breaks the scan
+  // before we reach the structure.
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'a^2 + b^2' },
+    2: { text: '$$' },
+    3: { text: '' },
+    4: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 4, 0, 50), 4);
+}
+
+function testBackscanRespectsMaxBackscan() {
+  // $$ block sits 6 rows above startY but maxBackscan=2 caps the walk.
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'math' },
+    2: { text: '$$' },
+    3: { text: 'context a' },
+    4: { text: 'context b' },
+    5: { text: 'context c' },
+    6: { text: 'context d' },
+    7: { text: 'window' }
+  });
+  // With cap=2 we stop walking at y=5; nothing in [5..6] is a structure
+  // marker so expanded stays at startY.
+  assert.strictEqual(expandStartForStructure(buf, 7, 0, 2), 7);
+  // Lifting the cap lets us reach the closing $$ at y=2 and the opener at 0.
+  assert.strictEqual(expandStartForStructure(buf, 7, 0, 50), 7);
+}
+
+function testBackscanRespectsSourceStart() {
+  // sourceStartY caps how far back we walk regardless of maxBackscan.
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'math', wrapped: false },
+    2: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 2, 2, 50), 2);
+}
+
+function testBackscanFindsBoxTableTop() {
+  const buf = makeBuf({
+    0: { text: '┌─────┬─────┐' },
+    1: { text: '│ a   │ b   │' },
+    2: { text: '├─────┼─────┤' },
+    3: { text: '│ c   │ d   │' },
+    4: { text: '└─────┴─────┘' },
+    5: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 5, 0, 50), 0);
+}
+
+function testBackscanFindsMarkdownTableTop() {
+  const buf = makeBuf({
+    0: { text: '| h1 | h2 |' },
+    1: { text: '| -- | -- |' },
+    2: { text: '| a  | b  |' },
+    3: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 3, 0, 50), 0);
+}
+
 function run() {
   testClampRowRangeBasic();
   testClampRowRangeNearTop();
@@ -114,6 +227,14 @@ function run() {
   testApplyHeightSmoothing();
   testCoerceRenderToken();
   testAnchorPreservationMath();
+  testBackscanNoStructureReturnsStart();
+  testBackscanWalksThroughWrapped();
+  testBackscanFindsDisplayMathOpener();
+  testBackscanStopsAtBlankAboveStructure();
+  testBackscanRespectsMaxBackscan();
+  testBackscanRespectsSourceStart();
+  testBackscanFindsBoxTableTop();
+  testBackscanFindsMarkdownTableTop();
   console.log('richVirtual tests passed');
 }
 
