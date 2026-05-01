@@ -35,8 +35,13 @@ function _createLiveRichClone(tab) {
   };
 }
 
-function _createExportView(tab) {
-  if (tab.richVirtual && tab.richVirtual.active) return materializeFullRichView(tab);
+async function _createExportView(tab) {
+  if (tab.richVirtual && tab.richVirtual.active) {
+    const view = materializeFullRichView(tab);
+    await drainKatexQueue();
+    return view;
+  }
+  await drainKatexQueue();
   return _createLiveRichClone(tab);
 }
 
@@ -86,13 +91,12 @@ async function exportPdf() {
 
   let exportView;
   try {
-    exportView = _createExportView(tab);
+    exportView = await _createExportView(tab);
   } catch (err) {
     return _showExportFailure('PDF', err);
   }
 
   try {
-    await drainKatexQueue();
     const { w, h } = _measureRichElement(exportView.container, exportView.content);
 
     const styleEl = document.createElement('style');
@@ -243,13 +247,12 @@ async function exportPng() {
 
   let exportView;
   try {
-    exportView = _createExportView(tab);
+    exportView = await _createExportView(tab);
   } catch (err) {
     return _showExportFailure('PNG', err);
   }
 
   try {
-    await drainKatexQueue();
     const richEl = exportView.container;
     const { w, h } = _measureRichElement(richEl, exportView.content);
     const richStyle = getComputedStyle(richEl);

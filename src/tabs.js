@@ -485,7 +485,7 @@ function spawnPaneShell(pane, term) {
   return ptyProc;
 }
 
-function attachTerminalEventHandlers(pane, term, ptyProc) {
+function attachTerminalEventHandlers(pane, term) {
   pane.xtermHolder.addEventListener('focusin', () => focusPane(pane.id, { focusTerm: false }));
 
   term.onData(data => {
@@ -500,7 +500,7 @@ function attachTerminalEventHandlers(pane, term, ptyProc) {
       }
       return;
     }
-    ptyProc.write(data);
+    pane.ptyProc?.write(data);
   });
 
   term.onResize(({ cols, rows }) => {
@@ -592,8 +592,8 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
   attachTerminalRenderer(pane, term);
   attachPaneLinkHandlers(pane, term);
   finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace);
-  const ptyProc = spawnPaneShell(pane, term);
-  attachTerminalEventHandlers(pane, term, ptyProc);
+  spawnPaneShell(pane, term);
+  attachTerminalEventHandlers(pane, term);
   attachOsc133Tracking(pane, term);
   attachPtyDataPipeline(pane, term);
   return pane;

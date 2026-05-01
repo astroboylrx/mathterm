@@ -319,6 +319,19 @@ function scrollRichViewToSourceRow(pane, y, opts = {}) {
     pane._richScrollRaf = 0;
   }
 
+  const existingTarget = v.windowEl ? findElementForY(v.windowEl, y) : null;
+  if (existingTarget) {
+    const scrollTop = pane.richView.scrollTop;
+    const viewBottom = scrollTop + pane.richView.clientHeight;
+    const elTop = existingTarget.offsetTop;
+    const elBottom = elTop + existingTarget.offsetHeight;
+    if (elBottom > scrollTop && elTop < viewBottom) {
+      applyCurrentRichSearchHighlights(pane, v.renderToken);
+      prioritizeKatexQueue(pane.richView);
+      return true;
+    }
+  }
+
   renderRichVirtualWindow(pane, y, null);
   const renderToken = v.renderToken;
   const target = findElementForY(v.windowEl, y)
@@ -395,10 +408,10 @@ function refreshRichViewAfterLayout(pane) {
       applyCurrentRichSearchHighlights(pane, current.renderToken);
       return;
     }
-    const targetY = anchor
-      ? anchor.y
-      : scrollTopToRow(pane.richView.scrollTop, current.sourceStartY, current.averageRowHeight);
-    renderRichVirtualWindow(pane, targetY, anchor);
+    const targetY = scrollTopToRow(
+      pane.richView.scrollTop, current.sourceStartY, current.averageRowHeight
+    );
+    renderRichVirtualWindow(pane, targetY, null);
     prioritizeKatexQueue(pane.richView);
     applyCurrentRichSearchHighlights(pane, current.renderToken);
   });
@@ -434,6 +447,7 @@ function restoreRichViewLayoutState(pane, saved) {
     applyCurrentRichSearchHighlights(pane, v && v.renderToken);
   };
 
+  // Restore immediately, then once more after layout settles from pane DOM moves.
   restore();
   requestAnimationFrame(restore);
 }
@@ -704,52 +718,6 @@ function showManualRichView(pane) {
   });
 }
 
-function swapInMaterializedRichView(pane) {
-  const v = pane.richVirtual;
-  if (!v || !v.active) return () => {};
-  const buf = pane.term.buffer.active;
-  const sourceStartY = v.sourceStartY;
-  const sourceEndY = v.sourceEndY;
-  const rowCount = Math.max(0, sourceEndY - sourceStartY + 1);
-  if (rowCount > RICH_VIRTUAL_EXPORT_MAX_ROWS) {
-    throw new Error(
-      `Math view is too large to export (${rowCount} rows; limit ${RICH_VIRTUAL_EXPORT_MAX_ROWS}). `
-      + `Reduce the scrollback or export a smaller range.`);
-  }
-
-  if (pane._richScrollRaf) {
-    cancelAnimationFrame(pane._richScrollRaf);
-    pane._richScrollRaf = 0;
-  }
-  const savedListener = pane._richScrollListener;
-  if (savedListener) {
-    pane.richView.removeEventListener('scroll', savedListener);
-  }
-  const savedScrollTop = pane.richView.scrollTop;
-  const savedChildren = Array.from(pane.richContent.childNodes);
-
-  pane._richRenderToken = (pane._richRenderToken | 0) + 1;
-  pane.richContent.replaceChildren();
-  if (rowCount > 0) {
-    const textLines = collectBufferLines(buf, sourceStartY, sourceEndY);
-    renderLinesToContainer(
-      textLines, pane.richContent, isPromptLine, pane, displayMathRenderOptsForPane(pane)
-    );
-    insertImagesIntoContainer(pane.richContent, pane, sourceStartY, sourceEndY);
-  }
-
-  return function restore() {
-    pane._richRenderToken = (pane._richRenderToken | 0) + 1;
-    pane.richContent.replaceChildren();
-    for (const c of savedChildren) pane.richContent.appendChild(c);
-    pane.richView.scrollTop = savedScrollTop;
-    if (savedListener && pane.richVirtual && pane.richVirtual.active) {
-      pane._richScrollListener = savedListener;
-      pane.richView.addEventListener('scroll', savedListener, { passive: true });
-    }
-  };
-}
-
 function materializeFullRichView(pane) {
   const buf = pane.term.buffer.active;
   const v = pane.richVirtual;
@@ -857,7 +825,7 @@ module.exports = {
   scrollRichViewToSourceRow,
   refreshRichViewAfterLayout,
   captureRichViewLayoutState, restoreRichViewLayoutState,
-  materializeFullRichView, swapInMaterializedRichView, drainKatexQueue,
+  materializeFullRichView, drainKatexQueue,
   SECTION_BUFFER_MAX, SECTION_ELAPSED_MAX,
   // Helpers exported for unit tests
   clampRowRange, scrollTopToRow, computeSpacerHeights,
