@@ -306,7 +306,7 @@ function collectRichLines(tab) {
   const v = tab && tab.richVirtual;
   const source = tab && tab.richSearchSource;
   const buf = tab && tab.term && tab.term.buffer && tab.term.buffer.active;
-  if (source && source.type === 'file') return source.lines || [];
+  if (source && (source.type === 'file' || source.type === 'snapshot')) return source.lines || [];
   const startY = v && v.active ? v.sourceStartY : source && source.sourceStartY;
   const endY = v && v.active ? v.sourceEndY : source && source.sourceEndY;
   if (!buf || startY == null || endY == null) return [];
@@ -353,6 +353,11 @@ function runRichSearch(tab, direction, options = {}) {
     renderRichSearchHighlights(tab);
   }
   return true;
+}
+
+function refreshRichSearch(tab = getActivePane()) {
+  if (!tab || !tab.richSearchQuery || !isRichSearchMode(tab)) return false;
+  return runRichSearch(tab, 'next', { incremental: true });
 }
 
 function updateRichSearchCount(tab) {
@@ -468,8 +473,8 @@ function clearRichSearchHighlights(tab = getActivePane()) {
 
 function sourceLineText(tab, y) {
   const source = tab && tab.richSearchSource;
-  if (source && source.type === 'file') {
-    const line = (source.lines || [])[y];
+  if (source && (source.type === 'file' || source.type === 'snapshot')) {
+    const line = (source.lines || []).find(item => item.y <= y && (item.yEnd ?? item.y) >= y);
     return line ? line.text : '';
   }
   try {
@@ -520,6 +525,7 @@ function wrapTextRange(root, start, length, active) {
 
 function canInlineHighlight(tab, el, match) {
   if (!el || !el.classList.contains('rline')) return false;
+  if (el.querySelector('[data-katex-pending="1"], .katex')) return false;
   const yStart = parseInt(el.dataset.y);
   const yEnd = parseInt(el.dataset.yEnd || el.dataset.y);
   if (yStart !== match.y || yEnd !== match.y) return false;
@@ -546,6 +552,7 @@ function findTableCellForMatch(el, match) {
 function highlightTableCell(cell, match, active) {
   cell.classList.add('rich-search-cell-match');
   if (active) cell.classList.add('rich-search-cell-active');
+  if (cell.querySelector('[data-katex-pending="1"], .katex')) return false;
   const sourceText = cell.dataset.sourceText || '';
   if (!sourceText || cell.textContent !== sourceText) return false;
   const sourceStart = parseInt(cell.dataset.sourceStartCol);
@@ -589,7 +596,15 @@ function renderRichSearchHighlights(tab = getActivePane(), opts = {}) {
     const active = i === tab.richSearchIndex;
     const tableCell = findTableCellForMatch(el, match);
     if (tableCell) {
-      highlightTableCell(tableCell, match, active);
+      const exactCell = highlightTableCell(tableCell, match, active);
+      if (!exactCell) markGeneratedFallback(tableCell, active);
+      continue;
+    }
+    const yStart = parseInt(el.dataset.y);
+    const yEnd = parseInt(el.dataset.yEnd || el.dataset.y);
+    const spansMultipleRows = !Number.isNaN(yStart) && !Number.isNaN(yEnd) && yEnd !== yStart;
+    if (spansMultipleRows && el.classList.contains('md-block')) {
+      markGeneratedFallback(el, active);
       continue;
     }
     el.classList.add('rich-search-row-match');
@@ -615,6 +630,7 @@ module.exports = {
   renderSearchHighlights,
   renderRichSearchHighlights,
   clearRichSearchHighlights,
+  refreshRichSearch,
   isRichSearchMode,
   insertTextIntoSearchInput,
   isSearchBarOpen,

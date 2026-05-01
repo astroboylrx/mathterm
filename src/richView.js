@@ -745,12 +745,14 @@ function applyCurrentRichSearchHighlights(pane, renderToken) {
   } catch {}
 }
 
-function resetRichSearchSnapshotState(pane, { close = false } = {}) {
+function resetRichSearchSnapshotState(pane, { close = false, preserveSearch = false } = {}) {
   if (!pane) return;
   try { require('./search').clearRichSearchHighlights(pane); } catch {}
-  pane.richSearchMatches = [];
-  pane.richSearchIndex = -1;
-  pane.richSearchCountText = '';
+  if (!preserveSearch) {
+    pane.richSearchMatches = [];
+    pane.richSearchIndex = -1;
+    pane.richSearchCountText = '';
+  }
   pane.richSearchSource = null;
   if (pane.richSearchNormalizeCache) pane.richSearchNormalizeCache.clear();
   if (close) pane.richSearchOpen = false;
@@ -996,9 +998,10 @@ function tabFlushSection(tab) {
   if (!tab.sectionHasLatex && !newImagesInSection) { tabResetSection(tab); return; }
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
+  const searchWasOpen = !!tab.richSearchOpen;
   detachRichScrollListener(tab);
   tab._richRenderToken = (tab._richRenderToken | 0) + 1;
-  resetRichSearchSnapshotState(tab, { close: true });
+  resetRichSearchSnapshotState(tab, { close: !searchWasOpen, preserveSearch: searchWasOpen });
   if (tab.richVirtual) {
     tab.richVirtual.active = false;
     tab.richVirtual = null;
@@ -1021,8 +1024,20 @@ function tabFlushSection(tab) {
   const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
   if (foundContent) {
     insertImagesIntoContainer(tab.richContent, tab, startY, endY);
-    tab.richSearchSource = { type: 'buffer', sourceStartY: startY, sourceEndY: endY };
+    tab.richSearchSource = {
+      type: 'snapshot',
+      sourceStartY: startY,
+      sourceEndY: endY,
+      lines: textLines.map(item => ({
+        y: item.y,
+        text: item.text || '',
+        yEnd: item.yEnd !== undefined ? item.yEnd : item.y
+      }))
+    };
     tabShowRichView(tab, true);
+    if (searchWasOpen && tab.richSearchQuery && isActivePane(tab)) {
+      try { require('./search').refreshRichSearch(tab); } catch {}
+    }
   }
   tabResetSection(tab);
 }

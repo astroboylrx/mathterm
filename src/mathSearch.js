@@ -190,7 +190,7 @@ function collectRichSearchMatches(lines, query, opts = {}) {
     });
   }
 
-  matches.sort((a, b) => a.y - b.y || a.col - b.col || a.length - b.length);
+  matches.sort((a, b) => a.y - b.y || a.col - b.col || b.length - a.length);
   return matches;
 }
 
