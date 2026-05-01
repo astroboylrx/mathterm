@@ -187,7 +187,8 @@ function _dispatchShortcut(name) {
 // Pre-empt xterm at capture phase: intercept shortcuts before they reach the
 // textarea, so modified navigation keys never get written to the PTY.
 document.addEventListener('keydown', e => {
-  if (document.activeElement === state.searchInput) return;
+  if (document.activeElement === state.searchInput
+      || state.searchBar?.classList.contains('open')) return;
 
   const tab = getActivePane();
   if (tab && !isPromptNavigationShortcut(e)) tab._promptJumpAnchorY = null;

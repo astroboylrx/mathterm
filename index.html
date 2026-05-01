@@ -274,6 +274,14 @@
       border-radius: 999px;
     }
 
+    .rich-virtual-top-spacer,
+    .rich-virtual-bottom-spacer {
+      width: 100%;
+    }
+    .rich-window {
+      min-height: 0;
+    }
+
     .rline {
       white-space: pre-wrap;
       word-wrap: break-word;
@@ -296,6 +304,26 @@
       margin: 3px 0;
     }
     .rline .katex { padding: 0 2px; }
+    .rich-code-block {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      overflow-x: auto;
+      font-family: inherit;
+      font-size: 0.95em;
+      line-height: 1.45;
+    }
+    .rich-code-block code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      font: inherit;
+      color: inherit;
+    }
     .display-math {
       display: block;
       text-align: center;
@@ -508,6 +536,41 @@
       background: var(--search-active-bg);
       border-color: var(--search-active-border);
       box-shadow: inset 0 0 0 2px var(--search-active-outline), 0 0 0 1px var(--bg);
+    }
+    .rich-search-mark {
+      background: var(--search-match-bg);
+      border-radius: 2px;
+      box-shadow: inset 0 0 0 1px var(--search-match-border);
+    }
+    .rich-search-mark.active {
+      background: var(--search-active-bg);
+      box-shadow: inset 0 0 0 1px var(--search-active-outline);
+    }
+    .rich-search-row-match {
+      outline: 1px solid var(--search-match-border);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    .rich-search-row-active {
+      outline-color: var(--search-active-border);
+      background: var(--search-active-bg);
+    }
+    .rich-search-cell-match {
+      outline: 1px solid var(--search-match-border);
+      outline-offset: -1px;
+      background: var(--search-match-bg);
+    }
+    .rich-search-cell-active {
+      outline-color: var(--search-active-border);
+      background: var(--search-active-bg);
+    }
+    .rich-search-generated-match {
+      outline: 1px solid var(--search-match-border);
+      outline-offset: 3px;
+    }
+    .rich-search-generated-active {
+      outline-color: var(--search-active-border);
+      background: var(--search-active-bg);
     }
     #search-bar button {
       background: transparent;
@@ -909,6 +972,7 @@
       <label><span>Font family</span><input type="text" id="s-fontfamily"></label>
       <label><span>Auto-render LaTeX</span><input type="checkbox" id="s-autorender"></label>
       <label><span>Auto-render delay (ms)</span><input type="number" id="s-delay" min="500" max="10000" step="250"></label>
+      <label><span>Match LaTeX symbols and Unicode symbols in math search</span><input type="checkbox" id="s-mathsymbolsearch"></label>
       <label><span>Cursor style</span><select id="s-cursorstyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
       <label><span>New tab inherits directory</span><input type="checkbox" id="s-inheritcwd"></label>
       <label><span>Copy on select</span><input type="checkbox" id="s-copyonselect"></label>

@@ -19,6 +19,13 @@ class PaneSession {
     this.searchMatches = [];
     this.activeSearchIndex = -1;
     this._searchResultDisposable = null;
+    this.richSearchOpen = false;
+    this.richSearchQuery = '';
+    this.richSearchMatches = [];
+    this.richSearchIndex = -1;
+    this.richSearchCountText = '';
+    this.richSearchNormalizeCache = new Map();
+    this.richSearchSource = null;
     this.container = null;
     this.leafEl = null;
     this.xtermHolder = null;
@@ -54,6 +61,10 @@ class PaneSession {
     this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();
     this.inlineImages = [];
+    this.richVirtual = null;
+    this._richRenderToken = 0;
+    this._richScrollRaf = 0;
+    this._richScrollListener = null;
   }
 }
 

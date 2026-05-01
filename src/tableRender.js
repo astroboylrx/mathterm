@@ -23,6 +23,33 @@ function extractCellsFromRow(text) {
   return cells;
 }
 
+function trimCellSpan(text, start, end) {
+  let textStart = start;
+  let textEnd = end;
+  while (textStart < textEnd && /\s/.test(text[textStart])) textStart++;
+  while (textEnd > textStart && /\s/.test(text[textEnd - 1])) textEnd--;
+  return {
+    text: text.slice(textStart, textEnd),
+    sourceStartCol: textStart,
+    sourceEndCol: textEnd
+  };
+}
+
+function extractCellInfosFromBoxRow(item) {
+  const text = getText(item);
+  const y = typeof item === 'object' ? item.y : undefined;
+  const cols = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '│' || text[i] === '┃') cols.push(i);
+  }
+  const cells = [];
+  for (let c = 0; c < cols.length - 1; c++) {
+    const span = trimCellSpan(text, cols[c] + 1, cols[c + 1]);
+    cells.push({ ...span, sourceY: y, sourceYEnd: y });
+  }
+  return cells;
+}
+
 function isTableBorder(item) {
   const t = getText(item).trim();
   if (!t) return false;
@@ -160,8 +187,7 @@ function tryParseTableBlock(lines, startIdx) {
     }
     if (!isTableRow(lines[idx])) break;
 
-    const text = getText(lines[idx]);
-    const cells = extractCellsFromRow(text);
+    const cells = extractCellInfosFromBoxRow(lines[idx]);
     if (cells.length < 1) { idx++; continue; }
     rows.push(cells);
     idx++;
@@ -174,13 +200,13 @@ function tryParseTableBlock(lines, startIdx) {
   let currentRow = null;
 
   for (const row of rows) {
-    while (row.length < numCols) row.push('');
+    while (row.length < numCols) row.push({ text: '' });
 
     let isContinuation = false;
     if (currentRow) {
       for (let c = 0; c < numCols; c++) {
         const prev = currentRow[c];
-        if (prev && hasUnclosedInlineMath(prev)) {
+        if (prev && hasUnclosedInlineMath(prev.text || '')) {
           isContinuation = true;
           break;
         }
@@ -189,13 +215,19 @@ function tryParseTableBlock(lines, startIdx) {
 
     if (isContinuation && currentRow) {
       for (let c = 0; c < numCols; c++) {
-        if (row[c]) {
-          currentRow[c] = currentRow[c] ? currentRow[c] + ' ' + row[c] : row[c];
+        if (row[c] && row[c].text) {
+          currentRow[c] = {
+            ...currentRow[c],
+            text: currentRow[c] && currentRow[c].text
+              ? currentRow[c].text + ' ' + row[c].text
+              : row[c].text,
+            sourceYEnd: row[c].sourceYEnd
+          };
         }
       }
     } else {
       if (currentRow) mergedRows.push(currentRow);
-      currentRow = row.slice();
+      currentRow = row.map(cell => ({ ...cell }));
     }
   }
   if (currentRow) mergedRows.push(currentRow);
@@ -208,7 +240,9 @@ function tryParseTableBlock(lines, startIdx) {
     const tr = document.createElement('tr');
     for (let c = 0; c < numCols; c++) {
       const td = document.createElement('td');
-      const cellText = mergedRows[r][c] || '';
+      const cell = mergedRows[r][c] || { text: '' };
+      const cellText = cell.text || '';
+      tagCellSource(td, cell);
       td.appendChild(renderInlineLatex(cellText));
       tr.appendChild(td);
     }
@@ -224,6 +258,35 @@ function parseMdCells(text) {
   if (t.startsWith('|')) t = t.slice(1);
   if (t.endsWith('|')) t = t.slice(0, -1);
   return t.split('|').map(c => c.trim());
+}
+
+function parseMdCellInfos(item) {
+  const text = getText(item);
+  const y = typeof item === 'object' ? item.y : undefined;
+  let start = 0;
+  let end = text.length;
+  if (text[start] === '|') start++;
+  if (end > start && text[end - 1] === '|') end--;
+
+  const cells = [];
+  let cellStart = start;
+  for (let i = start; i <= end; i++) {
+    if (i === end || text[i] === '|') {
+      const span = trimCellSpan(text, cellStart, i);
+      cells.push({ ...span, sourceY: y, sourceYEnd: y });
+      cellStart = i + 1;
+    }
+  }
+  return cells;
+}
+
+function tagCellSource(cellEl, cell) {
+  if (!cell || cell.sourceY === undefined || cell.sourceStartCol === undefined) return;
+  cellEl.dataset.sourceY = String(cell.sourceY);
+  cellEl.dataset.sourceYEnd = String(cell.sourceYEnd ?? cell.sourceY);
+  cellEl.dataset.sourceStartCol = String(cell.sourceStartCol);
+  cellEl.dataset.sourceEndCol = String(cell.sourceEndCol);
+  cellEl.dataset.sourceText = cell.text || '';
 }
 
 const MD_SEP = /^\|?\s*[:\-]+\s*(\|\s*[:\-]+\s*)*\|?$/;
@@ -245,7 +308,7 @@ function tryParseMarkdownTable(lines, startIdx) {
   if (startIdx >= lines.length) return null;
   if (!isMdRow(lines[startIdx])) return null;
 
-  const headerCells = parseMdCells(getText(lines[startIdx]));
+  const headerCells = parseMdCellInfos(lines[startIdx]);
   if (headerCells.length < 2) return null;
   if (startIdx + 1 >= lines.length || !isMdSeparator(lines[startIdx + 1])) return null;
 
@@ -260,7 +323,7 @@ function tryParseMarkdownTable(lines, startIdx) {
   let idx = startIdx + 2;
   const dataRows = [];
   while (idx < lines.length && isMdRow(lines[idx])) {
-    dataRows.push(parseMdCells(getText(lines[idx])));
+    dataRows.push(parseMdCellInfos(lines[idx]));
     idx++;
   }
 
@@ -272,7 +335,9 @@ function tryParseMarkdownTable(lines, startIdx) {
   const htr = document.createElement('tr');
   for (let c = 0; c < numCols; c++) {
     const th = document.createElement('th');
-    th.appendChild(renderInlineLatex(headerCells[c] || ''));
+    const cell = headerCells[c] || { text: '' };
+    tagCellSource(th, cell);
+    th.appendChild(renderInlineLatex(cell.text || ''));
     htr.appendChild(th);
   }
   thead.appendChild(htr);
@@ -283,7 +348,9 @@ function tryParseMarkdownTable(lines, startIdx) {
     const tr = document.createElement('tr');
     for (let c = 0; c < numCols; c++) {
       const td = document.createElement('td');
-      td.appendChild(renderInlineLatex(row[c] || ''));
+      const cell = row[c] || { text: '' };
+      tagCellSource(td, cell);
+      td.appendChild(renderInlineLatex(cell.text || ''));
       if (alignments[c] === 'right') td.style.textAlign = 'right';
       else if (alignments[c] === 'center') td.style.textAlign = 'center';
       tr.appendChild(td);

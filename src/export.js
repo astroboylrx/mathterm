@@ -1,5 +1,6 @@
 const mt = window.mathterm;
 const { getActivePane } = require('./state');
+const { swapInMaterializedRichView, drainKatexQueue } = require('./richView');
 
 const MAX_CANVAS_DIM = 32767;
 const MAX_CANVAS_AREA = 32768 * 8192;
@@ -34,20 +35,32 @@ async function exportPdf() {
     return _showExportFailure('PDF', 'Math view must be open to export.');
   }
 
-  const { w, h } = _measureRichView(tab);
-
-  const styleEl = document.createElement('style');
-  styleEl.id = 'export-page-style';
-  styleEl.textContent = `@page { size: ${w}px ${h}px; margin: 0; }`;
-  document.head.appendChild(styleEl);
-
+  let restore;
   try {
-    const result = await mt.ipc.invoke('export-pdf', { w, h });
-    return _finishExportResult('PDF', result);
+    restore = swapInMaterializedRichView(tab);
   } catch (err) {
     return _showExportFailure('PDF', err);
+  }
+
+  try {
+    await drainKatexQueue();
+    const { w, h } = _measureRichView(tab);
+
+    const styleEl = document.createElement('style');
+    styleEl.id = 'export-page-style';
+    styleEl.textContent = `@page { size: ${w}px ${h}px; margin: 0; }`;
+    document.head.appendChild(styleEl);
+
+    try {
+      const result = await mt.ipc.invoke('export-pdf', { w, h });
+      return _finishExportResult('PDF', result);
+    } catch (err) {
+      return _showExportFailure('PDF', err);
+    } finally {
+      styleEl.remove();
+    }
   } finally {
-    styleEl.remove();
+    restore();
   }
 }
 
@@ -183,10 +196,18 @@ async function exportPng() {
   const contentEl = tab.richContent;
   const hintEl = tab.richHint;
 
+  let restore;
+  try {
+    restore = swapInMaterializedRichView(tab);
+  } catch (err) {
+    return _showExportFailure('PNG', err);
+  }
+
   const prevHintDisplay = hintEl.style.display;
   hintEl.style.display = 'none';
 
   try {
+    await drainKatexQueue();
     const { w, h } = _measureRichView(tab);
     const richStyle = getComputedStyle(richEl);
     const bg = richStyle.backgroundColor || '#000';
@@ -225,6 +246,7 @@ async function exportPng() {
     return _showExportFailure('PNG', err);
   } finally {
     hintEl.style.display = prevHintDisplay;
+    restore();
   }
 }
 

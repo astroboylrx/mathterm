@@ -22,6 +22,8 @@ function doPaste() {
   const tab = getActivePane();
   if (!tab) return;
   const text = mt.clipboard.readText();
+  const search = require('./search');
+  if (search.isSearchBarOpen() && search.insertTextIntoSearchInput(text)) return;
   if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
 }
 
