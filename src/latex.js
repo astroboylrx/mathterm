@@ -1,7 +1,7 @@
 const katex = require('katex');
 const { parseAnsiToSpans } = require('./ansi');
 
-const LATEX_COMMANDS = /\\(?:frac|sqrt|sum|int|nabla|partial|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Omega|cdot|times|div|mathbb|mathcal|mathrm|mathbf|text|begin|end|left|right|overline|hat|vec|bar|dot|tilde|infty|forall|exists|leq|geq|neq|approx|equiv|sim|propto|subset|supset|cup|cap|emptyset|quad|hbar|to|rightarrow|leftarrow|Rightarrow|iff|binom|pm|mp|circ|angle|ell)/;
+const LATEX_COMMANDS = /\\(?:frac|sqrt|sum|int|nabla|partial|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Omega|cdot|times|div|mathbb|mathcal|mathrm|mathbf|rm|text|begin|end|left|right|overline|hat|vec|bar|dot|tilde|infty|forall|exists|leq|geq|gg|neq|approx|equiv|sim|simeq|propto|subset|supset|cup|cap|emptyset|quad|hbar|to|rightarrow|leftarrow|Rightarrow|iff|binom|pm|mp|circ|angle|ell)/;
 
 function findBalancedShellEnd(text, start, opener, closer) {
   let depth = 1;
@@ -79,7 +79,11 @@ function parseShellDollar(text, pos) {
   }
   if (next === '{') {
     const end = findBalancedShellEnd(text, pos + 2, '{', '}');
-    if (end !== -1) return { raw: text.slice(pos, end), end, kind: 'braced' };
+    if (end !== -1) {
+      const closing = findNextUnescapedDollar(text, end);
+      if (closing !== -1 && hasStrongInlineMathSignal(text.slice(pos + 1, closing))) return null;
+      return { raw: text.slice(pos, end), end, kind: 'braced' };
+    }
   }
   if (next === '(' && text[pos + 2] === '(') {
     const end = text.indexOf('))', pos + 3);

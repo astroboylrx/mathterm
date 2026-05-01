@@ -15,6 +15,7 @@ const DEFAULTS = {
   fontFamily: '"JetBrainsMono Nerd Font Mono", monospace',
   autoRender: false,
   autoRenderDelay: 1500,
+  mathSymbolSearch: true,
   theme: 'dark',
   cursorStyle: 'block',
   inheritCwd: false,
@@ -128,6 +129,7 @@ function openSettings() {
   document.getElementById('s-fontfamily').value = settings.fontFamily;
   document.getElementById('s-autorender').checked = settings.autoRender;
   document.getElementById('s-delay').value = settings.autoRenderDelay;
+  document.getElementById('s-mathsymbolsearch').checked = settings.mathSymbolSearch;
   document.getElementById('s-cursorstyle').value = settings.cursorStyle;
   document.getElementById('s-inheritcwd').checked = settings.inheritCwd;
   document.getElementById('s-copyonselect').checked = settings.copyOnSelect;
@@ -152,6 +154,7 @@ function saveSettings() {
   settings.fontFamily = document.getElementById('s-fontfamily').value || DEFAULTS.fontFamily;
   settings.autoRender = document.getElementById('s-autorender').checked;
   settings.autoRenderDelay = parseInt(document.getElementById('s-delay').value) || DEFAULTS.autoRenderDelay;
+  settings.mathSymbolSearch = document.getElementById('s-mathsymbolsearch').checked;
   settings.cursorStyle = ['block', 'bar', 'underline'].includes(document.getElementById('s-cursorstyle').value)
     ? document.getElementById('s-cursorstyle').value : DEFAULTS.cursorStyle;
   settings.inheritCwd = document.getElementById('s-inheritcwd').checked;

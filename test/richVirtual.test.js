@@ -170,9 +170,37 @@ function testComputeDisplayMathSpansSkipsOrphanCloserAtStart() {
   ]);
 }
 
+function testComputeDisplayMathSpansAfterInlineMathProse() {
+  const buf = makeBuf({
+    0: { text: 'For ${\\rm St}_{\\rm box}\\gg1$, using' },
+    1: { text: '$$' },
+    2: { text: '\\Delta u_{\\rm TM}\\simeq c_s\\sqrt{\\frac{2\\alpha}{{\\rm St}_{\\rm box}}}' },
+    3: { text: '$$' },
+    4: { text: 'gives' }
+  });
+  assert.deepStrictEqual(computeDisplayMathSpans(buf, 0, 4), [
+    { startY: 1, endY: 3 }
+  ]);
+}
+
+function testComputeDisplayMathSpansAfterMathLookingLine() {
+  const buf = makeBuf({
+    0: { text: '\\Gamma = \\Delta p' },
+    1: { text: '$$' },
+    2: { text: '\\frac{da}{dt}=\\frac{\\rho_d}{\\rho_s}\\Delta u' },
+    3: { text: '$$' }
+  });
+  assert.deepStrictEqual(computeDisplayMathSpans(buf, 0, 3), [
+    { startY: 1, endY: 3 }
+  ]);
+}
+
 function testLikelyDisplayMathBodyText() {
   assert.strictEqual(isLikelyDisplayMathBodyText('\\Gamma = \\Delta p'), true);
   assert.strictEqual(isLikelyDisplayMathBodyText('A=\\frac{1}{2}'), true);
+  assert.strictEqual(isLikelyDisplayMathBodyText('For ${\\rm St}_{\\rm box}\\gg1$, using'), false);
+  assert.strictEqual(isLikelyDisplayMathBodyText('PROMPT=%{$fg_bold[green]%}m4p%{$reset_color%}'), false);
+  assert.strictEqual(isLikelyDisplayMathBodyText('for f in `ls ./*.athdf`; do echo ${f}; done'), false);
   assert.strictEqual(isLikelyDisplayMathBodyText('| Time | $t$ |'), false);
   assert.strictEqual(isLikelyDisplayMathBodyText('plain prose words'), false);
 }
@@ -408,6 +436,8 @@ function run() {
   testComputeDisplayMathSpansRespectsBoundaries();
   testComputeDisplayMathSpansIgnoresFencedRows();
   testComputeDisplayMathSpansSkipsOrphanCloserAtStart();
+  testComputeDisplayMathSpansAfterInlineMathProse();
+  testComputeDisplayMathSpansAfterMathLookingLine();
   testLikelyDisplayMathBodyText();
   testComputeFencedCodeSpansClosedAndUnclosed();
   testComputeFencedCodeSpansRespectsPromptBoundary();

@@ -19,6 +19,12 @@ class PaneSession {
     this.searchMatches = [];
     this.activeSearchIndex = -1;
     this._searchResultDisposable = null;
+    this.richSearchOpen = false;
+    this.richSearchQuery = '';
+    this.richSearchMatches = [];
+    this.richSearchIndex = -1;
+    this.richSearchCountText = '';
+    this.richSearchNormalizeCache = new Map();
     this.container = null;
     this.leafEl = null;
     this.xtermHolder = null;

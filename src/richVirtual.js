@@ -1,5 +1,6 @@
 // Pure helpers used by the rich-view virtualization code in richView.js.
 // Kept DOM-free so they can be unit-tested directly under node.
+const { splitLatexSmart } = require('./latex');
 
 const RICH_VIRTUAL_OVERSCAN_ROWS = 80;
 const RICH_VIRTUAL_MAX_RENDERED_ROWS = 320;
@@ -99,8 +100,28 @@ function isLikelyDisplayMathBodyText(text) {
   const trimmed = (text || '').trim();
   if (!trimmed || trimmed === '$$') return false;
   if (/^[#>|-]|\|/.test(trimmed)) return false;
+  if (/[;`]/.test(trimmed) || /\$\{|\$\(/.test(trimmed)) return false;
+  if (/^PROMPT=/.test(trimmed)) return false;
+  if (/^(?:for|while|if|then|do|done|echo|export|local|typeset|declare)\b/.test(trimmed)) return false;
+  const parts = splitLatexSmart(trimmed);
+  const hasInlineMath = parts.some(part => part.type === 'inline' && part.closed);
+  const hasProseOutsideMath = parts.some(part => part.type === 'text' && /[A-Za-z0-9]/.test(part.content || ''));
+  if (hasInlineMath && hasProseOutsideMath) return false;
   if (/\s/.test(trimmed) && !/[\\_^=]/.test(trimmed)) return false;
   return /[\\_^=]/.test(trimmed);
+}
+
+function hasLikelyDisplayMathCloseAhead(buf, openerY, sourceEndY, isBoundaryLine, isIgnoredLine) {
+  let sawBody = false;
+  for (let y = openerY + 1; y <= sourceEndY; y++) {
+    const info = lineInfo(buf, y);
+    if (!info) continue;
+    if (isIgnoredLine && isIgnoredLine(y)) return false;
+    if (isBoundaryLine && isBoundaryLine(info.text, y)) return false;
+    if (info.trimmed === '$$') return sawBody;
+    if (isLikelyDisplayMathBodyText(info.text)) sawBody = true;
+  }
+  return false;
 }
 
 function previousMeaningfulLineInfo(buf, fromY, stopY) {
@@ -149,7 +170,10 @@ function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine, 
     if (info.trimmed !== '$$') continue;
     if (openY == null) {
       const prev = previousMeaningfulLineInfo(buf, y - 1, sourceStartY);
-      if (prev && isLikelyDisplayMathBodyText(prev.text)) continue;
+      if (prev && isLikelyDisplayMathBodyText(prev.text)
+          && !hasLikelyDisplayMathCloseAhead(buf, y, sourceEndY, isBoundaryLine, isIgnoredLine)) {
+        continue;
+      }
       openY = y;
     } else {
       spans.push({ startY: openY, endY: y });
