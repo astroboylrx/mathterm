@@ -102,10 +102,25 @@ function isMacImePunctuationKey(e) {
 // the default browser. We hit-test against the xterm buffer ourselves rather
 // than rely on WebLinksAddon's click path, which doesn't reach the activate
 // handler under the WebGL renderer in xterm.js 5.5.
-const URL_CLICK_RE = /\b(https?:\/\/[^\s'"<>()\[\]{}]+|mailto:[^\s'"<>()\[\]{}]+)/g;
+const URL_LINK_RE = /\b((?:https?:\/\/|mailto:)[^\s'"<>()\[\]{}]+|www\d*\.[^\s'"<>()\[\]{}]+)/gi;
 
 function trimTrailingPunctuation(url) {
   return url.replace(/[.,;:!?)\]}'"]+$/, '');
+}
+
+function normalizeUrlForOpen(url) {
+  const trimmed = trimTrailingPunctuation(url);
+  if (/^www\d*\./i.test(trimmed)) return `https://${trimmed}`;
+  return trimmed;
+}
+
+function isOpenableUrl(url) {
+  try {
+    const parsed = new URL(normalizeUrlForOpen(url));
+    return ['http:', 'https:', 'mailto:'].includes(parsed.protocol);
+  } catch {
+    return false;
+  }
 }
 
 function urlAtBufferPosition(term, col, row) {
@@ -135,13 +150,46 @@ function urlAtBufferPosition(term, col, row) {
   }
   if (cursorIdx < 0) return null;
   let m;
-  URL_CLICK_RE.lastIndex = 0;
-  while ((m = URL_CLICK_RE.exec(text)) !== null) {
+  URL_LINK_RE.lastIndex = 0;
+  while ((m = URL_LINK_RE.exec(text)) !== null) {
     const start = m.index;
     const end = start + m[0].length;
-    if (cursorIdx >= start && cursorIdx < end) return trimTrailingPunctuation(m[0]);
+    if (cursorIdx >= start && cursorIdx < end) return normalizeUrlForOpen(m[0]);
   }
   return null;
+}
+
+function linksForBufferLine(term, row) {
+  const line = term.buffer.active.getLine(row);
+  if (!line) return [];
+  const text = line.translateToString(true);
+  const links = [];
+  let m;
+  URL_LINK_RE.lastIndex = 0;
+  while ((m = URL_LINK_RE.exec(text)) !== null) {
+    const raw = m[0];
+    if (!isOpenableUrl(raw)) continue;
+    const trimmed = trimTrailingPunctuation(raw);
+    const startX = m.index + 1;
+    const endX = m.index + trimmed.length;
+    links.push({
+      range: {
+        start: { x: startX, y: row + 1 },
+        end: { x: endX, y: row + 1 }
+      },
+      text: trimmed,
+      activate: () => {}
+    });
+  }
+  return links;
+}
+
+function attachBareUrlHoverProvider(term) {
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      callback(linksForBufferLine(term, y - 1));
+    }
+  });
 }
 
 function attachUrlClickHandler(pane, term, xtermHolder) {
@@ -161,9 +209,7 @@ function attachUrlClickHandler(pane, term, xtermHolder) {
     const row = term.buffer.active.viewportY + viewportRow;
     const url = urlAtBufferPosition(term, col, row);
     if (!url) return;
-    let parsed;
-    try { parsed = new URL(url); } catch { return; }
-    if (!['http:', 'https:', 'mailto:'].includes(parsed.protocol)) return;
+    if (!isOpenableUrl(url)) return;
     e.preventDefault();
     e.stopPropagation();
     try {
@@ -584,6 +630,7 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
   // hover underline visual, but route opening through our own holder-level
   // Ctrl/Cmd-click handler below.
   term.loadAddon(new WebLinksAddon(() => {}));
+  attachBareUrlHoverProvider(term);
   attachUrlClickHandler(pane, term, xtermHolder);
 
   pane.term = term;

@@ -45,46 +45,92 @@ function coerceRenderToken(token) {
   return String(token);
 }
 
+function lineInfo(buf, y) {
+  let line;
+  try { line = buf.getLine(y); } catch { return null; }
+  if (!line) return null;
+  const text = line.translateToString(true);
+  return { y, isWrapped: !!line.isWrapped, text, trimmed: text.trim() };
+}
+
+function isTableStructureLine(trimmed) {
+  return /^[┌┬┐└┴┘├┼┤─━\s]+$/.test(trimmed)
+    || /^[│┃]/.test(trimmed)
+    || (/^\|/.test(trimmed) && /\|$/.test(trimmed));
+}
+
+function findDisplayMathOpenInRange(buf, startY, stopY) {
+  let openY = null;
+  for (let y = stopY; y < startY; y++) {
+    const info = lineInfo(buf, y);
+    if (!info) continue;
+    if (info.trimmed !== '$$') continue;
+    openY = openY == null ? y : null;
+  }
+  return openY;
+}
+
+function findPreviousDisplayMathOpen(buf, fromY, stopY) {
+  for (let y = fromY; y >= stopY; y--) {
+    const info = lineInfo(buf, y);
+    if (!info) break;
+    if (info.trimmed === '$$') return y;
+  }
+  return null;
+}
+
 // Expand the render start backward to cover the start of multi-line
 // structures (display math, box tables, markdown tables, wrapped rows).
 // `buf.getLine(y)` is expected to return either falsy (out of range) or
 // `{ isWrapped, translateToString(trimRight) }`.
 function expandStartForStructure(buf, startY, sourceStartY, maxBackscan) {
   let expanded = startY;
-  let inStructure = false;
   const stopY = Math.max(sourceStartY, startY - maxBackscan);
+
+  // If the window starts inside, or immediately after, a wrapped logical row,
+  // include the row where that logical line began.
+  for (let y = startY; y > stopY; y--) {
+    const current = lineInfo(buf, y);
+    if (!current || !current.isWrapped) break;
+    expanded = y - 1;
+  }
   for (let y = startY - 1; y >= stopY; y--) {
-    let line;
-    try { line = buf.getLine(y); } catch { break; }
-    if (!line) break;
-    if (line.isWrapped) { expanded = y; continue; }
-    const text = line.translateToString(true);
-    const trimmed = text.trim();
-    if (trimmed === '$$') {
+    const current = lineInfo(buf, y);
+    if (!current) break;
+    if (current.isWrapped) {
       expanded = y;
-      // Found a `$$`. If we were already inside the body of a $$ block
-      // (walked past math content to get here), this is the opener and
-      // we're done. Otherwise we just entered a block and should keep
-      // walking through math content to find the opener.
-      if (inStructure) break;
-      inStructure = true;
       continue;
     }
-    if (/^[┌┬┐└┴┘├┼┤─━]+$/.test(trimmed)
-        || /^[│┃]/.test(trimmed)
-        || (/^\|/.test(trimmed) && /\|$/.test(trimmed))) {
-      expanded = y;
-      inStructure = true;
-      continue;
+    const below = lineInfo(buf, y + 1);
+    if (below && below.isWrapped) expanded = y;
+    break;
+  }
+
+  // If startY lands inside a display-math block, include the opener. If it
+  // lands immediately after a closing delimiter, include the whole block as
+  // bounded context so the parser does not render a stray closing "$$".
+  const openMathY = findDisplayMathOpenInRange(buf, startY, stopY);
+  if (openMathY != null) {
+    expanded = Math.min(expanded, openMathY);
+  } else {
+    const prev = lineInfo(buf, startY - 1);
+    if (prev && prev.trimmed === '$$') {
+      const opener = findPreviousDisplayMathOpen(buf, startY - 2, stopY);
+      if (opener != null) expanded = Math.min(expanded, opener);
     }
-    if (inStructure) {
-      // Inside a multi-line structure — math body, sparse table row,
-      // etc. Keep walking back until we find the delimiter.
+  }
+
+  // Expand over contiguous table-like rows.
+  for (let y = startY - 1; y >= stopY; y--) {
+    const current = lineInfo(buf, y);
+    if (!current) break;
+    if (isTableStructureLine(current.trimmed)) {
       expanded = y;
       continue;
     }
     break;
   }
+
   return expanded;
 }
 

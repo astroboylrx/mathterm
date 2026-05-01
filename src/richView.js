@@ -608,6 +608,23 @@ function findElementForY(windowEl, y) {
   return null;
 }
 
+function findNearestElementForY(windowEl, y, direction) {
+  let best = null;
+  for (const el of windowEl.children) {
+    if (!(el instanceof HTMLElement)) continue;
+    const yStart = parseInt(el.dataset.y);
+    const yEnd = parseInt(el.dataset.yEnd || el.dataset.y);
+    if (Number.isNaN(yStart)) continue;
+    const spanEnd = Number.isNaN(yEnd) ? yStart : yEnd;
+    if (direction === 'before') {
+      if (spanEnd <= y && (!best || spanEnd > best.y)) best = { el, y: spanEnd };
+    } else if (yStart >= y && (!best || yStart < best.y)) {
+      best = { el, y: yStart };
+    }
+  }
+  return best ? best.el : null;
+}
+
 function renderRichVirtualWindow(pane, targetY, anchor) {
   const v = pane.richVirtual;
   if (!v || !v.active) return;
@@ -912,7 +929,8 @@ function showManualRichView(pane) {
   requestAnimationFrame(() => {
     const v = pane.richVirtual;
     if (!v || !v.active) return;
-    const target = findElementForY(windowEl, targetY);
+    const target = findElementForY(windowEl, targetY)
+      || findNearestElementForY(windowEl, targetY, atLiveEdge ? 'before' : 'after');
     if (target) {
       if (atLiveEdge) {
         pane.richView.scrollTop = Math.max(0,
@@ -921,8 +939,10 @@ function showManualRichView(pane) {
         pane.richView.scrollTop = target.offsetTop;
       }
     } else {
+      const estimatedTop = Math.max(0,
+        (targetY - v.sourceStartY) * v.averageRowHeight);
       pane.richView.scrollTop = atLiveEdge
-        ? pane.richView.scrollHeight : 0;
+        ? pane.richView.scrollHeight : estimatedTop;
     }
     prioritizeKatexQueue(pane.richView);
     attachRichScrollListener(pane);

@@ -126,14 +126,24 @@ function testBackscanNoStructureReturnsStart() {
 
 function testBackscanWalksThroughWrapped() {
   // Wrapped rows above startY are part of the same logical line — backscan
-  // should expand to cover them, then stop at the first non-wrapped row.
+  // should expand to cover them, including the first non-wrapped row.
   const buf = makeBuf({
     97: { text: 'first half ' },
     98: { text: 'middle of wrap', wrapped: true },
     99: { text: 'tail of wrap', wrapped: true },
     100: { text: 'window starts here' }
   });
-  assert.strictEqual(expandStartForStructure(buf, 100, 0, 50), 98);
+  assert.strictEqual(expandStartForStructure(buf, 100, 0, 50), 97);
+}
+
+function testBackscanHandlesStartInsideWrapped() {
+  const buf = makeBuf({
+    97: { text: 'first half ' },
+    98: { text: 'middle of wrap', wrapped: true },
+    99: { text: 'tail of wrap', wrapped: true }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 98, 0, 50), 97);
+  assert.strictEqual(expandStartForStructure(buf, 99, 0, 50), 97);
 }
 
 function testBackscanFindsDisplayMathOpener() {
@@ -148,6 +158,19 @@ function testBackscanFindsDisplayMathOpener() {
     4: { text: 'window' }
   });
   assert.strictEqual(expandStartForStructure(buf, 4, 0, 50), 0);
+}
+
+function testBackscanFindsDisplayMathOpenerFromBody() {
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'a^2 + b^2' },
+    2: { text: '+ c^2' },
+    3: { text: '$$' },
+    4: { text: 'window' }
+  });
+  assert.strictEqual(expandStartForStructure(buf, 1, 0, 50), 0);
+  assert.strictEqual(expandStartForStructure(buf, 2, 0, 50), 0);
+  assert.strictEqual(expandStartForStructure(buf, 3, 0, 50), 0);
 }
 
 function testBackscanStopsAtBlankAboveStructure() {
@@ -229,7 +252,9 @@ function run() {
   testAnchorPreservationMath();
   testBackscanNoStructureReturnsStart();
   testBackscanWalksThroughWrapped();
+  testBackscanHandlesStartInsideWrapped();
   testBackscanFindsDisplayMathOpener();
+  testBackscanFindsDisplayMathOpenerFromBody();
   testBackscanStopsAtBlankAboveStructure();
   testBackscanRespectsMaxBackscan();
   testBackscanRespectsSourceStart();
