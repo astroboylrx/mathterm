@@ -21,7 +21,12 @@ const {
   applyHeightSmoothing,
   coerceRenderToken,
   computeDisplayMathSpans,
+  computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
+  isLikelyDisplayMathBodyText,
+  isLikelyCodeFenceBodyText,
+  parseFenceLine,
+  isClosingFenceLine,
   expandStartForStructure
 } = require('./richVirtual');
 
@@ -329,11 +334,28 @@ function renderInlineLatexOrMd(text, el, opts) {
   }
 }
 
+function previousMeaningfulTextLine(textLines, startIdx) {
+  for (let i = startIdx - 1; i >= 0; i--) {
+    const item = textLines[i];
+    const text = typeof item === 'string' ? item : (item.text || '');
+    if (text.trim()) return text;
+  }
+  return '';
+}
+
 function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker) {
   const startItem = textLines[startIdx];
   const text = typeof startItem === 'string' ? startItem : (startItem.text || '');
   const trimmed = text.trim();
   if (trimmed !== '$$') return null;
+  if (opts && opts.displayMathSpanStarts
+      && (typeof startItem !== 'object' || !opts.displayMathSpanStarts.has(startItem.y))) {
+    return null;
+  }
+  if (!(opts && opts.displayMathSpanStarts)
+      && isLikelyDisplayMathBodyText(previousMeaningfulTextLine(textLines, startIdx))) {
+    return null;
+  }
 
   let j = startIdx + 1;
   let mathLines = [];
@@ -379,6 +401,73 @@ function tagSpan(el, textLines, startIdx, endIdx) {
   }
 }
 
+function findFencedCodeSpanForY(spans, y) {
+  if (!Array.isArray(spans)) return null;
+  return spans.find(span => span.startY <= y && y <= span.endY) || null;
+}
+
+function renderFencedCodeElement(textLines, startIdx, endIdx, span) {
+  const pre = document.createElement('pre');
+  pre.className = 'rich-code-block';
+  const code = document.createElement('code');
+  const lines = [];
+  for (let i = startIdx; i < endIdx; i++) {
+    const item = textLines[i];
+    const y = typeof item === 'object' ? item.y : undefined;
+    if (span) {
+      if (y === span.startY) continue;
+      if (span.closed && y === span.endY) continue;
+    } else {
+      const text = typeof item === 'string' ? item : (item.text || '');
+      if (i === startIdx && parseFenceLine(text)) continue;
+      if (i === endIdx - 1 && isClosingFenceLine(text, parseFenceLine(_t(textLines[startIdx])))) {
+        continue;
+      }
+    }
+    lines.push(typeof item === 'string' ? item : (item.text || ''));
+  }
+  code.textContent = lines.join('\n');
+  pre.appendChild(code);
+  tagSpan(pre, textLines, startIdx, Math.max(startIdx, endIdx - 1));
+  return pre;
+}
+
+function tryParseFencedCodeBlock(textLines, startIdx, opts) {
+  const item = textLines[startIdx];
+  const text = typeof item === 'string' ? item : (item.text || '');
+  const y = typeof item === 'object' ? item.y : undefined;
+  const span = y !== undefined ? findFencedCodeSpanForY(opts && opts.fencedCodeSpans, y) : null;
+  if (opts && opts.fencedCodeSpanStarts
+      && (y === undefined || (!span && !opts.fencedCodeSpanStarts.has(y)))) {
+    return null;
+  }
+  if (span) {
+    let endIdx = startIdx;
+    while (endIdx < textLines.length) {
+      const cur = textLines[endIdx];
+      const curY = typeof cur === 'object' ? cur.y : undefined;
+      if (curY === undefined || curY > span.endY) break;
+      endIdx++;
+      if (span.closed && curY === span.endY) break;
+    }
+    return { element: renderFencedCodeElement(textLines, startIdx, endIdx, span), endIdx };
+  }
+
+  const fence = parseFenceLine(text);
+  if (!fence) return null;
+  if (!(opts && opts.fencedCodeSpanStarts)
+      && isLikelyCodeFenceBodyText(previousMeaningfulTextLine(textLines, startIdx))) {
+    return null;
+  }
+  let endIdx = startIdx + 1;
+  while (endIdx < textLines.length) {
+    const curText = _t(textLines[endIdx]);
+    endIdx++;
+    if (isClosingFenceLine(curText, fence)) break;
+  }
+  return { element: renderFencedCodeElement(textLines, startIdx, endIdx, null), endIdx };
+}
+
 function renderLinesToContainer(textLines, container, promptLineChecker, tab, opts) {
   let i = 0;
   let foundContent = false;
@@ -390,6 +479,13 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab, op
     if (!text.trim()) { i++; continue; }
 
     foundContent = true;
+
+    const codeResult = tryParseFencedCodeBlock(textLines, i, opts);
+    if (codeResult) {
+      container.appendChild(codeResult.element);
+      i = codeResult.endIdx;
+      continue;
+    }
 
     const tableResult = tryParseTableBlock(textLines, i)
       || tryParseMarkdownTable(textLines, i);
@@ -650,7 +746,12 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
   const renderToken = pane._richRenderToken;
   v.renderToken = renderToken;
 
-  const opts = { renderToken };
+  const opts = {
+    renderToken,
+    displayMathSpanStarts: v.displayMathSpanStarts,
+    fencedCodeSpans: v.fencedCodeSpans,
+    fencedCodeSpanStarts: v.fencedCodeSpanStarts
+  };
 
   if (v.windowEl) v.windowEl.replaceChildren();
 
@@ -693,6 +794,17 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
       pane.richView.scrollTop = el.offsetTop - anchor.offsetWithinViewport;
     }
   }
+}
+
+function displayMathRenderOptsForPane(pane) {
+  const v = pane.richVirtual;
+  return v && (v.displayMathSpanStarts || v.fencedCodeSpans)
+    ? {
+      displayMathSpanStarts: v.displayMathSpanStarts,
+      fencedCodeSpans: v.fencedCodeSpans,
+      fencedCodeSpanStarts: v.fencedCodeSpanStarts
+    }
+    : undefined;
 }
 
 function scheduleRichVirtualRender(pane) {
@@ -899,6 +1011,15 @@ function showManualRichView(pane) {
   pane.richContent.appendChild(bottomSpacer);
 
   const lineHeight = getRichEstimatedLineHeight(pane);
+  const fencedCodeSpans = computeFencedCodeSpans(
+    buf, sourceStartY, sourceEndY,
+    (text, y) => isPromptLine(pane, text, y)
+  );
+  const displayMathSpans = computeDisplayMathSpans(
+    buf, sourceStartY, sourceEndY,
+    (text, y) => isPromptLine(pane, text, y),
+    y => fencedCodeSpans.some(span => span.startY <= y && y <= span.endY)
+  );
   pane.richVirtual = {
     active: true,
     sourceStartY,
@@ -916,10 +1037,10 @@ function showManualRichView(pane) {
     renderedEndY: null,
     expandedStartY: null,
     expandedEndY: null,
-    displayMathSpans: computeDisplayMathSpans(
-      buf, sourceStartY, sourceEndY,
-      (text, y) => isPromptLine(pane, text, y)
-    ),
+    displayMathSpans,
+    displayMathSpanStarts: new Set(displayMathSpans.map(span => span.startY)),
+    fencedCodeSpans,
+    fencedCodeSpanStarts: new Set(fencedCodeSpans.map(span => span.startY)),
     topSpacerEl: topSpacer,
     windowEl,
     bottomSpacerEl: bottomSpacer,
@@ -998,7 +1119,9 @@ function swapInMaterializedRichView(pane) {
   pane.richContent.replaceChildren();
   if (rowCount > 0) {
     const textLines = collectBufferLines(buf, sourceStartY, sourceEndY);
-    renderLinesToContainer(textLines, pane.richContent, isPromptLine, pane);
+    renderLinesToContainer(
+      textLines, pane.richContent, isPromptLine, pane, displayMathRenderOptsForPane(pane)
+    );
     insertImagesIntoContainer(pane.richContent, pane, sourceStartY, sourceEndY);
   }
 
@@ -1049,7 +1172,9 @@ function materializeFullRichView(pane) {
 
   if (rowCount > 0) {
     const textLines = collectBufferLines(buf, sourceStartY, sourceEndY);
-    renderLinesToContainer(textLines, content, isPromptLine, pane);
+    renderLinesToContainer(
+      textLines, content, isPromptLine, pane, displayMathRenderOptsForPane(pane)
+    );
     insertImagesIntoContainer(content, pane, sourceStartY, sourceEndY);
   }
 

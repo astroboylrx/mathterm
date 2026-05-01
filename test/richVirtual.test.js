@@ -6,7 +6,10 @@ const {
   applyHeightSmoothing,
   coerceRenderToken,
   computeDisplayMathSpans,
+  computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
+  isLikelyDisplayMathBodyText,
+  isLikelyCodeFenceBodyText,
   expandStartForStructure,
   RICH_VIRTUAL_DEFAULT_LINE_HEIGHT
 } = require('../src/richVirtual');
@@ -132,6 +135,109 @@ function testComputeDisplayMathSpansRespectsBoundaries() {
     computeDisplayMathSpans(buf, 0, 5, text => text.startsWith('$ prompt')),
     [{ startY: 3, endY: 5 }]
   );
+}
+
+function testComputeDisplayMathSpansIgnoresFencedRows() {
+  const buf = makeBuf({
+    0: { text: '```' },
+    1: { text: '$$' },
+    2: { text: 'not math' },
+    3: { text: '$$' },
+    4: { text: '```' },
+    5: { text: '$$' },
+    6: { text: 'real math' },
+    7: { text: '$$' }
+  });
+  assert.deepStrictEqual(
+    computeDisplayMathSpans(buf, 0, 7, null, y => y >= 0 && y <= 4),
+    [{ startY: 5, endY: 7 }]
+  );
+}
+
+function testComputeDisplayMathSpansSkipsOrphanCloserAtStart() {
+  const buf = makeBuf({
+    0: { text: '\\Gamma_{\\rm orb} = \\Gamma_{\\dot p} + \\Gamma_{\\rm DF}' },
+    1: { text: '$$' },
+    2: { text: 'PROMPT=%{$fg_bold[green]%}m4p%{$reset_color%}' },
+    3: { text: 'for f in `ls ./*.athdf`; do echo ${f}; done' },
+    4: { text: '' },
+    5: { text: '$$' },
+    6: { text: 'X = \\frac{2\\rho_s}{\\Delta v}' },
+    7: { text: '$$' }
+  });
+  assert.deepStrictEqual(computeDisplayMathSpans(buf, 0, 7), [
+    { startY: 5, endY: 7 }
+  ]);
+}
+
+function testLikelyDisplayMathBodyText() {
+  assert.strictEqual(isLikelyDisplayMathBodyText('\\Gamma = \\Delta p'), true);
+  assert.strictEqual(isLikelyDisplayMathBodyText('A=\\frac{1}{2}'), true);
+  assert.strictEqual(isLikelyDisplayMathBodyText('| Time | $t$ |'), false);
+  assert.strictEqual(isLikelyDisplayMathBodyText('plain prose words'), false);
+}
+
+function testComputeFencedCodeSpansClosedAndUnclosed() {
+  const buf = makeBuf({
+    0: { text: 'before' },
+    1: { text: '```js' },
+    2: { text: '$x^2$ should stay code' },
+    3: { text: '```' },
+    4: { text: 'after' },
+    5: { text: '~~~' },
+    6: { text: '\\alpha should stay code' }
+  });
+  assert.deepStrictEqual(computeFencedCodeSpans(buf, 0, 6), [
+    { startY: 1, endY: 3, closed: true, fence: { char: '`', length: 3 } },
+    { startY: 5, endY: 6, closed: false, fence: { char: '~', length: 3 } }
+  ]);
+}
+
+function testComputeFencedCodeSpansRespectsPromptBoundary() {
+  const buf = makeBuf({
+    0: { text: '```' },
+    1: { text: '$HOME and $x^2$ are code' },
+    2: { text: '$ prompt' },
+    3: { text: '```' },
+    4: { text: 'closed later' },
+    5: { text: '```' }
+  });
+  assert.deepStrictEqual(
+    computeFencedCodeSpans(buf, 0, 5, text => text.startsWith('$ prompt')),
+    [
+      { startY: 0, endY: 1, closed: false, fence: { char: '`', length: 3 } },
+      { startY: 3, endY: 5, closed: true, fence: { char: '`', length: 3 } }
+    ]
+  );
+}
+
+function testComputeFencedCodeSpansSkipsOrphanCloserAtStart() {
+  const buf = makeBuf({
+    0: { text: '  console.log($HOME);' },
+    1: { text: '```' },
+    2: { text: 'normal prose after code' },
+    3: { text: '$x^2$ should render as math' }
+  });
+  assert.deepStrictEqual(computeFencedCodeSpans(buf, 0, 3), []);
+}
+
+function testComputeFencedCodeSpansKeepsNormalFenceAfterProse() {
+  const buf = makeBuf({
+    0: { text: 'Here is an example:' },
+    1: { text: '```js' },
+    2: { text: 'console.log($HOME);' },
+    3: { text: '```' }
+  });
+  assert.deepStrictEqual(computeFencedCodeSpans(buf, 0, 3), [
+    { startY: 1, endY: 3, closed: true, fence: { char: '`', length: 3 } }
+  ]);
+}
+
+function testLikelyCodeFenceBodyText() {
+  assert.strictEqual(isLikelyCodeFenceBodyText('  console.log($HOME);'), true);
+  assert.strictEqual(isLikelyCodeFenceBodyText('const x = 1;'), true);
+  assert.strictEqual(isLikelyCodeFenceBodyText('Here is an example:'), false);
+  assert.strictEqual(isLikelyCodeFenceBodyText('| column | value |'), false);
 }
 
 function testExpandRangeForDisplayMathSpans() {
@@ -300,6 +406,14 @@ function run() {
   testCoerceRenderToken();
   testComputeDisplayMathSpans();
   testComputeDisplayMathSpansRespectsBoundaries();
+  testComputeDisplayMathSpansIgnoresFencedRows();
+  testComputeDisplayMathSpansSkipsOrphanCloserAtStart();
+  testLikelyDisplayMathBodyText();
+  testComputeFencedCodeSpansClosedAndUnclosed();
+  testComputeFencedCodeSpansRespectsPromptBoundary();
+  testComputeFencedCodeSpansSkipsOrphanCloserAtStart();
+  testComputeFencedCodeSpansKeepsNormalFenceAfterProse();
+  testLikelyCodeFenceBodyText();
   testExpandRangeForDisplayMathSpans();
   testAnchorPreservationMath();
   testBackscanNoStructureReturnsStart();

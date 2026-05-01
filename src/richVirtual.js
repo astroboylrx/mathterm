@@ -59,6 +59,60 @@ function isTableStructureLine(trimmed) {
     || (/^\|/.test(trimmed) && /\|$/.test(trimmed));
 }
 
+function parseFenceLine(text) {
+  const match = String(text || '').match(/^\s{0,3}(`{3,}|~{3,})/);
+  if (!match) return null;
+  const marker = match[1];
+  return { char: marker[0], length: marker.length };
+}
+
+function isClosingFenceLine(text, fence) {
+  if (!fence) return false;
+  const raw = String(text || '');
+  const leading = raw.match(/^ */)[0].length;
+  if (leading > 3) return false;
+  const trimmed = raw.trim();
+  if (trimmed.length < fence.length) return false;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] !== fence.char) return false;
+  }
+  return true;
+}
+
+function isLikelyCodeFenceBodyText(text) {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return false;
+  if (/^(`{3,}|~{3,})/.test(trimmed)) return false;
+  if (/^(#{1,6}\s|>\s|[-*]\s|\d+\.\s|\|)/.test(trimmed)) return false;
+  if (/[{};]/.test(trimmed)) return true;
+  if (/(=>|==|!=|<=|>=|&&|\|\||::)/.test(trimmed)) return true;
+  if (/\$\(|\$\{|`/.test(trimmed)) return true;
+  if (/^\s{4,}/.test(String(text || ''))) return true;
+  if (/^(const|let|var|function|return|if|else|for|while|class|def|import|from|echo|export|cd|git|npm|python|node|cargo|make)\b/.test(trimmed)) {
+    return true;
+  }
+  if (/^[A-Za-z_][A-Za-z0-9_ .-]*\s*=/.test(trimmed)) return true;
+  return false;
+}
+
+function isLikelyDisplayMathBodyText(text) {
+  const trimmed = (text || '').trim();
+  if (!trimmed || trimmed === '$$') return false;
+  if (/^[#>|-]|\|/.test(trimmed)) return false;
+  if (/\s/.test(trimmed) && !/[\\_^=]/.test(trimmed)) return false;
+  return /[\\_^=]/.test(trimmed);
+}
+
+function previousMeaningfulLineInfo(buf, fromY, stopY) {
+  for (let y = fromY; y >= stopY; y--) {
+    const info = lineInfo(buf, y);
+    if (!info) break;
+    if (!info.trimmed) continue;
+    return info;
+  }
+  return null;
+}
+
 function findDisplayMathOpenInRange(buf, startY, stopY) {
   let openY = null;
   for (let y = stopY; y < startY; y++) {
@@ -79,22 +133,59 @@ function findPreviousDisplayMathOpen(buf, fromY, stopY) {
   return null;
 }
 
-function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine) {
+function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine, isIgnoredLine) {
   const spans = [];
   let openY = null;
   for (let y = sourceStartY; y <= sourceEndY; y++) {
     const info = lineInfo(buf, y);
     if (!info) continue;
+    if (isIgnoredLine && isIgnoredLine(y)) {
+      openY = null;
+      continue;
+    }
     if (openY != null && isBoundaryLine && isBoundaryLine(info.text, y)) {
       openY = null;
     }
     if (info.trimmed !== '$$') continue;
     if (openY == null) {
+      const prev = previousMeaningfulLineInfo(buf, y - 1, sourceStartY);
+      if (prev && isLikelyDisplayMathBodyText(prev.text)) continue;
       openY = y;
     } else {
       spans.push({ startY: openY, endY: y });
       openY = null;
     }
+  }
+  return spans;
+}
+
+function computeFencedCodeSpans(buf, sourceStartY, sourceEndY, isBoundaryLine) {
+  const spans = [];
+  let open = null;
+  for (let y = sourceStartY; y <= sourceEndY; y++) {
+    const info = lineInfo(buf, y);
+    if (!info) continue;
+    if (open) {
+      if (isClosingFenceLine(info.text, open.fence)) {
+        spans.push({ startY: open.startY, endY: y, closed: true, fence: open.fence });
+        open = null;
+      } else if (isBoundaryLine && isBoundaryLine(info.text, y)) {
+        if (y > open.startY) {
+          spans.push({ startY: open.startY, endY: y - 1, closed: false, fence: open.fence });
+        }
+        open = null;
+      }
+      continue;
+    }
+    const fence = parseFenceLine(info.text);
+    if (fence) {
+      const prev = previousMeaningfulLineInfo(buf, y - 1, sourceStartY);
+      if (prev && isLikelyCodeFenceBodyText(prev.text)) continue;
+      open = { startY: y, fence };
+    }
+  }
+  if (open) {
+    spans.push({ startY: open.startY, endY: sourceEndY, closed: false, fence: open.fence });
   }
   return spans;
 }
@@ -178,6 +269,11 @@ module.exports = {
   applyHeightSmoothing,
   coerceRenderToken,
   computeDisplayMathSpans,
+  computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
+  isLikelyDisplayMathBodyText,
+  isLikelyCodeFenceBodyText,
+  parseFenceLine,
+  isClosingFenceLine,
   expandStartForStructure
 };
