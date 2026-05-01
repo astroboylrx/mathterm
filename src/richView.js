@@ -751,6 +751,7 @@ function resetRichSearchSnapshotState(pane, { close = false } = {}) {
   pane.richSearchMatches = [];
   pane.richSearchIndex = -1;
   pane.richSearchCountText = '';
+  pane.richSearchSource = null;
   if (pane.richSearchNormalizeCache) pane.richSearchNormalizeCache.clear();
   if (close) pane.richSearchOpen = false;
 }
@@ -1020,6 +1021,7 @@ function tabFlushSection(tab) {
   const foundContent = renderLinesToContainer(textLines, tab.richContent, isPromptLine, tab);
   if (foundContent) {
     insertImagesIntoContainer(tab.richContent, tab, startY, endY);
+    tab.richSearchSource = { type: 'buffer', sourceStartY: startY, sourceEndY: endY };
     tabShowRichView(tab, true);
   }
   tabResetSection(tab);
@@ -1120,6 +1122,7 @@ function showManualRichView(pane) {
     bottomSpacerEl: bottomSpacer,
     renderToken: pane._richRenderToken
   };
+  pane.richSearchSource = { type: 'virtual' };
 
   renderRichVirtualWindow(pane, targetY, null);
 
@@ -1264,15 +1267,26 @@ function renderFileContent(tab, content, filePath) {
     tab.richVirtual = null;
   }
   tab.richContent.innerHTML = '';
+  const sourceLines = String(content || '').split('\n').map((text, y) => ({ y, text }));
+  tab.richSearchSource = {
+    type: 'file',
+    sourceStartY: 0,
+    sourceEndY: Math.max(0, sourceLines.length - 1),
+    lines: sourceLines
+  };
   const isMd = filePath && /\.md$/i.test(filePath);
   let shown = false;
   if (isMd) {
     renderMarkdownFile(content, tab.richContent);
+    const wrapper = tab.richContent.lastElementChild;
+    if (wrapper) {
+      wrapper.dataset.y = '0';
+      wrapper.dataset.yEnd = String(Math.max(0, sourceLines.length - 1));
+    }
     tabShowRichView(tab, false);
     shown = true;
   } else {
-    const lines = content.split('\n');
-    const foundContent = renderLinesToContainer(lines, tab.richContent, null, null);
+    const foundContent = renderLinesToContainer(sourceLines, tab.richContent, null, null);
     if (foundContent) { tabShowRichView(tab, false); shown = true; }
   }
   if (shown) {

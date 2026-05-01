@@ -19,7 +19,8 @@ function isEventInSearchBar(e) {
 }
 
 function isRichSearchMode(pane) {
-  return !!(pane && pane.richVisible && pane.richVirtual && pane.richVirtual.active);
+  return !!(pane && pane.richVisible
+    && ((pane.richVirtual && pane.richVirtual.active) || pane.richSearchSource));
 }
 
 function attachSearchBarToPane(tab = getActivePane()) {
@@ -303,10 +304,14 @@ function runSearch(tab, direction, options = {}) {
 
 function collectRichLines(tab) {
   const v = tab && tab.richVirtual;
+  const source = tab && tab.richSearchSource;
   const buf = tab && tab.term && tab.term.buffer && tab.term.buffer.active;
-  if (!v || !v.active || !buf) return [];
+  if (source && source.type === 'file') return source.lines || [];
+  const startY = v && v.active ? v.sourceStartY : source && source.sourceStartY;
+  const endY = v && v.active ? v.sourceEndY : source && source.sourceEndY;
+  if (!buf || startY == null || endY == null) return [];
   const lines = [];
-  for (let y = v.sourceStartY; y <= v.sourceEndY; y++) {
+  for (let y = startY; y <= endY; y++) {
     let line;
     try { line = buf.getLine(y); } catch { line = null; }
     if (!line) continue;
@@ -451,9 +456,22 @@ function clearRichSearchHighlights(tab = getActivePane()) {
   for (const el of Array.from(root.querySelectorAll('.rich-search-row-match, .rich-search-row-active'))) {
     el.classList.remove('rich-search-row-match', 'rich-search-row-active');
   }
+  for (const el of Array.from(root.querySelectorAll('.rich-search-cell-match, .rich-search-cell-active, .rich-search-generated-match, .rich-search-generated-active'))) {
+    el.classList.remove(
+      'rich-search-cell-match',
+      'rich-search-cell-active',
+      'rich-search-generated-match',
+      'rich-search-generated-active'
+    );
+  }
 }
 
-function rawSourceLine(tab, y) {
+function sourceLineText(tab, y) {
+  const source = tab && tab.richSearchSource;
+  if (source && source.type === 'file') {
+    const line = (source.lines || [])[y];
+    return line ? line.text : '';
+  }
   try {
     const line = tab.term.buffer.active.getLine(y);
     return line ? line.translateToString(true) : '';
@@ -463,13 +481,7 @@ function rawSourceLine(tab, y) {
 }
 
 function wrapTextRange(root, start, length, active) {
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      return node.parentElement && node.parentElement.closest('.rich-search-mark')
-        ? NodeFilter.FILTER_REJECT
-        : NodeFilter.FILTER_ACCEPT;
-    }
-  });
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   let offset = 0;
   let node;
@@ -511,7 +523,43 @@ function canInlineHighlight(tab, el, match) {
   const yStart = parseInt(el.dataset.y);
   const yEnd = parseInt(el.dataset.yEnd || el.dataset.y);
   if (yStart !== match.y || yEnd !== match.y) return false;
-  return el.textContent === rawSourceLine(tab, match.y);
+  return el.textContent === sourceLineText(tab, match.y);
+}
+
+function findTableCellForMatch(el, match) {
+  if (!el || !el.querySelector || !el.querySelector('td, th')) return null;
+  const cells = Array.from(el.querySelectorAll('td[data-source-y], th[data-source-y]'));
+  for (const cell of cells) {
+    const yStart = parseInt(cell.dataset.sourceY);
+    const yEnd = parseInt(cell.dataset.sourceYEnd || cell.dataset.sourceY);
+    const colStart = parseInt(cell.dataset.sourceStartCol);
+    const colEnd = parseInt(cell.dataset.sourceEndCol);
+    if ([yStart, yEnd, colStart, colEnd].some(Number.isNaN)) continue;
+    const matchEnd = match.col + match.length;
+    if (match.y >= yStart && match.y <= yEnd && match.col >= colStart && matchEnd <= colEnd) {
+      return cell;
+    }
+  }
+  return null;
+}
+
+function highlightTableCell(cell, match, active) {
+  cell.classList.add('rich-search-cell-match');
+  if (active) cell.classList.add('rich-search-cell-active');
+  const sourceText = cell.dataset.sourceText || '';
+  if (!sourceText || cell.textContent !== sourceText) return false;
+  const sourceStart = parseInt(cell.dataset.sourceStartCol);
+  if (Number.isNaN(sourceStart)) return false;
+  wrapTextRange(cell, match.col - sourceStart, match.length, active);
+  return true;
+}
+
+function markGeneratedFallback(el, active) {
+  if (!el) return;
+  if (el.classList.contains('display-math') || el.querySelector?.('.katex')) {
+    el.classList.add('rich-search-generated-match');
+    if (active) el.classList.add('rich-search-generated-active');
+  }
 }
 
 function renderRichSearchHighlights(tab = getActivePane(), opts = {}) {
@@ -522,20 +570,35 @@ function renderRichSearchHighlights(tab = getActivePane(), opts = {}) {
   if (!isRichSearchMode(tab) || !tab.richSearchOpen || !tab.richSearchQuery) return;
 
   const matches = tab.richSearchMatches || [];
-  if (!matches.length || !v || !v.windowEl) return;
+  if (!matches.length) return;
   const { findElementForY } = require('./richView');
-  const startY = v.expandedStartY != null ? v.expandedStartY : v.renderedStartY;
-  const endY = v.expandedEndY != null ? v.expandedEndY : v.renderedEndY;
+  const root = v && v.active && v.windowEl ? v.windowEl : tab.richContent;
+  const source = tab.richSearchSource;
+  const startY = v && v.active
+    ? (v.expandedStartY != null ? v.expandedStartY : v.renderedStartY)
+    : source && source.sourceStartY;
+  const endY = v && v.active
+    ? (v.expandedEndY != null ? v.expandedEndY : v.renderedEndY)
+    : source && source.sourceEndY;
 
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
     if (startY != null && endY != null && (match.y < startY || match.y > endY)) continue;
-    const el = findElementForY(v.windowEl, match.y);
+    const el = findElementForY(root, match.y);
     if (!el) continue;
     const active = i === tab.richSearchIndex;
+    const tableCell = findTableCellForMatch(el, match);
+    if (tableCell) {
+      highlightTableCell(tableCell, match, active);
+      continue;
+    }
     el.classList.add('rich-search-row-match');
     if (active) el.classList.add('rich-search-row-active');
-    if (canInlineHighlight(tab, el, match)) wrapTextRange(el, match.col, match.length, active);
+    if (canInlineHighlight(tab, el, match)) {
+      wrapTextRange(el, match.col, match.length, active);
+    } else {
+      markGeneratedFallback(el, active);
+    }
   }
 }
 

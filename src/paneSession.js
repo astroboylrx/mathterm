@@ -25,6 +25,7 @@ class PaneSession {
     this.richSearchIndex = -1;
     this.richSearchCountText = '';
     this.richSearchNormalizeCache = new Map();
+    this.richSearchSource = null;
     this.container = null;
     this.leafEl = null;
     this.xtermHolder = null;
