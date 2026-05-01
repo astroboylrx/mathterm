@@ -5,6 +5,8 @@ const {
   computeSpacerHeights,
   applyHeightSmoothing,
   coerceRenderToken,
+  computeDisplayMathSpans,
+  expandRangeForDisplayMathSpans,
   expandStartForStructure,
   RICH_VIRTUAL_DEFAULT_LINE_HEIGHT
 } = require('../src/richVirtual');
@@ -99,6 +101,53 @@ function testCoerceRenderToken() {
   assert.strictEqual(coerceRenderToken(0), '0');
   assert.strictEqual(coerceRenderToken(42), '42');
   assert.strictEqual(coerceRenderToken('5'), '5');
+}
+
+function testComputeDisplayMathSpans() {
+  const buf = makeBuf({
+    0: { text: 'before' },
+    1: { text: '$$' },
+    2: { text: 'a' },
+    3: { text: 'b' },
+    4: { text: '$$' },
+    5: { text: 'after' },
+    6: { text: '$$' },
+    7: { text: 'unclosed' }
+  });
+  assert.deepStrictEqual(computeDisplayMathSpans(buf, 0, 7), [
+    { startY: 1, endY: 4 }
+  ]);
+}
+
+function testComputeDisplayMathSpansRespectsBoundaries() {
+  const buf = makeBuf({
+    0: { text: '$$' },
+    1: { text: 'unclosed math' },
+    2: { text: '$ prompt' },
+    3: { text: '$$' },
+    4: { text: 'closed math' },
+    5: { text: '$$' }
+  });
+  assert.deepStrictEqual(
+    computeDisplayMathSpans(buf, 0, 5, text => text.startsWith('$ prompt')),
+    [{ startY: 3, endY: 5 }]
+  );
+}
+
+function testExpandRangeForDisplayMathSpans() {
+  const spans = [
+    { startY: 10, endY: 80 },
+    { startY: 150, endY: 155 }
+  ];
+  assert.deepStrictEqual(expandRangeForDisplayMathSpans(40, 50, spans), {
+    startY: 10, endY: 80
+  });
+  assert.deepStrictEqual(expandRangeForDisplayMathSpans(70, 120, spans), {
+    startY: 10, endY: 120
+  });
+  assert.deepStrictEqual(expandRangeForDisplayMathSpans(100, 120, spans), {
+    startY: 100, endY: 120
+  });
 }
 
 // Anchor preservation math: scrollTop adjusts so the anchor row stays at the
@@ -249,6 +298,9 @@ function run() {
   testComputeSpacerHeightsBadAverage();
   testApplyHeightSmoothing();
   testCoerceRenderToken();
+  testComputeDisplayMathSpans();
+  testComputeDisplayMathSpansRespectsBoundaries();
+  testExpandRangeForDisplayMathSpans();
   testAnchorPreservationMath();
   testBackscanNoStructureReturnsStart();
   testBackscanWalksThroughWrapped();

@@ -20,6 +20,8 @@ const {
   computeSpacerHeights,
   applyHeightSmoothing,
   coerceRenderToken,
+  computeDisplayMathSpans,
+  expandRangeForDisplayMathSpans,
   expandStartForStructure
 } = require('./richVirtual');
 
@@ -635,9 +637,14 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
   );
   const startY = range.startY;
   const endY = range.endY;
-  const expandedStartY = expandStartForStructure(
-    buf, startY, v.sourceStartY, v.structureBackscanRows
+  const displayMathRange = expandRangeForDisplayMathSpans(
+    startY, endY, v.displayMathSpans || []
   );
+  const expandedStartY = Math.min(
+    displayMathRange.startY,
+    expandStartForStructure(buf, startY, v.sourceStartY, v.structureBackscanRows)
+  );
+  const expandedEndY = displayMathRange.endY;
 
   pane._richRenderToken = (pane._richRenderToken | 0) + 1;
   const renderToken = pane._richRenderToken;
@@ -656,15 +663,16 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
     return;
   }
 
-  const textLines = collectBufferLines(buf, expandedStartY, endY);
+  const textLines = collectBufferLines(buf, expandedStartY, expandedEndY);
   renderLinesToContainer(textLines, v.windowEl, isPromptLine, pane, opts);
-  insertImagesIntoContainer(v.windowEl, pane, expandedStartY, endY);
+  insertImagesIntoContainer(v.windowEl, pane, expandedStartY, expandedEndY);
 
   v.renderedStartY = startY;
   v.renderedEndY = endY;
   v.expandedStartY = expandedStartY;
+  v.expandedEndY = expandedEndY;
 
-  const renderedRowCount = endY - expandedStartY + 1;
+  const renderedRowCount = expandedEndY - expandedStartY + 1;
   const measuredHeight = v.windowEl.offsetHeight;
   if (renderedRowCount > 0 && measuredHeight > 0) {
     const measuredAvg = measuredHeight / renderedRowCount;
@@ -907,6 +915,11 @@ function showManualRichView(pane) {
     renderedStartY: null,
     renderedEndY: null,
     expandedStartY: null,
+    expandedEndY: null,
+    displayMathSpans: computeDisplayMathSpans(
+      buf, sourceStartY, sourceEndY,
+      (text, y) => isPromptLine(pane, text, y)
+    ),
     topSpacerEl: topSpacer,
     windowEl,
     bottomSpacerEl: bottomSpacer,
@@ -1096,6 +1109,7 @@ module.exports = {
   // Helpers exported for unit tests
   clampRowRange, scrollTopToRow, computeSpacerHeights,
   applyHeightSmoothing, coerceRenderToken,
+  computeDisplayMathSpans, expandRangeForDisplayMathSpans,
   RICH_VIRTUAL_OVERSCAN_ROWS, RICH_VIRTUAL_MAX_RENDERED_ROWS,
   RICH_VIRTUAL_STRUCTURE_BACKSCAN_ROWS, RICH_VIRTUAL_EXPORT_MAX_ROWS
 };

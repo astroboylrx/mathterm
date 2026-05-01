@@ -79,6 +79,37 @@ function findPreviousDisplayMathOpen(buf, fromY, stopY) {
   return null;
 }
 
+function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine) {
+  const spans = [];
+  let openY = null;
+  for (let y = sourceStartY; y <= sourceEndY; y++) {
+    const info = lineInfo(buf, y);
+    if (!info) continue;
+    if (openY != null && isBoundaryLine && isBoundaryLine(info.text, y)) {
+      openY = null;
+    }
+    if (info.trimmed !== '$$') continue;
+    if (openY == null) {
+      openY = y;
+    } else {
+      spans.push({ startY: openY, endY: y });
+      openY = null;
+    }
+  }
+  return spans;
+}
+
+function expandRangeForDisplayMathSpans(startY, endY, spans) {
+  let expandedStartY = startY;
+  let expandedEndY = endY;
+  for (const span of spans || []) {
+    if (!span || span.endY < expandedStartY || span.startY > expandedEndY) continue;
+    expandedStartY = Math.min(expandedStartY, span.startY);
+    expandedEndY = Math.max(expandedEndY, span.endY);
+  }
+  return { startY: expandedStartY, endY: expandedEndY };
+}
+
 // Expand the render start backward to cover the start of multi-line
 // structures (display math, box tables, markdown tables, wrapped rows).
 // `buf.getLine(y)` is expected to return either falsy (out of range) or
@@ -146,5 +177,7 @@ module.exports = {
   computeSpacerHeights,
   applyHeightSmoothing,
   coerceRenderToken,
+  computeDisplayMathSpans,
+  expandRangeForDisplayMathSpans,
   expandStartForStructure
 };
