@@ -1,13 +1,14 @@
 const { getActivePane, isActivePane, updateStatusBar } = require('./state');
 const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
-const { hasLatex, splitLatexSmart } = require('./latex');
-const { stripAnsi, lineToColoredSpans } = require('./ansi');
+const { hasLatex } = require('./latex');
+const { stripAnsi } = require('./ansi');
 const { isPromptLine } = require('./promptTrack');
 const { refreshTabTitle } = require('./titleTrack');
 const { isTableBorder, tryParseTableBlock, tryParseMarkdownTable } = require('./tableRender');
 const { renderMarkdownBlock, renderMarkdownFile } = require('./markdown');
-const { renderKatexInto } = require('./katexRender');
+const { prioritizeKatexQueue, drainKatexQueue } = require('./richKatexQueue');
+const { renderRichLine, isBoxRule } = require('./richLineRender');
 const {
   RICH_VIRTUAL_OVERSCAN_ROWS,
   RICH_VIRTUAL_MAX_RENDERED_ROWS,
@@ -23,125 +24,12 @@ const {
   computeDisplayMathSpans,
   computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
-  isLikelyDisplayMathBodyText,
-  isLikelyCodeFenceBodyText,
-  parseFenceLine,
-  isClosingFenceLine,
   expandStartForStructure
 } = require('./richVirtual');
+const { tryParseDisplayMath, tryParseFencedCodeBlock, tagSpan } = require('./richBlockParse');
 
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
-
-const _katexQueue = [];
-let _katexRaf = 0;
-const KATEX_CHUNK = 48;
-const KATEX_FRAME_BUDGET_MS = 12;
-
-
-function queueKatex(latex, el, displayMode, opts) {
-  el.textContent = latex;
-  el.dataset.katexPending = '1';
-  let token = null;
-  if (opts && opts.renderToken != null) {
-    token = String(opts.renderToken);
-    el.dataset.richRenderToken = token;
-  }
-  _katexQueue.push({ latex, el, displayMode, token });
-  scheduleKatexFlush();
-}
-
-function scheduleKatexFlush() {
-  if (_katexRaf) return;
-  _katexRaf = requestAnimationFrame(() => {
-    _katexRaf = requestAnimationFrame(_flushKatex);
-  });
-}
-
-function prioritizeKatexQueue(viewportEl) {
-  if (!_katexQueue.length || !viewportEl) return;
-  const top = Math.max(0, viewportEl.scrollTop - viewportEl.clientHeight);
-  const bottom = viewportEl.scrollTop + viewportEl.clientHeight * 2;
-  const scored = _katexQueue.map((entry, index) => ({
-    entry,
-    index,
-    score: katexViewportScore(entry.el, top, bottom)
-  }));
-  scored.sort((a, b) => a.score - b.score || a.index - b.index);
-  _katexQueue.length = 0;
-  for (const item of scored) _katexQueue.push(item.entry);
-}
-
-function katexViewportScore(el, top, bottom) {
-  if (!el.isConnected) return Number.MAX_SAFE_INTEGER;
-  const line = el.closest('.rline, .display-math') || el;
-  const elTop = line.offsetTop;
-  const elBottom = elTop + line.offsetHeight;
-  if (elBottom >= top && elTop <= bottom) return 0;
-  return Math.min(Math.abs(elBottom - top), Math.abs(elTop - bottom));
-}
-
-function _flushKatex() {
-  const started = performance.now();
-  let rendered = 0;
-  let consumed = 0;
-  while (consumed < _katexQueue.length
-    && (rendered < KATEX_CHUNK || performance.now() - started < KATEX_FRAME_BUDGET_MS)) {
-    const { latex, el, displayMode, token } = _katexQueue[consumed];
-    consumed++;
-    if (!el.isConnected) continue;
-    if (token != null && el.dataset.richRenderToken !== token) continue;
-    renderKatexInto(latex, el, displayMode);
-    delete el.dataset.katexPending;
-    rendered++;
-  }
-  if (consumed > 0) _katexQueue.splice(0, consumed);
-  if (_katexQueue.length > 0) {
-    _katexRaf = requestAnimationFrame(_flushKatex);
-  } else {
-    _katexRaf = 0;
-  }
-}
-
-function renderLineFromBuffer(line) {
-  const text = line.translateToString(true);
-  if (!text.trim()) return null;
-  const el = document.createElement('div');
-  el.className = 'rline';
-  if (hasLatex(text)) {
-    const parts = splitLatexSmart(text);
-    for (const part of parts) {
-      if (part.type === 'code') {
-        const code = document.createElement('code');
-        code.textContent = part.content;
-        el.appendChild(code);
-      } else if (part.type === 'display' && part.closed) {
-        const span = document.createElement('span');
-        span.className = 'display-math';
-        queueKatex(part.content, span, true);
-        el.appendChild(span);
-      } else if (part.type === 'inline' && part.closed) {
-        const span = document.createElement('span');
-        queueKatex(part.content, span, false);
-        el.appendChild(span);
-      } else if (!part.closed && part.type !== 'text') {
-        const span = document.createElement('span');
-        span.className = 'latex-pending';
-        span.textContent = part.raw;
-        el.appendChild(span);
-      } else {
-        const span = document.createElement('span');
-        span.textContent = part.content;
-        el.appendChild(span);
-      }
-    }
-  } else {
-    el.appendChild(lineToColoredSpans(line));
-  }
-  return el;
-}
-
-function _t(item) { return typeof item === 'string' ? item : (item.text || ''); }
 
 function collectBufferLines(buf, startY, endY) {
   const raw = [];
@@ -163,325 +51,6 @@ function collectBufferLines(buf, startY, endY) {
     }
   }
   return textLines;
-}
-
-function applyInlineMarkdown(text, el) {
-  const parts = [];
-  let rest = text;
-  const re = /(\*\*[^*]+\*\*)|(\*[^*]+\*)|(`[^`]+`)|(``.*?``)/;
-  while (rest) {
-    const m = rest.match(re);
-    if (!m) { parts.push({ type: 'text', value: rest }); break; }
-    const idx = m.index;
-    if (idx > 0) parts.push({ type: 'text', value: rest.slice(0, idx) });
-    const raw = m[0];
-    if (raw.startsWith('**') && raw.endsWith('**')) {
-      parts.push({ type: 'strong', value: raw.slice(2, -2) });
-    } else if (raw.startsWith('`')) {
-      parts.push({ type: 'code', value: raw.replace(/^`+|`+$/g, '') });
-    } else if (raw.startsWith('*') && raw.endsWith('*')) {
-      parts.push({ type: 'em', value: raw.slice(1, -1) });
-    }
-    rest = rest.slice(idx + raw.length);
-  }
-  for (const p of parts) {
-    let node;
-    if (p.type === 'strong') { node = document.createElement('strong'); node.textContent = p.value; }
-    else if (p.type === 'em') { node = document.createElement('em'); node.textContent = p.value; }
-    else if (p.type === 'code') { node = document.createElement('code'); node.textContent = p.value; }
-    else { node = document.createTextNode(p.value); }
-    el.appendChild(node);
-  }
-}
-
-// Horizontals + dashed + tees, but NOT corners or verticals — corners signal a
-// box border (top/bottom edge), which we want to keep as literal text.
-const BOX_RULE_RE = /^[─━┄┅┈┉╌╍═├┤┬┴┼\s]+$/;
-
-function isBoxRule(text) {
-  const t = text.trim();
-  return t.length >= 6 && BOX_RULE_RE.test(t);
-}
-
-function filePathToUrl(filePath) {
-  if (!filePath.startsWith('/')) return '';
-  return 'file://' + filePath.split('/').map(encodeURIComponent).join('/');
-}
-
-function markdownImageTargetToSrc(target) {
-  let src = target.trim();
-  if (src.startsWith('<') && src.endsWith('>')) src = src.slice(1, -1).trim();
-  const titleMatch = src.match(/^(.*?)\s+["'][^"']*["']$/);
-  if (titleMatch) src = titleMatch[1].trim();
-  if (!/\.(?:png|jpe?g|gif|webp|svg)(?:[?#].*)?$/i.test(src)) return '';
-  if (/^(?:https?:|data:image\/)/i.test(src)) return src;
-  if (src.startsWith('file://')) return src;
-  if (src.startsWith('/')
-    && typeof window.mathterm?.fs?.existsSync === 'function'
-    && window.mathterm.fs.existsSync(src)) return filePathToUrl(src);
-  return '';
-}
-
-function renderMarkdownImageLine(item, text) {
-  const trimmed = text.trim();
-  const match = trimmed.match(/^!\[([^\]]*)\]\((.+)\)$/);
-  if (!match) return null;
-  const src = markdownImageTargetToSrc(match[2]);
-  if (!src) return null;
-
-  const wrap = document.createElement('div');
-  wrap.className = 'rline markdown-image-line';
-  if (typeof item === 'object' && item.y !== undefined) {
-    wrap.dataset.y = item.y;
-    wrap.dataset.yEnd = item.yEnd !== undefined ? item.yEnd : item.y;
-  }
-  const img = document.createElement('img');
-  img.src = src;
-  img.alt = match[1] || 'image';
-  img.loading = 'lazy';
-  wrap.appendChild(img);
-  if (match[1]) {
-    const caption = document.createElement('div');
-    caption.className = 'markdown-image-caption';
-    caption.textContent = match[1];
-    wrap.appendChild(caption);
-  }
-  return wrap;
-}
-
-function renderRichLine(item, text, isPrompt, opts) {
-  const imageEl = renderMarkdownImageLine(item, text);
-  if (imageEl) return imageEl;
-
-  const el = document.createElement('div');
-  if (typeof item === 'object' && item.y !== undefined) {
-    el.dataset.y = item.y;
-    el.dataset.yEnd = item.yEnd !== undefined ? item.yEnd : item.y;
-  }
-  const trimmed = text.trimStart();
-  const leading = text.length - trimmed.length;
-  el.className = 'rline' + (isPrompt ? ' prompt-line' : '');
-
-  if (!isPrompt && isBoxRule(text)) {
-    el.className = 'rline rule';
-    el.style.width = text.trim().length + 'ch';
-    return el;
-  }
-
-  if (/^#{1,6}\s/.test(trimmed)) {
-    const level = trimmed.match(/^(#{1,6})\s/)[1].length;
-    const hdr = document.createElement(`h${Math.min(level, 6)}`);
-    renderInlineLatexOrMd(trimmed.slice(level + 1).trim(), hdr, opts);
-    el.appendChild(hdr);
-    el.className += ' md-header';
-  } else if (/^>\s/.test(trimmed)) {
-    const bq = document.createElement('blockquote');
-    bq.style.borderLeft = '3px solid var(--accent)';
-    bq.style.paddingLeft = '8px';
-    bq.style.margin = '2px 0';
-    bq.style.color = 'var(--fg-muted)';
-    renderInlineLatexOrMd(trimmed.slice(2), bq, opts);
-    el.appendChild(bq);
-  } else if (/^[-*]\s/.test(trimmed)) {
-    const li = document.createElement('div');
-    li.style.paddingLeft = '16px';
-    li.style.position = 'relative';
-    const bullet = document.createElement('span');
-    bullet.textContent = trimmed[0] === '*' ? '•' : '•';
-    bullet.style.position = 'absolute';
-    bullet.style.left = '4px';
-    li.appendChild(bullet);
-    const span = document.createElement('span');
-    span.style.paddingLeft = '12px';
-    renderInlineLatexOrMd(trimmed.slice(2), span, opts);
-    li.appendChild(span);
-    el.appendChild(li);
-  } else if (/^\d+\.\s/.test(trimmed)) {
-    const numMatch = trimmed.match(/^(\d+\.)\s/);
-    const li = document.createElement('div');
-    li.style.paddingLeft = '16px';
-    li.style.position = 'relative';
-    const num = document.createElement('span');
-    num.textContent = numMatch[1];
-    num.style.position = 'absolute';
-    num.style.left = '0';
-    num.style.fontWeight = 'bold';
-    li.appendChild(num);
-    const span = document.createElement('span');
-    span.style.paddingLeft = (numMatch[1].length + 1) + 'ch';
-    renderInlineLatexOrMd(trimmed.slice(numMatch[0].length), span, opts);
-    li.appendChild(span);
-    el.appendChild(li);
-  } else if (hasLatex(text)) {
-    renderInlineLatexToEl(text, el, opts);
-  } else if (/\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`/.test(text)) {
-    applyInlineMarkdown(text, el);
-  } else if (typeof item === 'object' && item._line && !item.joined) {
-    el.appendChild(lineToColoredSpans(item._line));
-  } else {
-    el.textContent = text;
-  }
-  return el;
-}
-
-function renderInlineLatexOrMd(text, el, opts) {
-  if (hasLatex(text)) {
-    renderInlineLatexToEl(text, el, opts);
-  } else if (/\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`/.test(text)) {
-    applyInlineMarkdown(text, el);
-  } else {
-    el.textContent = text;
-  }
-}
-
-function previousMeaningfulTextLine(textLines, startIdx) {
-  for (let i = startIdx - 1; i >= 0; i--) {
-    const item = textLines[i];
-    const text = typeof item === 'string' ? item : (item.text || '');
-    if (text.trim()) return text;
-  }
-  return '';
-}
-
-function hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineChecker) {
-  let sawBody = false;
-  for (let i = startIdx + 1; i < textLines.length; i++) {
-    const item = textLines[i];
-    const text = typeof item === 'string' ? item : (item.text || '');
-    if (typeof item === 'object' && item.y !== undefined
-        && pane && promptLineChecker && promptLineChecker(pane, text, item.y)) {
-      return false;
-    }
-    if (text.trim() === '$$') return sawBody;
-    if (isLikelyDisplayMathBodyText(text)) sawBody = true;
-  }
-  return false;
-}
-
-function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker) {
-  const startItem = textLines[startIdx];
-  const text = typeof startItem === 'string' ? startItem : (startItem.text || '');
-  const trimmed = text.trim();
-  if (trimmed !== '$$') return null;
-  if (opts && opts.displayMathSpanStarts
-      && (typeof startItem !== 'object' || !opts.displayMathSpanStarts.has(startItem.y))) {
-    return null;
-  }
-  if (!(opts && opts.displayMathSpanStarts)
-      && isLikelyDisplayMathBodyText(previousMeaningfulTextLine(textLines, startIdx))
-      && !hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineChecker)) {
-    return null;
-  }
-
-  let j = startIdx + 1;
-  let mathLines = [];
-  while (j < textLines.length) {
-    const item = textLines[j];
-    const t = typeof item === 'string' ? item : (item.text || '');
-    // An unclosed $$ shouldn't swallow shell prompts or command output.
-    // A prompt line is a hard command boundary, so bail and let the $$
-    // render as literal text.
-    if (typeof item === 'object' && item.y !== undefined
-        && pane && promptLineChecker && promptLineChecker(pane, t, item.y)) {
-      return null;
-    }
-    if (t.trim() === '$$') {
-      const latex = mathLines.join('\n');
-      const el = document.createElement('div');
-      el.className = 'display-math';
-      el.style.textAlign = 'center';
-      el.style.margin = '8px 0';
-      if (typeof startItem === 'object' && startItem.y !== undefined) {
-        el.dataset.y = startItem.y;
-      }
-      if (typeof item === 'object' && item.y !== undefined) {
-        el.dataset.yEnd = item.yEnd !== undefined ? item.yEnd : item.y;
-      }
-      queueKatex(latex, el, true, opts);
-      return { element: el, endIdx: j + 1 };
-    }
-    mathLines.push(t.trimEnd());
-    j++;
-  }
-  return null;
-}
-
-function tagSpan(el, textLines, startIdx, endIdx) {
-  const startItem = textLines[startIdx];
-  const endItem = textLines[endIdx];
-  if (typeof startItem === 'object' && startItem.y !== undefined) {
-    el.dataset.y = startItem.y;
-  }
-  if (typeof endItem === 'object' && endItem.y !== undefined) {
-    el.dataset.yEnd = endItem.yEnd !== undefined ? endItem.yEnd : endItem.y;
-  }
-}
-
-function findFencedCodeSpanForY(spans, y) {
-  if (!Array.isArray(spans)) return null;
-  return spans.find(span => span.startY <= y && y <= span.endY) || null;
-}
-
-function renderFencedCodeElement(textLines, startIdx, endIdx, span) {
-  const pre = document.createElement('pre');
-  pre.className = 'rich-code-block';
-  const code = document.createElement('code');
-  const lines = [];
-  for (let i = startIdx; i < endIdx; i++) {
-    const item = textLines[i];
-    const y = typeof item === 'object' ? item.y : undefined;
-    if (span) {
-      if (y === span.startY) continue;
-      if (span.closed && y === span.endY) continue;
-    } else {
-      const text = typeof item === 'string' ? item : (item.text || '');
-      if (i === startIdx && parseFenceLine(text)) continue;
-      if (i === endIdx - 1 && isClosingFenceLine(text, parseFenceLine(_t(textLines[startIdx])))) {
-        continue;
-      }
-    }
-    lines.push(typeof item === 'string' ? item : (item.text || ''));
-  }
-  code.textContent = lines.join('\n');
-  pre.appendChild(code);
-  tagSpan(pre, textLines, startIdx, Math.max(startIdx, endIdx - 1));
-  return pre;
-}
-
-function tryParseFencedCodeBlock(textLines, startIdx, opts) {
-  const item = textLines[startIdx];
-  const text = typeof item === 'string' ? item : (item.text || '');
-  const y = typeof item === 'object' ? item.y : undefined;
-  const span = y !== undefined ? findFencedCodeSpanForY(opts && opts.fencedCodeSpans, y) : null;
-  if (opts && opts.fencedCodeSpanStarts
-      && (y === undefined || (!span && !opts.fencedCodeSpanStarts.has(y)))) {
-    return null;
-  }
-  if (span) {
-    let endIdx = startIdx;
-    while (endIdx < textLines.length) {
-      const cur = textLines[endIdx];
-      const curY = typeof cur === 'object' ? cur.y : undefined;
-      if (curY === undefined || curY > span.endY) break;
-      endIdx++;
-      if (span.closed && curY === span.endY) break;
-    }
-    return { element: renderFencedCodeElement(textLines, startIdx, endIdx, span), endIdx };
-  }
-
-  const fence = parseFenceLine(text);
-  if (!fence) return null;
-  if (!(opts && opts.fencedCodeSpanStarts)
-      && isLikelyCodeFenceBodyText(previousMeaningfulTextLine(textLines, startIdx))) {
-    return null;
-  }
-  let endIdx = startIdx + 1;
-  while (endIdx < textLines.length) {
-    const curText = _t(textLines[endIdx]);
-    endIdx++;
-    if (isClosingFenceLine(curText, fence)) break;
-  }
-  return { element: renderFencedCodeElement(textLines, startIdx, endIdx, null), endIdx };
 }
 
 function renderLinesToContainer(textLines, container, promptLineChecker, tab, opts) {
@@ -574,108 +143,6 @@ function insertImagesIntoContainer(container, tab, startY, endY) {
     }
     if (!inserted) container.appendChild(wrap);
   }
-}
-
-function tokenizeInlineMarkdownText(text, tokens) {
-  let start = 0;
-  let i = 0;
-  while (i < text.length) {
-    const isStrong = text[i] === '*' && text[i + 1] === '*';
-    const isEm = text[i] === '*' && text[i + 1] !== '*' && text[i - 1] !== '*';
-    if (!isStrong && !isEm) {
-      i++;
-      continue;
-    }
-    if (i > start) tokens.push({ type: 'text', content: text.slice(start, i) });
-    if (isStrong) {
-      tokens.push({ type: 'marker', kind: 'strong', raw: '**' });
-      i += 2;
-    } else {
-      tokens.push({ type: 'marker', kind: 'em', raw: '*' });
-      i++;
-    }
-    start = i;
-  }
-  if (start < text.length) tokens.push({ type: 'text', content: text.slice(start) });
-}
-
-function inlineRenderTokens(parts) {
-  const tokens = [];
-  for (const part of parts) {
-    if (part.type === 'text') {
-      tokenizeInlineMarkdownText(part.content, tokens);
-    } else {
-      tokens.push(part);
-    }
-  }
-
-  const open = { strong: [], em: [] };
-  for (const token of tokens) {
-    if (token.type !== 'marker') continue;
-    const stack = open[token.kind];
-    if (stack.length > 0) {
-      const opener = stack.pop();
-      opener.action = 'open';
-      token.action = 'close';
-    } else {
-      stack.push(token);
-    }
-  }
-  for (const kind of Object.keys(open)) {
-    for (const token of open[kind]) {
-      token.type = 'text';
-      token.content = token.raw;
-    }
-  }
-  return tokens;
-}
-
-function appendInlineToken(token, el, stack, opts) {
-  const parent = stack.length ? stack[stack.length - 1].node : el;
-  if (token.type === 'marker') {
-    if (token.action === 'open') {
-      const node = document.createElement(token.kind);
-      parent.appendChild(node);
-      stack.push({ kind: token.kind, node });
-    } else if (token.action === 'close') {
-      for (let i = stack.length - 1; i >= 0; i--) {
-        if (stack[i].kind === token.kind) {
-          stack.length = i;
-          break;
-        }
-      }
-    } else {
-      parent.appendChild(document.createTextNode(token.raw));
-    }
-    return;
-  }
-  if (token.type === 'code') {
-    const code = document.createElement('code');
-    code.textContent = token.content;
-    parent.appendChild(code);
-  } else if (token.type === 'inline' && token.closed) {
-    const span = document.createElement('span');
-    queueKatex(token.content, span, false, opts);
-    parent.appendChild(span);
-  } else if (token.type === 'display' && token.closed) {
-    const span = document.createElement('span');
-    span.className = 'display-math';
-    queueKatex(token.content, span, true, opts);
-    parent.appendChild(span);
-  } else if (!token.closed && token.type !== 'text') {
-    const span = document.createElement('span');
-    span.className = 'latex-pending';
-    span.textContent = token.raw;
-    parent.appendChild(span);
-  } else {
-    parent.appendChild(document.createTextNode(token.content));
-  }
-}
-
-function renderInlineLatexToEl(text, el, opts) {
-  const tokens = inlineRenderTokens(splitLatexSmart(text));
-  const stack = [];
-  for (const token of tokens) appendInlineToken(token, el, stack, opts);
 }
 
 function getRichEstimatedLineHeight(pane) {
@@ -907,6 +374,68 @@ function onRichVirtualScroll(pane) {
   renderRichVirtualWindow(pane, targetY, anchor);
   prioritizeKatexQueue(pane.richView);
   applyCurrentRichSearchHighlights(pane, pane.richVirtual && pane.richVirtual.renderToken);
+}
+
+function refreshRichViewAfterLayout(pane) {
+  if (!pane || !pane.richVisible) return;
+  const v = pane.richVirtual;
+  if (!v || !v.active) {
+    prioritizeKatexQueue(pane.richView);
+    applyCurrentRichSearchHighlights(pane, null);
+    return;
+  }
+  if (pane._richLayoutRaf) return;
+  pane._richLayoutRaf = requestAnimationFrame(() => {
+    pane._richLayoutRaf = 0;
+    const current = pane.richVirtual;
+    if (!pane.richVisible || !current || !current.active) return;
+    const anchor = findFirstVisibleAnchor(pane);
+    if (anchor) {
+      prioritizeKatexQueue(pane.richView);
+      applyCurrentRichSearchHighlights(pane, current.renderToken);
+      return;
+    }
+    const targetY = anchor
+      ? anchor.y
+      : scrollTopToRow(pane.richView.scrollTop, current.sourceStartY, current.averageRowHeight);
+    renderRichVirtualWindow(pane, targetY, anchor);
+    prioritizeKatexQueue(pane.richView);
+    applyCurrentRichSearchHighlights(pane, current.renderToken);
+  });
+}
+
+function captureRichViewLayoutState(pane) {
+  if (!pane || !pane.richVisible || !pane.richView) return null;
+  return {
+    scrollTop: pane.richView.scrollTop,
+    anchor: pane.richVirtual && pane.richVirtual.active ? findFirstVisibleAnchor(pane) : null
+  };
+}
+
+function restoreRichViewLayoutState(pane, saved) {
+  if (!pane || !pane.richVisible || !pane.richView || !saved) return;
+
+  const restore = () => {
+    if (!pane.richVisible || !pane.richView) return;
+    const v = pane.richVirtual;
+    if (v && v.active && saved.anchor) {
+      const el = findElementForY(v.windowEl, saved.anchor.y);
+      if (el) {
+        pane.richView.scrollTop = Math.max(0, el.offsetTop - saved.anchor.offsetWithinViewport);
+        prioritizeKatexQueue(pane.richView);
+        applyCurrentRichSearchHighlights(pane, v.renderToken);
+      } else {
+        renderRichVirtualWindow(pane, saved.anchor.y, saved.anchor);
+      }
+      return;
+    }
+    pane.richView.scrollTop = saved.scrollTop || 0;
+    prioritizeKatexQueue(pane.richView);
+    applyCurrentRichSearchHighlights(pane, v && v.renderToken);
+  };
+
+  restore();
+  requestAnimationFrame(restore);
 }
 
 function attachRichScrollListener(pane) {
@@ -1175,14 +704,6 @@ function showManualRichView(pane) {
   });
 }
 
-async function drainKatexQueue() {
-  let guard = 0;
-  while (_katexQueue.length > 0 && guard < 600) {
-    await new Promise(r => requestAnimationFrame(r));
-    guard++;
-  }
-}
-
 function swapInMaterializedRichView(pane) {
   const v = pane.richVirtual;
   if (!v || !v.active) return () => {};
@@ -1334,6 +855,8 @@ module.exports = {
   tabFlushSectionOnCommandEnd,
   showManualRichView, renderFileContent,
   scrollRichViewToSourceRow,
+  refreshRichViewAfterLayout,
+  captureRichViewLayoutState, restoreRichViewLayoutState,
   materializeFullRichView, swapInMaterializedRichView, drainKatexQueue,
   SECTION_BUFFER_MAX, SECTION_ELAPSED_MAX,
   // Helpers exported for unit tests

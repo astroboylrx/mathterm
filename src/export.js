@@ -1,21 +1,70 @@
 const mt = window.mathterm;
 const { getActivePane } = require('./state');
-const { swapInMaterializedRichView, drainKatexQueue } = require('./richView');
+const { materializeFullRichView, drainKatexQueue } = require('./richView');
 
 const MAX_CANVAS_DIM = 32767;
 const MAX_CANVAS_AREA = 32768 * 8192;
 const DPR_DOWNSHIFT_DIM = 16000;
 const TILE_HEIGHT = 4096;
 
-function _measureRichView(tab) {
+function _measureRichElement(richEl, contentEl) {
   // .rich-view live padding is 16px 20px 0; print CSS uses 16px 20px (16 bottom).
   // richEl.scrollHeight = top-padding + content + 0 = 16 + content. Print adds
   // 16 more at bottom, so page height = scrollHeight + 16 to match exactly.
-  const richEl = tab.richView;
-  const contentEl = tab.richContent;
   const w = Math.max(200, Math.max(richEl.clientWidth, contentEl.scrollWidth + 40));
   const h = Math.max(100, richEl.scrollHeight + 16);
   return { w, h };
+}
+
+function _createLiveRichClone(tab) {
+  const container = _prepareRichClone(tab.richView);
+  container.classList.add('rich-view-export');
+  container.style.position = 'absolute';
+  container.style.left = '-100000px';
+  container.style.top = '0';
+  container.style.width = tab.richView.clientWidth + 'px';
+  container.style.height = 'auto';
+  container.style.maxHeight = 'none';
+  container.style.overflow = 'visible';
+  container.style.opacity = '1';
+  container.style.pointerEvents = 'none';
+  document.body.appendChild(container);
+  return {
+    container,
+    content: container.querySelector('.rich-content') || container
+  };
+}
+
+function _createExportView(tab) {
+  if (tab.richVirtual && tab.richVirtual.active) return materializeFullRichView(tab);
+  return _createLiveRichClone(tab);
+}
+
+function _removeExportView(view) {
+  try { view?.container?.remove(); } catch {}
+}
+
+function _printExportCss(w, h) {
+  return `
+    @page { size: ${w}px ${h}px; margin: 0; }
+    @media print {
+      body > *:not(.rich-view-export) { display: none !important; }
+      .rich-view-export {
+        display: block !important;
+        position: static !important;
+        left: auto !important;
+        top: auto !important;
+        width: ${w}px !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        border: none !important;
+        padding: 16px 20px !important;
+      }
+    }
+  `;
 }
 
 function _showExportFailure(kind, err) {
@@ -35,20 +84,20 @@ async function exportPdf() {
     return _showExportFailure('PDF', 'Math view must be open to export.');
   }
 
-  let restore;
+  let exportView;
   try {
-    restore = swapInMaterializedRichView(tab);
+    exportView = _createExportView(tab);
   } catch (err) {
     return _showExportFailure('PDF', err);
   }
 
   try {
     await drainKatexQueue();
-    const { w, h } = _measureRichView(tab);
+    const { w, h } = _measureRichElement(exportView.container, exportView.content);
 
     const styleEl = document.createElement('style');
     styleEl.id = 'export-page-style';
-    styleEl.textContent = `@page { size: ${w}px ${h}px; margin: 0; }`;
+    styleEl.textContent = _printExportCss(w, h);
     document.head.appendChild(styleEl);
 
     try {
@@ -60,7 +109,7 @@ async function exportPdf() {
       styleEl.remove();
     }
   } finally {
-    restore();
+    _removeExportView(exportView);
   }
 }
 
@@ -192,23 +241,17 @@ async function exportPng() {
     return _showExportFailure('PNG', 'Math view must be open to export.');
   }
 
-  const richEl = tab.richView;
-  const contentEl = tab.richContent;
-  const hintEl = tab.richHint;
-
-  let restore;
+  let exportView;
   try {
-    restore = swapInMaterializedRichView(tab);
+    exportView = _createExportView(tab);
   } catch (err) {
     return _showExportFailure('PNG', err);
   }
 
-  const prevHintDisplay = hintEl.style.display;
-  hintEl.style.display = 'none';
-
   try {
     await drainKatexQueue();
-    const { w, h } = _measureRichView(tab);
+    const richEl = exportView.container;
+    const { w, h } = _measureRichElement(richEl, exportView.content);
     const richStyle = getComputedStyle(richEl);
     const bg = richStyle.backgroundColor || '#000';
     const fg = richStyle.color || '#fff';
@@ -245,8 +288,7 @@ async function exportPng() {
   } catch (err) {
     return _showExportFailure('PNG', err);
   } finally {
-    hintEl.style.display = prevHintDisplay;
-    restore();
+    _removeExportView(exportView);
   }
 }
 
