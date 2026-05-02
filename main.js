@@ -5,6 +5,7 @@ const os = require('os');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('./shortcutDefaults');
 
 let mainWindow;
+let preferencesWindow;
 const isMac = process.platform === 'darwin';
 app.setName('MathTerm');
 
@@ -13,6 +14,27 @@ const SETTINGS_PATH = path.join(
   'mathterm',
   'mathterm.json'
 );
+
+// Ubuntu 24.04 / Mutter 46 crashes Electron's GTK menu bar on Wayland.
+// Default to X11 (Xwayland) on Linux. Power users on Mutter 48+ can switch
+// to native Wayland by setting "displayBackend": "wayland" in mathterm.json,
+// or by exporting MATHTERM_OZONE=wayland (env var wins, useful for recovery).
+// See Wayland_issues.md.
+if (process.platform === 'linux') {
+  const envChoice = process.env.MATHTERM_OZONE;
+  let backend;
+  if (envChoice === 'wayland' || envChoice === 'x11') {
+    backend = envChoice;
+  } else {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+      backend = parsed && parsed.displayBackend;
+    } catch {}
+  }
+  if (backend !== 'wayland') {
+    app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
+  }
+}
 
 function modToCmdOrCtrl(s) {
   if (!s) return '';
@@ -64,14 +86,49 @@ const webPrefs = {
   preload: path.join(__dirname, 'preload.js')
 };
 
+const preferencesWebPrefs = {
+  nodeIntegration: false,
+  contextIsolation: true,
+  sandbox: false,
+  preload: path.join(__dirname, 'preloadPreferences.js')
+};
+
 function getFocusedWebContents() {
-  const win = BrowserWindow.getFocusedWindow();
-  return win ? win.webContents : (mainWindow ? mainWindow.webContents : null);
+  const win = BrowserWindow.getFocusedWindow() || mainWindow;
+  if (!win || win === preferencesWindow || win.isDestroyed()) return null;
+  return win.webContents;
 }
 
 function sendFocused(channel, ...args) {
   const wc = getFocusedWebContents();
-  if (wc) wc.send(channel, ...args);
+  if (!wc || wc.isDestroyed()) return;
+  wc.send(channel, ...args);
+}
+
+function createPreferencesWindow(tab = 'settings') {
+  if (preferencesWindow && !preferencesWindow.isDestroyed()) {
+    preferencesWindow.show();
+    preferencesWindow.focus();
+    preferencesWindow.webContents.send('preferences-section', tab);
+    return preferencesWindow;
+  }
+  preferencesWindow = new BrowserWindow({
+    width: 760,
+    height: 680,
+    minWidth: 620,
+    minHeight: 520,
+    title: 'MathTerm Preferences',
+    autoHideMenuBar: true,
+    webPreferences: preferencesWebPrefs
+  });
+  preferencesWindow.setMenuBarVisibility(false);
+  preferencesWindow.on('closed', () => {
+    preferencesWindow = null;
+  });
+  const params = new URLSearchParams();
+  params.set('tab', tab === 'shortcuts' ? 'shortcuts' : 'settings');
+  preferencesWindow.loadFile('preferences.html', { query: params.toString() });
+  return preferencesWindow;
 }
 
 function isToggleDevToolsInput(input) {
@@ -127,7 +184,7 @@ function buildMenu(autoRender) {
         {
           label: 'Preferences...',
           accelerator: 'CmdOrCtrl+,',
-          click: () => sendFocused('open-settings')
+          click: () => createPreferencesWindow('settings')
         },
         { type: 'separator' },
         { role: 'services' },
@@ -209,7 +266,7 @@ function buildMenu(autoRender) {
           { type: 'separator' },
           {
             label: 'Preferences...',
-            click: () => sendFocused('open-settings')
+            click: () => createPreferencesWindow('settings')
           }
         ])
       ]
@@ -349,7 +406,7 @@ function buildMenu(autoRender) {
     {
       label: '&Help',
       submenu: [
-        { label: 'Keyboard Shortcuts', click: () => sendFocused('show-shortcuts') }
+        { label: 'Keyboard Shortcuts', click: () => createPreferencesWindow('shortcuts') }
       ]
     }
   ];
@@ -373,7 +430,16 @@ app.on('activate', () => {
 });
 
 ipcMain.on('rebuild-menu', (event, autoRender) => {
-  Menu.setApplicationMenu(buildMenu(autoRender));
+  Menu.setApplicationMenu(buildMenu(!!autoRender));
+});
+
+ipcMain.on('preferences-saved', (event, settings) => {
+  Menu.setApplicationMenu(buildMenu(!!(settings && settings.autoRender)));
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && win.webContents !== event.sender) {
+      win.webContents.send('settings-updated', settings || {});
+    }
+  }
 });
 
 ipcMain.on('close-window', (event, opts = {}) => {

@@ -1,11 +1,10 @@
 const mt = window.mathterm;
 const { state, getActivePane, getActiveWorkspace } = require('./state');
-const { settings, openSettings } = require('./settings');
+const { settings, reloadSettingsFromDisk, replaceSettings, applySettings } = require('./settings');
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
 const { createTab, closeTab, switchTab, splitPaneRight, splitPaneDown, closeActivePane, focusPaneInDirection, focusNextPane, focusPrevPane, togglePaneMaximize } = require('./tabs');
-const { openShortcuts } = require('./shortcuts');
 const { exportPdf, exportPng } = require('./export');
 const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom } = require('./zoom');
 
@@ -36,8 +35,11 @@ function initIpc() {
       if (tab) renderFileContent(tab, content, filePath);
     }).catch(err => console.error('Failed to open file:', err));
   });
-  mt.ipc.on('show-shortcuts', () => openShortcuts());
-  mt.ipc.on('open-settings', () => openSettings());
+  mt.ipc.on('settings-updated', next => {
+    if (next && Object.keys(next).length) replaceSettings(next);
+    else reloadSettingsFromDisk();
+    applySettings();
+  });
   mt.ipc.on('new-tab', () => createTab());
   mt.ipc.on('close-tab', () => { const w = getActiveWorkspace(); if (w) closeTab(w.id); });
   mt.ipc.on('next-tab', () => {

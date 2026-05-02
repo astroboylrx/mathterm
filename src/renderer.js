@@ -4,7 +4,6 @@ const { loadUserThemes } = require('./themes');
 const { createTab, switchTab, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
-const { closeSettings } = require('./settings');
 const { initIpc } = require('./ipc');
 const { initClipboardListeners } = require('./clipboard');
 const { initSearchListeners } = require('./search');
@@ -46,9 +45,6 @@ window.toggleAutoRender = function() {
   state.autoIndicator.className = tab.autoRender ? '' : 'off';
   window.mathterm.ipc.send('rebuild-menu', tab.autoRender);
 };
-window.closeSettings = closeSettings;
-window.closeShortcuts = require('./shortcuts').closeShortcuts;
-window.saveSettings = require('./settings').saveSettings;
 window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;
 window.closeSearch = closeSearch;

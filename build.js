@@ -9,9 +9,9 @@ const nodeBuiltinStubs = {
 };
 
 esbuild.build({
-  entryPoints: ['src/renderer.js'],
+  entryPoints: ['src/renderer.js', 'src/preferences.js'],
   bundle: true,
-  outfile: 'dist/renderer.js',
+  outdir: 'dist',
   platform: 'browser',
   format: 'iife',
   plugins: [
@@ -32,7 +32,7 @@ esbuild.build({
     }
   ]
 }).then(() => {
-  console.log('Built dist/renderer.js');
+  console.log('Built dist/renderer.js and dist/preferences.js');
 }).catch((err) => {
   console.error(err);
   process.exit(1);

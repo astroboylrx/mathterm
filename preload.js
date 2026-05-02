@@ -25,13 +25,14 @@ contextBridge.exposeInMainWorld('mathterm', {
     on: (channel, callback) => {
       const allowed = [
         'toggle-math-mode', 'set-auto-render', 'clear-terminal', 'open-file',
-        'show-shortcuts', 'open-settings', 'new-tab', 'close-tab',
+        'new-tab', 'close-tab',
         'next-tab', 'prev-tab', 'do-copy', 'do-paste', 'open-search',
         'select-all', 'zoom-in', 'zoom-out', 'reset-zoom',
         'export-rich-pdf', 'export-rich-png',
         'split-pane-right', 'split-pane-down', 'close-pane', 'toggle-pane-maximize',
         'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
-        'focus-next-pane', 'focus-prev-pane'
+        'focus-next-pane', 'focus-prev-pane',
+        'settings-updated'
       ];
       if (allowed.includes(channel)) {
         ipcRenderer.on(channel, (event, ...args) => callback(...args));

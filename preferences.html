@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MathTerm Preferences</title>
+  <style>
+    :root {
+      --bg: #1a1a2e;
+      --bg-alt: #16213e;
+      --bg-dark: #0f0f23;
+      --fg: #e0e0e0;
+      --fg-muted: #888;
+      --accent: #51cf66;
+      --border: #333;
+      --ui-font-size: 16px;
+    }
+    @font-face {
+      font-family: 'JetBrainsMono Nerd Font Mono';
+      src: url('assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+      font-weight: 400;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: "JetBrainsMono Nerd Font Mono", ui-monospace, monospace;
+      font-size: 13px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 14px;
+      background: var(--bg-dark);
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+    .tabs {
+      display: flex;
+      gap: 4px;
+    }
+    .tabs button {
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--fg-muted);
+      padding: 7px 10px;
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      color: var(--fg);
+      background: var(--bg-alt);
+      border-color: var(--border);
+    }
+    main {
+      overflow: auto;
+      padding: 18px;
+      flex: 1 1 auto;
+    }
+    section { display: none; max-width: 820px; margin: 0 auto; }
+    section.active { display: block; }
+    h2 { margin: 0 0 14px 0; color: var(--accent); font-size: 18px; }
+    h3 {
+      margin: 18px 0 8px;
+      color: var(--fg-muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    label {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      padding: 8px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    }
+    label > span:first-child {
+      flex: 1 1 auto;
+      min-width: 220px;
+      color: var(--fg-muted);
+    }
+    input, select, textarea {
+      background: var(--bg-dark);
+      color: var(--fg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font: inherit;
+    }
+    input[type="number"] { width: 110px; }
+    input[type="text"] { width: 330px; }
+    input[type="checkbox"] { width: 16px; height: 16px; }
+    select { min-width: 190px; }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      line-height: 1.45;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .field-block {
+      display: block;
+      padding: 12px 0;
+      border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+    }
+    .field-block > span {
+      display: block;
+      color: var(--fg-muted);
+      margin-bottom: 8px;
+    }
+    .note {
+      color: var(--fg-muted);
+      margin-top: 10px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    #theme-preview {
+      display: flex;
+      gap: 6px;
+      margin: 4px 0 12px;
+      padding-left: 2px;
+    }
+    .swatch {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 5px 8px; color: var(--fg-muted); border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+    td.key { color: var(--accent); white-space: nowrap; width: 210px; }
+    .badge {
+      color: var(--fg-muted);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 1px 6px;
+      font-size: 11px;
+    }
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px;
+      background: var(--bg-dark);
+      border-top: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+    #status { color: var(--fg-muted); }
+    footer .actions { display: flex; gap: 8px; }
+    footer button {
+      border: 1px solid var(--border);
+      background: var(--bg-alt);
+      color: var(--fg);
+      border-radius: 6px;
+      padding: 7px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+    footer button.primary {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="tabs">
+      <button id="tab-settings" data-tab="settings">Settings</button>
+      <button id="tab-shortcuts" data-tab="shortcuts">Keyboard Shortcuts</button>
+    </nav>
+  </header>
+  <main>
+    <section id="settings-panel">
+      <h2>Preferences</h2>
+      <label><span>Theme</span><select id="theme"></select></label>
+      <div id="theme-preview"></div>
+      <label><span>Scrollback lines</span><input type="number" id="scrollback" min="100" max="100000" step="1000"></label>
+      <label><span>Font size</span><input type="number" id="fontSize" min="8" max="32"></label>
+      <label><span>Font family</span><input type="text" id="fontFamily"></label>
+      <label><span>Auto-render LaTeX</span><input type="checkbox" id="autoRender"></label>
+      <label><span>Auto-render delay (ms)</span><input type="number" id="autoRenderDelay" min="500" max="10000" step="250"></label>
+      <label><span>Match LaTeX symbols and Unicode symbols in math search</span><input type="checkbox" id="mathSymbolSearch"></label>
+      <label><span>Cursor style</span><select id="cursorStyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
+      <label><span>New tab inherits directory</span><input type="checkbox" id="inheritCwd"></label>
+      <label><span>Copy on select</span><input type="checkbox" id="copyOnSelect"></label>
+      <label><span>Background command marker</span><input type="checkbox" id="backgroundCommandMarker"></label>
+      <label id="quit-last-tab-row"><span>Quit when last tab closes</span><input type="checkbox" id="quitWhenLastTabClosed"></label>
+      <label class="field-block"><span>Persistent LaTeX macros</span><textarea id="latexMacros" spellcheck="false" placeholder="\\newcommand{\\R}{\\mathbb{R}}&#10;\\newcommand{\\vect}[1]{\\mathbf{#1}}"></textarea></label>
+      <div class="note">Scrollback changes require new panes to take full effect. Persistent macros are loaded from this config and used by all KaTeX renders.</div>
+      <div class="note" id="config-path"></div>
+    </section>
+    <section id="shortcuts-panel">
+      <h2>Keyboard Shortcuts</h2>
+      <div id="shortcuts-content"></div>
+      <div class="note" id="shortcuts-note"></div>
+    </section>
+  </main>
+  <footer>
+    <div id="status"></div>
+    <div class="actions">
+      <button id="cancel">Close</button>
+      <button class="primary" id="save">Save</button>
+    </div>
+  </footer>
+  <script src="dist/preferences.js"></script>
+</body>
+</html>

@@ -1,10 +1,12 @@
 const katex = require('katex');
+const { settings } = require('./settings');
+const { getKatexMacros } = require('./latexMacros');
 
 const MAX_CACHE_ENTRIES = 512;
 const htmlCache = new Map();
 
 function cacheKey(latex, displayMode) {
-  return (displayMode ? '1:' : '0:') + latex;
+  return String(settings.latexMacros || '') + '\n' + (displayMode ? '1:' : '0:') + latex;
 }
 
 function remember(key, html) {
@@ -20,7 +22,11 @@ function renderKatexHtml(latex, displayMode) {
   const key = cacheKey(latex, displayMode);
   const cached = htmlCache.get(key);
   if (cached !== undefined) return cached;
-  const html = katex.renderToString(latex, { displayMode, throwOnError: false });
+  const html = katex.renderToString(latex, {
+    displayMode,
+    throwOnError: false,
+    macros: getKatexMacros(settings.latexMacros),
+  });
   remember(key, html);
   return html;
 }
