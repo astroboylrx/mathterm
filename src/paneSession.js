@@ -47,6 +47,7 @@ class PaneSession {
     this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;
+    this._commandStartTime = 0;
     this._promptStartY = undefined;
     this._promptBHandled = false;
     this._promptJumpFlash = null;

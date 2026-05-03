@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, Notification } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -462,6 +462,25 @@ ipcMain.on('preferences-saved', (event, settings) => {
       win.webContents.send('settings-updated', settings || {});
     }
   }
+});
+
+ipcMain.on('notify-command-finished', (event, payload = {}) => {
+  if (!Notification.isSupported()) return;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const title = String(payload.title || 'Command finished').slice(0, 80);
+  const body = String(payload.body || '').slice(0, 240);
+  const notification = new Notification({
+    title,
+    body,
+    silent: false
+  });
+  notification.on('click', () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+  notification.show();
 });
 
 ipcMain.on('close-window', (event, opts = {}) => {

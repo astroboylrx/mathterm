@@ -540,6 +540,7 @@ function attachOsc133Tracking(pane, term) {
     } else if (data.startsWith('C')) {
       pane._commandRunning = true;
       pane._commandStartY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
+      pane._commandStartTime = Date.now();
     } else if (data.startsWith('D')) {
       const wasCommandRunning = pane._commandRunning;
       pane._commandRunning = false;
@@ -547,13 +548,29 @@ function attachOsc133Tracking(pane, term) {
       pane._lastExitCode = exitCode;
       pane._commandEndY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
       const workspaceIsActive = pane.workspace.id === state.activeWorkspaceId;
+      const failed = exitCode !== '' && exitCode !== '0';
       if (wasCommandRunning && settings.backgroundCommandMarker && !workspaceIsActive) {
-        const failed = exitCode !== '' && exitCode !== '0';
         pane.workspace.needsAttention = true;
         pane.workspace.attentionLevel = failed ? 'error' : 'success';
         pane.workspace.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
         updateTabBar();
       }
+      const elapsedMs = pane._commandStartTime ? Date.now() - pane._commandStartTime : 0;
+      const minMs = Number(settings.backgroundCommandNotificationMinMs) || 0;
+      const windowIsBackground = document.hidden || !document.hasFocus();
+      if (wasCommandRunning
+          && settings.backgroundCommandNotifications
+          && (!workspaceIsActive || windowIsBackground)
+          && elapsedMs >= minMs) {
+        const workspaceTitle = pane.workspace?.title || 'background tab';
+        mt.ipc.send('notify-command-finished', {
+          title: failed ? 'MathTerm command failed' : 'MathTerm command finished',
+          body: failed
+            ? `${workspaceTitle} - exit ${exitCode || 'nonzero'}`
+            : workspaceTitle
+        });
+      }
+      pane._commandStartTime = 0;
       const { tabFlushSectionOnCommandEnd } = require('./richView');
       tabFlushSectionOnCommandEnd(pane);
     }

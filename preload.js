@@ -19,7 +19,7 @@ function spawnPty(file, args, opts) {
 contextBridge.exposeInMainWorld('mathterm', {
   ipc: {
     send: (channel, ...args) => {
-      const allowed = ['close-window', 'detach-tab', 'rebuild-menu'];
+      const allowed = ['close-window', 'detach-tab', 'rebuild-menu', 'notify-command-finished'];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
     },
     on: (channel, callback) => {

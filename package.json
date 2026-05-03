@@ -12,7 +12,9 @@
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run dist:linux",
     "dist:linux": "npm run build && node scripts/electron-builder.js --linux AppImage deb rpm",
-    "dist:linux:packages": "npm run build && node scripts/electron-builder.js --linux deb rpm"
+    "dist:linux:packages": "npm run build && node scripts/electron-builder.js --linux deb rpm",
+    "dist:mac": "npm run build && node scripts/electron-builder.js --mac dmg zip",
+    "dist:mac:dir": "npm run build && node scripts/electron-builder.js --mac dir"
   },
   "build": {
     "appId": "com.mathterm.app",
@@ -46,6 +48,7 @@
       "maintainer": "Rixin Li <astroboylrx@gmail.com>"
     },
     "mac": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "icon": "assets/icons/mac/icon.icns"
     }
   },

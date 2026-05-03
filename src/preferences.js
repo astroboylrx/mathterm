@@ -68,6 +68,7 @@ function fillForm() {
   $('inheritCwd').checked = !!settings.inheritCwd;
   $('copyOnSelect').checked = !!settings.copyOnSelect;
   $('backgroundCommandMarker').checked = !!settings.backgroundCommandMarker;
+  $('backgroundCommandNotifications').checked = !!settings.backgroundCommandNotifications;
   $('quit-last-tab-row').style.display = isMac ? 'flex' : 'none';
   $('quitWhenLastTabClosed').checked = !!settings.quitWhenLastTabClosed;
   $('latexMacros').value = settings.latexMacros || '';
@@ -91,6 +92,7 @@ function collectForm() {
     inheritCwd: $('inheritCwd').checked,
     copyOnSelect: $('copyOnSelect').checked,
     backgroundCommandMarker: $('backgroundCommandMarker').checked,
+    backgroundCommandNotifications: $('backgroundCommandNotifications').checked,
     quitWhenLastTabClosed: isMac ? $('quitWhenLastTabClosed').checked : false,
     latexMacros: $('latexMacros').value || '',
   });
@@ -181,7 +183,7 @@ function renderShortcuts() {
     }
     container.appendChild(table);
   }
-  $('shortcuts-note').textContent = `Items marked bindable can be customized in ${SETTINGS_PATH} under shortcuts.<id>. Save preferences or restart MathTerm to reload menu accelerators.`;
+  $('shortcuts-note').textContent = `Items marked bindable can be customized in ${SETTINGS_PATH} under shortcuts.<id>. Save preferences or restart MathTerm to apply shortcut changes.`;
 }
 
 function save() {

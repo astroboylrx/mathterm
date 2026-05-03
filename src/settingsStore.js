@@ -20,6 +20,8 @@ const DEFAULTS = {
   inheritCwd: false,
   copyOnSelect: true,
   backgroundCommandMarker: true,
+  backgroundCommandNotifications: true,
+  backgroundCommandNotificationMinMs: 10000,
   quitWhenLastTabClosed: false,
   _copyOnSelectDefaultVersion: 2,
   shortcuts: DEFAULT_SHORTCUTS,
@@ -70,6 +72,9 @@ function mergeIncoming(incoming) {
     ...cleaned,
     shortcuts,
     latexMacros: typeof cleaned.latexMacros === 'string' ? cleaned.latexMacros : DEFAULTS.latexMacros,
+    backgroundCommandNotificationMinMs: Number.isFinite(Number(cleaned.backgroundCommandNotificationMinMs))
+      ? Math.max(0, Number(cleaned.backgroundCommandNotificationMinMs))
+      : DEFAULTS.backgroundCommandNotificationMinMs,
   };
 }
 
