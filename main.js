@@ -2,6 +2,7 @@ const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { execFileSync } = require('child_process');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('./shortcutDefaults');
 
 let mainWindow;
@@ -15,11 +16,12 @@ const SETTINGS_PATH = path.join(
   'mathterm.json'
 );
 
-// Ubuntu 24.04 / Mutter 46 crashes Electron's GTK menu bar on Wayland.
-// Default to X11 (Xwayland) on Linux. Power users on Mutter 48+ can switch
-// to native Wayland by setting "displayBackend": "wayland" in mathterm.json,
-// or by exporting MATHTERM_OZONE=wayland (env var wins, useful for recovery).
-// See Wayland_issues.md.
+// Mutter ≤ 47 on Wayland crashes Electron's GTK menu bar (Ubuntu 24.04).
+// Auto-engage the X11 hint only on the at-risk configuration: Wayland session
+// + GNOME desktop + Mutter ≤ 47. Everywhere else (X11 sessions, non-GNOME
+// Wayland compositors like KWin/Sway/Hyprland/Weston, Mutter 48+) gets native
+// Wayland by default. MATHTERM_OZONE env var and "displayBackend" in
+// mathterm.json override the auto-detection. See Wayland_issues.md.
 if (process.platform === 'linux') {
   const envChoice = process.env.MATHTERM_OZONE;
   let backend;
@@ -31,9 +33,29 @@ if (process.platform === 'linux') {
       backend = parsed && parsed.displayBackend;
     } catch {}
   }
-  if (backend !== 'wayland') {
+  const useX11 = backend === 'x11' || (backend !== 'wayland' && shouldHintX11Linux());
+  if (useX11) {
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   }
+}
+
+function shouldHintX11Linux() {
+  if (process.env.XDG_SESSION_TYPE !== 'wayland') return false;
+  const desktop = (process.env.XDG_CURRENT_DESKTOP || '').toUpperCase();
+  if (!desktop.split(':').some(s => s === 'GNOME' || s === 'UNITY')) return false;
+  // On GNOME Wayland: only hint if Mutter (via gnome-shell) is ≤ 47.
+  // If we can't read the version, stay safe and hint — gnome-shell should be
+  // present on any real GNOME session, so a failure here is unusual.
+  try {
+    const out = execFileSync('gnome-shell', ['--version'], {
+      encoding: 'utf8',
+      timeout: 1500,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const m = out.match(/(\d+)(?:\.\d+)*/);
+    if (m) return parseInt(m[1], 10) <= 47;
+  } catch {}
+  return true;
 }
 
 function modToCmdOrCtrl(s) {
