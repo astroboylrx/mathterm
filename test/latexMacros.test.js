@@ -7,11 +7,13 @@ const { parseLatexMacros } = require('../src/latexMacros');
     \newcommand{\R}{\mathbb{R}}
     \newcommand{\vect}[1]{\mathbf{#1}}
     \renewcommand{\eps}{\varepsilon}
+    \providecommand{\RR}{\mathbb{R}}
     \def\NN{\mathbb{N}}
   `);
   assert.strictEqual(macros['\\R'], String.raw`\mathbb{R}`);
   assert.strictEqual(macros['\\vect'], String.raw`\mathbf{#1}`);
   assert.strictEqual(macros['\\eps'], String.raw`\varepsilon`);
+  assert.strictEqual(macros['\\RR'], String.raw`\mathbb{R}`);
   assert.strictEqual(macros['\\NN'], String.raw`\mathbb{N}`);
 }
 

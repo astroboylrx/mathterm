@@ -60,6 +60,7 @@ function rebuildBindings() {
   }
 }
 rebuildBindings();
+window.addEventListener('mathterm-settings-applied', rebuildBindings);
 
 function tabCycleDirectionForEvent(e) {
   const mod = isMac ? e.metaKey : e.ctrlKey;

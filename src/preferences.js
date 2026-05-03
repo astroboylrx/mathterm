@@ -56,6 +56,8 @@ function hydrateThemes() {
 
 function fillForm() {
   hydrateThemes();
+  document.documentElement.style.setProperty('--ui-font-size', settings.fontSize + 'px');
+  document.documentElement.style.setProperty('--ui-font-family', settings.fontFamily || DEFAULTS.fontFamily);
   $('scrollback').value = settings.scrollback;
   $('fontSize').value = settings.fontSize;
   $('fontFamily').value = settings.fontFamily;

@@ -67,7 +67,7 @@ function readMacroName(text, i) {
 }
 
 function parseNewCommandAt(text, i) {
-  const cmd = text.slice(i).match(/^\\(?:re)?newcommand\*?/);
+  const cmd = text.slice(i).match(/^\\(?:(?:re)?newcommand|providecommand)\*?/);
   if (!cmd) return null;
   let pos = i + cmd[0].length;
   const macro = readMacroName(text, pos);

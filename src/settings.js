@@ -39,6 +39,7 @@ function applySettings() {
     fitVisiblePanes(activeWorkspace);
   }
   mt.ipc.send('rebuild-menu', active);
+  window.dispatchEvent(new CustomEvent('mathterm-settings-applied'));
 }
 
 function replaceSettings(next) {
