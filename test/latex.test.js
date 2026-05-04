@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { hasLatex, splitLatexSmart } = require('../src/latex');
+const { hasLatex, splitLatexSmart } = require('../src/renderer/latex');
 
 function partsSummary(text) {
   return splitLatexSmart(text).map(part => ({

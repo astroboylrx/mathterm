@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const path = require('path');
 const { spawn } = require('child_process');
-const { parseCliOptions, cliUsage } = require('../cliOptions');
+const { parseCliOptions, cliUsage } = require('../src/shared/cliOptions');
 
 if (parseCliOptions(process.argv).help) {
   console.log(cliUsage('mathterm'));

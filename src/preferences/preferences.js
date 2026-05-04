@@ -7,8 +7,8 @@ const {
   loadSettings,
   saveSettingsFile,
   mergeIncoming,
-} = require('./settingsStore');
-const { loadUserThemes, getThemeList, resolveTheme, applyTheme } = require('./themes');
+} = require('../shared/settingsStore');
+const { loadUserThemes, getThemeList, resolveTheme, applyTheme } = require('../renderer/themes');
 
 loadUserThemes();
 

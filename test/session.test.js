@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { parseCliOptions } = require('../cliOptions');
+const { parseCliOptions } = require('../src/shared/cliOptions');
 const {
   SESSION_VERSION,
   makeCwdAdapter,
@@ -10,7 +10,7 @@ const {
   normalizeSizes,
   validCwd,
   windowToRendererSession
-} = require('../sessionFormat');
+} = require('../src/shared/sessionFormat');
 
 function collectPaneIds(node, out = []) {
   if (!node) return out;

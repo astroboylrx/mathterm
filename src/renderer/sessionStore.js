@@ -1,7 +1,7 @@
 const mt = window.mathterm;
 const { state } = require('./state');
 const { settings } = require('./settings');
-const { configHome } = require('./settingsStore');
+const { configHome } = require('../shared/settingsStore');
 const {
   SESSION_VERSION,
   makeCwdAdapter,
@@ -9,7 +9,7 @@ const {
   normalizeSessionData,
   validCwd,
   windowToRendererSession
-} = require('../sessionFormat');
+} = require('../shared/sessionFormat');
 
 const SESSION_PATH = mt.path.join(configHome, 'mathterm', 'session.json');
 let _saveTimer = 0;

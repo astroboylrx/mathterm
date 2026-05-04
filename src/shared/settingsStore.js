@@ -1,5 +1,5 @@
 const mt = window.mathterm;
-const { createDefaultShortcuts, LEGACY_T14_SHORTCUTS, LEGACY_MAC_SHORTCUTS } = require('../shortcutDefaults');
+const { createDefaultShortcuts, LEGACY_T14_SHORTCUTS, LEGACY_MAC_SHORTCUTS } = require('./shortcutDefaults');
 
 const isMac = mt.os.platform === 'darwin';
 const configHome = mt.os.env.XDG_CONFIG_HOME || mt.path.join(mt.os.homedir(), '.config');

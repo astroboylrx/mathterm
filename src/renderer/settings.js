@@ -6,7 +6,7 @@ const {
   isMac,
   loadSettings,
   mergeIncoming,
-} = require('./settingsStore');
+} = require('../shared/settingsStore');
 
 const settings = loadSettings();
 

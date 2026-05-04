@@ -1,5 +1,5 @@
 const assert = require('assert');
-const { parseLatexMacros } = require('../src/latexMacros');
+const { parseLatexMacros } = require('../src/renderer/latexMacros');
 
 {
   const macros = parseLatexMacros(String.raw`

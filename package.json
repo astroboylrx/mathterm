@@ -4,13 +4,13 @@
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
-  "main": "main.js",
+  "main": "src/main/main.js",
   "bin": {
     "mathterm": "bin/mathterm.js"
   },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/session.test.js",
+    "test": "node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/sessionFormat.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run dist:linux",
@@ -26,19 +26,17 @@
       "output": "dist-electron"
     },
     "files": [
-      "main.js",
-      "cliOptions.js",
-      "sessionFormat.js",
-      "shortcutDefaults.js",
-      "preload.js",
-      "preloadPreferences.js",
+      "src/main/*.js",
+      "src/preload/*.js",
+      "src/shared/*.js",
       "index.html",
       "preferences.html",
       "dist/**",
       "assets/**",
       "package.json",
       "!scripts/**",
-      "!src/**",
+      "!src/renderer/**",
+      "!src/preferences/**",
       "!build.js",
       "!**/*.map"
     ],

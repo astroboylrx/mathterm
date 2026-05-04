@@ -2,7 +2,7 @@ const assert = require('assert');
 const {
   normalizeMathSearchText,
   collectRichSearchMatches
-} = require('../src/mathSearch');
+} = require('../src/renderer/mathSearch');
 
 function lines(...text) {
   return text.map((line, y) => ({ y, text: line }));

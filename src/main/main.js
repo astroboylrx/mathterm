@@ -3,9 +3,9 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { execFileSync } = require('child_process');
-const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('./shortcutDefaults');
-const { parseCliOptions, cliUsage } = require('./cliOptions');
-const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('./sessionFormat');
+const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shortcutDefaults');
+const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
+const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
 
 let mainWindow;
 let preferencesWindow;
@@ -15,6 +15,7 @@ let suppressActiveWindowWrites = false;
 const isMac = process.platform === 'darwin';
 const cliOptions = parseCliOptions(process.argv);
 let cliSessionImportFailed = false;
+const APP_ROOT = path.join(__dirname, '..', '..');
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -29,7 +30,7 @@ const SETTINGS_PATH = path.join(
   'mathterm.json'
 );
 const SESSION_PATH = path.join(path.dirname(SETTINGS_PATH), 'session.json');
-const sessionCwdAdapter = makeCwdAdapter({ fs, path, os, fallbackCwd: __dirname });
+const sessionCwdAdapter = makeCwdAdapter({ fs, path, os, fallbackCwd: APP_ROOT });
 
 // Mutter ≤ 47 on Wayland crashes Electron's GTK menu bar (Ubuntu 24.04).
 // Auto-engage the X11 hint only on the at-risk configuration: Wayland session
@@ -193,19 +194,28 @@ function removeSessionWindow(id) {
   writeSessionFile({ ...session, activeWindowId, windows });
 }
 
-function importCliSessionFile() {
-  if (!cliOptions.sessionPath) return;
-  const sourcePath = path.resolve(process.cwd(), cliOptions.sessionPath);
+function readCliSessionFile(sessionPath, cwd = process.cwd()) {
+  const sourcePath = path.resolve(cwd, sessionPath);
+  const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
+  const session = normalizeSessionData(parsed, sessionCwdAdapter);
+  if (!session || !Array.isArray(session.windows) || !session.windows.some(win => win && win.workspaces?.length)) {
+    throw new Error('Session file does not contain any restorable windows.');
+  }
+  return { sourcePath, session };
+}
+
+function importCliSessionFile(options = cliOptions, cwd = process.cwd()) {
+  if (!options.sessionPath) return false;
+  const sourcePath = path.resolve(cwd, options.sessionPath);
   try {
-    const parsed = JSON.parse(fs.readFileSync(sourcePath, 'utf8'));
-    const session = normalizeSessionData(parsed, sessionCwdAdapter);
-    if (!session || !Array.isArray(session.windows) || !session.windows.some(win => win && win.workspaces?.length)) {
-      throw new Error('Session file does not contain any restorable windows.');
-    }
-    writeSessionFile(session);
+    const result = readCliSessionFile(options.sessionPath, cwd);
+    writeSessionFile(result.session);
+    cliSessionImportFailed = false;
+    return true;
   } catch (err) {
     cliSessionImportFailed = true;
     dialog.showErrorBox('MathTerm Session Load Failed', `Could not load ${sourcePath}\n\n${err.message}`);
+    return false;
   }
 }
 
@@ -222,14 +232,14 @@ const webPrefs = {
   nodeIntegration: false,
   contextIsolation: true,
   sandbox: false,
-  preload: path.join(__dirname, 'preload.js')
+  preload: path.join(APP_ROOT, 'src', 'preload', 'terminal.js')
 };
 
 const preferencesWebPrefs = {
   nodeIntegration: false,
   contextIsolation: true,
   sandbox: false,
-  preload: path.join(__dirname, 'preloadPreferences.js')
+  preload: path.join(APP_ROOT, 'src', 'preload', 'preferences.js')
 };
 
 function getFocusedWebContents() {
@@ -266,7 +276,7 @@ function createPreferencesWindow(tab = 'settings') {
   });
   const params = new URLSearchParams();
   params.set('tab', tab === 'shortcuts' ? 'shortcuts' : 'settings');
-  preferencesWindow.loadFile('preferences.html', { query: Object.fromEntries(params) });
+  preferencesWindow.loadFile(path.join(APP_ROOT, 'preferences.html'), { query: Object.fromEntries(params) });
   return preferencesWindow;
 }
 
@@ -318,7 +328,7 @@ function createWindow(opts = {}) {
     }
     if (!preserveSessionOnClose) removeSessionWindow(sessionWindowId);
   });
-  win.loadFile('index.html', { query: Object.fromEntries(params) });
+  win.loadFile(path.join(APP_ROOT, 'index.html'), { query: Object.fromEntries(params) });
   win.once('ready-to-show', () => {
     if (opts.windowState?.isMaximized) win.maximize();
     if (opts.windowState?.isFullScreen) win.setFullScreen(true);
@@ -326,37 +336,42 @@ function createWindow(opts = {}) {
   return win;
 }
 
+function createSessionWindows(session, forceRestoreSession = false) {
+  const windows = Array.isArray(session?.windows) ? session.windows.filter(w => w && w.workspaces?.length) : [];
+  if (!windows.length) return false;
+  const maxId = windows.reduce((max, win) => Math.max(max, Number(win.id) || 0), 0);
+  nextSessionWindowId = Math.max(nextSessionWindowId, maxId + 1);
+  const activeId = session.activeWindowId || windows[0].id;
+  const ordered = windows.slice().sort((a, b) => (a.id === activeId ? -1 : b.id === activeId ? 1 : 0));
+  suppressActiveWindowWrites = true;
+  try {
+    const created = ordered.map(win => ({
+      id: win.id,
+      browserWindow: createWindow({
+        restoreSession: true,
+        forceRestoreSession,
+        sessionWindowId: win.id,
+        windowState: win,
+        showInitially: false
+      })
+    }));
+    const active = created.find(item => item.id === activeId) || created[0];
+    for (const item of created) {
+      if (item !== active) item.browserWindow.show();
+    }
+    active?.browserWindow.show();
+    active?.browserWindow.focus();
+    mainWindow = active?.browserWindow || created[0]?.browserWindow || null;
+  } finally {
+    suppressActiveWindowWrites = false;
+  }
+  return true;
+}
+
 function createStartupWindows() {
   if (loadRestoreLastSession()) {
     const session = readSessionFile();
-    const windows = Array.isArray(session.windows) ? session.windows.filter(w => w && w.workspaces?.length) : [];
-    if (windows.length) {
-      const maxId = windows.reduce((max, win) => Math.max(max, Number(win.id) || 0), 0);
-      nextSessionWindowId = Math.max(nextSessionWindowId, maxId + 1);
-      const activeId = session.activeWindowId || windows[0].id;
-      const ordered = windows.slice().sort((a, b) => (a.id === activeId ? -1 : b.id === activeId ? 1 : 0));
-      suppressActiveWindowWrites = true;
-      try {
-        const created = ordered.map(win => ({
-          id: win.id,
-          browserWindow: createWindow({
-            restoreSession: true,
-            forceRestoreSession: !!cliOptions.sessionPath && !cliSessionImportFailed,
-            sessionWindowId: win.id,
-            windowState: win,
-            showInitially: false
-          })
-        }));
-        const active = created.find(item => item.id === activeId) || created[0];
-        for (const item of created) {
-          if (item !== active) item.browserWindow.show();
-        }
-        active?.browserWindow.show();
-        active?.browserWindow.focus();
-        mainWindow = active?.browserWindow || created[0]?.browserWindow || null;
-      } finally {
-        suppressActiveWindowWrites = false;
-      }
+    if (createSessionWindows(session, !!cliOptions.sessionPath && !cliSessionImportFailed)) {
       return true;
     }
   }
@@ -633,8 +648,22 @@ app.on('before-quit', () => {
   appIsQuitting = true;
 });
 
-app.on('second-instance', () => {
+app.on('second-instance', (event, commandLine, workingDirectory) => {
   if (!app.isReady()) return;
+  const secondOptions = parseCliOptions(commandLine);
+  if (secondOptions.sessionPath) {
+    const sourcePath = path.resolve(workingDirectory || process.cwd(), secondOptions.sessionPath);
+    try {
+      const { session } = readCliSessionFile(secondOptions.sessionPath, workingDirectory || process.cwd());
+      writeSessionFile(session);
+      if (createSessionWindows(session, true)) {
+        Menu.setApplicationMenu(buildMenu(true));
+        return;
+      }
+    } catch (err) {
+      dialog.showErrorBox('MathTerm Session Load Failed', `Could not load ${sourcePath}\n\n${err.message}`);
+    }
+  }
   mainWindow = createWindow();
   Menu.setApplicationMenu(buildMenu(true));
   mainWindow.show();

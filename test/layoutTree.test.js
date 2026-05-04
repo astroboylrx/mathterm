@@ -8,7 +8,7 @@ const {
   updateSplitSizesAtPath,
   firstPaneIdInLayout,
   removePaneFromLayout
-} = require('../src/layoutTree');
+} = require('../src/renderer/layoutTree');
 
 function nearlyEqual(a, b) {
   assert.ok(Math.abs(a - b) < 1e-9, `${a} !== ${b}`);

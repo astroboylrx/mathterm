@@ -12,7 +12,7 @@ const {
   isLikelyCodeFenceBodyText,
   expandStartForStructure,
   RICH_VIRTUAL_DEFAULT_LINE_HEIGHT
-} = require('../src/richVirtual');
+} = require('../src/renderer/richVirtual');
 
 function makeBuf(rows) {
   return {

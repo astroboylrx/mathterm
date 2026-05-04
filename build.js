@@ -9,7 +9,8 @@ const nodeBuiltinStubs = {
 };
 
 esbuild.build({
-  entryPoints: ['src/renderer.js', 'src/preferences.js'],
+  entryPoints: ['src/renderer/renderer.js', 'src/preferences/preferences.js'],
+  entryNames: '[name]',
   bundle: true,
   outdir: 'dist',
   platform: 'browser',
