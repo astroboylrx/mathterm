@@ -1,5 +1,5 @@
 cask "mathterm" do
-  version "0.9.9"
+  version "0.9.10"
   sha256 :no_check
 
   url "https://github.com/astroboylrx/mathterm/archive/refs/tags/v#{version}.tar.gz",
@@ -17,6 +17,12 @@ cask "mathterm" do
                      "CSC_IDENTITY_AUTO_DISCOVERY" => "false",
                      "HOME" => staged_path.join(".home").to_s,
                    }
+  end
+
+  postflight do
+    # Manually clean up the heavy build folders inside the Caskroom
+    system_command "/bin/bash",
+                   args:["-c", "rm -rf '#{staged_path}/node_modules' '#{staged_path}/dist-electron'"]
   end
 
   on_arm do
