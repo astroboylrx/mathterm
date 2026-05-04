@@ -276,7 +276,7 @@ function createPreferencesWindow(tab = 'settings') {
   });
   const params = new URLSearchParams();
   params.set('tab', tab === 'shortcuts' ? 'shortcuts' : 'settings');
-  preferencesWindow.loadFile(path.join(APP_ROOT, 'preferences.html'), { query: Object.fromEntries(params) });
+  preferencesWindow.loadFile(path.join(APP_ROOT, 'dist', 'preferences.html'), { query: Object.fromEntries(params) });
   return preferencesWindow;
 }
 
@@ -328,7 +328,7 @@ function createWindow(opts = {}) {
     }
     if (!preserveSessionOnClose) removeSessionWindow(sessionWindowId);
   });
-  win.loadFile(path.join(APP_ROOT, 'index.html'), { query: Object.fromEntries(params) });
+  win.loadFile(path.join(APP_ROOT, 'dist', 'index.html'), { query: Object.fromEntries(params) });
   win.once('ready-to-show', () => {
     if (opts.windowState?.isMaximized) win.maximize();
     if (opts.windowState?.isFullScreen) win.setFullScreen(true);

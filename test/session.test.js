@@ -77,7 +77,11 @@ assert.strictEqual(totalPanes, 25);
 const normalizedFixture = normalizeSessionData(fixture, adapter);
 assert.strictEqual(normalizedFixture.version, SESSION_VERSION);
 assert.deepStrictEqual(normalizedFixture.windows.map(win => win.workspaces.length), [3, 3, 2]);
-assert.strictEqual(normalizedFixture.windows[0].bounds.width, 1180);
+assert.deepStrictEqual(normalizedFixture.windows.map(win => win.bounds), [
+  { width: 900, height: 640, x: 40, y: 50 },
+  { width: 1120, height: 780, x: 520, y: 120 },
+  { width: 760, height: 620, x: 980, y: 260 }
+]);
 
 assert.strictEqual(normalizeSessionData({
   version: SESSION_VERSION,

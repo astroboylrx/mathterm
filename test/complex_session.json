@@ -6,10 +6,10 @@
     {
       "id": "10",
       "bounds": {
-        "x": 80,
-        "y": 70,
-        "width": 1180,
-        "height": 760
+        "x": 40,
+        "y": 50,
+        "width": 900,
+        "height": 640
       },
       "isMaximized": false,
       "isFullScreen": false,
@@ -188,10 +188,10 @@
     {
       "id": "20",
       "bounds": {
-        "x": 160,
-        "y": 110,
-        "width": 1260,
-        "height": 820
+        "x": 520,
+        "y": 120,
+        "width": 1120,
+        "height": 780
       },
       "isMaximized": false,
       "isFullScreen": false,
@@ -370,10 +370,10 @@
     {
       "id": "30",
       "bounds": {
-        "x": 240,
-        "y": 150,
-        "width": 1040,
-        "height": 720
+        "x": 980,
+        "y": 260,
+        "width": 760,
+        "height": 620
       },
       "isMaximized": false,
       "isFullScreen": false,
