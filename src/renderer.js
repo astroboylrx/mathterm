@@ -1,7 +1,14 @@
 const { state, getActivePane } = require('./state');
 const { settings, isMac, applySettings } = require('./settings');
 const { loadUserThemes } = require('./themes');
-const { createTab, switchTab, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
+const { createTab, switchTab, restoreSession, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
+const {
+  blockSessionWritesUntilChange,
+  hasSessionFile,
+  loadSession,
+  initSessionPersistence
+} = require('./sessionStore');
+const { withSessionChangesSuppressed } = require('./sessionEvents');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
 const { initIpc } = require('./ipc');
@@ -416,8 +423,12 @@ initIpc();
 initClipboardListeners();
 initSearchListeners();
 initTabContextListeners();
+initSessionPersistence();
 
 const urlCwd = new URLSearchParams(window.location.search).get('cwd');
+const urlTitle = new URLSearchParams(window.location.search).get('title');
+const shouldRestoreSession = new URLSearchParams(window.location.search).get('restoreSession') === '1';
+const forceRestoreSession = new URLSearchParams(window.location.search).get('forceRestoreSession') === '1';
 
 (async () => {
   const sz = settings.fontSize;
@@ -430,7 +441,23 @@ const urlCwd = new URLSearchParams(window.location.search).get('cwd');
   const timeout = new Promise(r => setTimeout(r, 1500));
   await Promise.race([loadFonts, timeout]);
 
-  createTab(urlCwd || undefined);
+  if (urlCwd) {
+    withSessionChangesSuppressed(() => createTab(urlCwd, { skipSessionSave: true, customTitle: urlTitle }));
+  } else if (shouldRestoreSession && (settings.restoreLastSession || forceRestoreSession)) {
+    const hadSessionFile = hasSessionFile();
+    let restored = false;
+    try {
+      restored = withSessionChangesSuppressed(() => restoreSession(loadSession()));
+    } catch (err) {
+      console.error('Failed to restore session:', err);
+    }
+    if (!restored) {
+      withSessionChangesSuppressed(() => createTab(undefined, { skipSessionSave: true }));
+      if (hadSessionFile) blockSessionWritesUntilChange();
+    }
+  } else {
+    createTab();
+  }
 
   const firstTab = getActivePane();
   if (firstTab) {

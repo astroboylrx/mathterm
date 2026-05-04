@@ -1,5 +1,6 @@
 const mt = window.mathterm;
 const { state, getActivePane, updateStatusBarCwd } = require('./state');
+const { markSessionChanged } = require('./sessionEvents');
 
 function formatTabCwd(cwd) {
   const home = mt.os.homedir();
@@ -35,6 +36,7 @@ function refreshTabTitle(pane) {
   workspace.title = computeTabTitle(workspace);
   updateTabBar();
   if (pane.id === getActivePane()?.id) updateStatusBarCwd(pane);
+  markSessionChanged();
 }
 
 function updateTabBar() {

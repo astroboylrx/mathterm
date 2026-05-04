@@ -5,9 +5,12 @@
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
   "main": "main.js",
+  "bin": {
+    "mathterm": "bin/mathterm.js"
+  },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js",
+    "test": "node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run dist:linux",
@@ -24,6 +27,8 @@
     },
     "files": [
       "main.js",
+      "cliOptions.js",
+      "sessionFormat.js",
       "shortcutDefaults.js",
       "preload.js",
       "preloadPreferences.js",

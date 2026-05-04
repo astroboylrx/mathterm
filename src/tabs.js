@@ -51,6 +51,7 @@ const {
   firstPaneIdInLayout,
   removePaneFromLayout
 } = require('./layoutTree');
+const { markSessionChanged } = require('./sessionEvents');
 
 const IMAGE_MAX_COUNT = 50;
 const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
@@ -211,6 +212,7 @@ function startGutterDrag(e, workspace, splitPath, gutterIndex) {
     document.removeEventListener('pointercancel', onUp, true);
     try { gutterEl.releasePointerCapture?.(ev.pointerId); } catch {}
     fitVisiblePanes(workspace);
+    markSessionChanged({ structural: true });
   };
 
   document.addEventListener('pointermove', onMove, true);
@@ -616,7 +618,7 @@ function createPaneSession({ id, cwd, leafEl, workspace }) {
   return pane;
 }
 
-function createTab(cwd) {
+function createTab(cwd, opts = {}) {
   const previousPane = getActivePane();
   const spawnCwd = cwd
     || (settings.inheritCwd ? (previousPane?.cwd || mt.os.env.HOME) : null)
@@ -625,6 +627,7 @@ function createTab(cwd) {
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id);
   workspace.cwd = spawnCwd;
+  workspace._customTitle = opts.customTitle || null;
 
   const container = document.createElement('div');
   container.className = 'tab-container';
@@ -644,7 +647,7 @@ function createTab(cwd) {
   tabEl.className = 'tab-item';
   tabEl.dataset.id = id;
   tabEl.draggable = true;
-  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace.title) + '</span><span class="tab-close">\u00d7</span>';
+  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace._customTitle || workspace.title) + '</span><span class="tab-close">\u00d7</span>';
   attachTabElementListeners(workspace, tabEl);
   workspace.tabEl = tabEl;
   state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
@@ -660,7 +663,84 @@ function createTab(cwd) {
   const pane = createPaneSession({ id: paneId, cwd: spawnCwd, leafEl: leaf, workspace });
   refreshTabTitle(pane);
   focusPane(pane.id);
+  if (!opts.skipSessionSave) markSessionChanged({ structural: true });
   return workspace;
+}
+
+function remapLayoutPaneIds(node, idMap) {
+  if (!node) return null;
+  if (node.type === 'pane') return { type: 'pane', paneId: idMap.get(node.paneId) };
+  return {
+    type: 'split',
+    direction: node.direction === 'column' ? 'column' : 'row',
+    sizes: Array.isArray(node.sizes) ? node.sizes.slice() : undefined,
+    children: (node.children || []).map(child => remapLayoutPaneIds(child, idMap)).filter(Boolean)
+  };
+}
+
+function createRestoredWorkspace(snapshot) {
+  const id = state.tabIdCounter++;
+  const workspace = new TabWorkspace(id);
+  workspace.cwd = snapshot.cwd || mt.os.env.HOME;
+  workspace._customTitle = snapshot.customTitle || null;
+
+  const container = document.createElement('div');
+  container.className = 'tab-container';
+  container.dataset.id = id;
+  workspace.container = container;
+  state.termContainer.appendChild(container);
+  if (typeof ResizeObserver !== 'undefined') {
+    workspace._resizeObserver = new ResizeObserver(() => scheduleFitVisiblePanes(workspace));
+    workspace._resizeObserver.observe(container);
+  }
+
+  const idMap = new Map();
+  for (const oldPaneId of snapshot.paneIds) idMap.set(oldPaneId, state.paneIdCounter++);
+  workspace.layout = remapLayoutPaneIds(snapshot.layout, idMap);
+  workspace.activePaneId = idMap.get(snapshot.activePaneId) || firstPaneIdInLayout(workspace.layout);
+  workspace.maximizedPaneId = idMap.has(snapshot.maximizedPaneId) ? idMap.get(snapshot.maximizedPaneId) : null;
+
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab-item';
+  tabEl.dataset.id = id;
+  tabEl.draggable = true;
+  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace._customTitle || workspace.title) + '</span><span class="tab-close">\u00d7</span>';
+  attachTabElementListeners(workspace, tabEl);
+  workspace.tabEl = tabEl;
+  state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
+  state.workspaces.push(workspace);
+
+  renderLayout(workspace);
+  for (const oldPaneId of snapshot.paneIds) {
+    const paneId = idMap.get(oldPaneId);
+    const paneData = snapshot.panesById.get(oldPaneId) || {};
+    const leaf = getPaneLeaf(workspace, paneId);
+    const pane = createPaneSession({
+      id: paneId,
+      cwd: paneData.cwd || workspace.cwd || mt.os.env.HOME,
+      leafEl: leaf,
+      workspace
+    });
+    pane.autoRender = paneData.autoRender !== undefined ? paneData.autoRender : settings.autoRender;
+    pane.zoomFactor = paneData.zoomFactor ?? 1;
+    applyZoomToTab(pane);
+  }
+  updateTabBar();
+  return workspace;
+}
+
+function restoreSession(session) {
+  if (!session || !Array.isArray(session.workspaces) || !session.workspaces.length) return false;
+  const restored = [];
+  for (const snapshot of session.workspaces) {
+    const workspace = createRestoredWorkspace(snapshot);
+    if (workspace) restored.push(workspace);
+  }
+  if (!restored.length) return false;
+  const active = restored[Math.min(session.activeIndex || 0, restored.length - 1)] || restored[0];
+  switchTab(active.id);
+  markSessionChanged();
+  return true;
 }
 
 function activateWorkspaceShell(workspace) {
@@ -753,6 +833,7 @@ function closePane(paneId) {
   }
   scheduleFitVisiblePanes(workspace);
   scheduleRichViewsAfterLayout(workspace);
+  markSessionChanged({ structural: true });
 }
 
 function closeActivePane() {
@@ -776,12 +857,14 @@ function closeTab(id) {
   state.workspaces.splice(idx, 1);
   if (wasActive) state.activeWorkspaceId = null;
   if (state.workspaces.length === 0) {
+    markSessionChanged({ structural: true });
     mt.ipc.send('close-window', { quitApp: isMac && !!settings.quitWhenLastTabClosed });
     return;
   }
   if (wasActive) {
     switchTab(state.workspaces[Math.min(idx, state.workspaces.length - 1)].id);
   }
+  markSessionChanged({ structural: true });
 }
 
 function focusPane(paneId, opts = {}) {
@@ -820,6 +903,7 @@ function focusPane(paneId, opts = {}) {
   state.autoIndicator.className = pane.autoRender ? '' : 'off';
   mt.ipc.send('rebuild-menu', pane.autoRender);
   scheduleFitVisiblePanes(workspace);
+  markSessionChanged();
   if (opts.focusTerm !== false) {
     requestAnimationFrame(() => {
       if (pane.richVisible) pane.richView?.focus();
@@ -883,6 +967,7 @@ function splitActivePane(direction) {
     focusPane(newPane.id);
     refreshTabTitle(newPane);
     stabilizeVisiblePanes(workspace, newPane.id);
+    markSessionChanged({ structural: true });
   });
 }
 
@@ -904,6 +989,7 @@ function togglePaneMaximize() {
   focusPane(pane.id);
   scheduleFitVisiblePanes(workspace);
   scheduleRichViewsAfterLayout(workspace);
+  markSessionChanged({ structural: true });
 }
 
 function getPaneLeafRects(workspace) {
@@ -1106,6 +1192,7 @@ function attachTabElementListeners(workspace, tabEl) {
     if (!insertBefore) newIdx++;
     state.workspaces.splice(newIdx, 0, moved);
     rebuildTabBarDOM();
+    markSessionChanged({ structural: true });
   });
 }
 
@@ -1151,6 +1238,8 @@ function renameTab(id) {
     }
     titleEl.removeEventListener('blur', finish);
     titleEl.removeEventListener('keydown', onKey);
+    updateTabBar();
+    markSessionChanged({ structural: true });
   }
   function onKey(e) {
     if (e.key === 'Enter') { e.preventDefault(); finish(); }
@@ -1168,6 +1257,7 @@ function moveTab(id, direction) {
   if (newIdx < 0 || newIdx >= state.workspaces.length) return;
   [state.workspaces[idx], state.workspaces[newIdx]] = [state.workspaces[newIdx], state.workspaces[idx]];
   rebuildTabBarDOM();
+  markSessionChanged({ structural: true });
 }
 
 function detachTab(id) {
@@ -1198,6 +1288,7 @@ function initTabContextListeners() {
 
 module.exports = {
   createTab,
+  restoreSession,
   switchTab,
   closeTab,
   closePane,

@@ -19,7 +19,10 @@ function spawnPty(file, args, opts) {
 contextBridge.exposeInMainWorld('mathterm', {
   ipc: {
     send: (channel, ...args) => {
-      const allowed = ['close-window', 'detach-tab', 'rebuild-menu', 'notify-command-finished'];
+      const allowed = [
+        'close-window', 'detach-tab', 'rebuild-menu', 'notify-command-finished',
+        'save-window-session', 'clear-session'
+      ];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
     },
     on: (channel, callback) => {
@@ -57,6 +60,8 @@ contextBridge.exposeInMainWorld('mathterm', {
 
   fs: {
     existsSync: (p) => fs.existsSync(p),
+    isDirectorySync: (p) => fs.statSync(p).isDirectory(),
+    statSync: (p) => fs.statSync(p),
     readFileSync: (p, enc) => fs.readFileSync(p, enc),
     writeFileSync: (p, data) => fs.writeFileSync(p, data),
     mkdirSync: (p, opts) => fs.mkdirSync(p, opts),

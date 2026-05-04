@@ -18,6 +18,7 @@ const DEFAULTS = {
   theme: 'dark',
   cursorStyle: 'block',
   inheritCwd: false,
+  restoreLastSession: false,
   copyOnSelect: true,
   backgroundCommandMarker: true,
   backgroundCommandNotifications: true,

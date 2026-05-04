@@ -66,6 +66,7 @@ function fillForm() {
   $('mathSymbolSearch').checked = !!settings.mathSymbolSearch;
   $('cursorStyle').value = settings.cursorStyle;
   $('inheritCwd').checked = !!settings.inheritCwd;
+  $('restoreLastSession').checked = !!settings.restoreLastSession;
   $('copyOnSelect').checked = !!settings.copyOnSelect;
   $('backgroundCommandMarker').checked = !!settings.backgroundCommandMarker;
   $('backgroundCommandNotifications').checked = !!settings.backgroundCommandNotifications;
@@ -90,6 +91,7 @@ function collectForm() {
     cursorStyle: ['block', 'bar', 'underline'].includes($('cursorStyle').value)
       ? $('cursorStyle').value : DEFAULTS.cursorStyle,
     inheritCwd: $('inheritCwd').checked,
+    restoreLastSession: $('restoreLastSession').checked,
     copyOnSelect: $('copyOnSelect').checked,
     backgroundCommandMarker: $('backgroundCommandMarker').checked,
     backgroundCommandNotifications: $('backgroundCommandNotifications').checked,
