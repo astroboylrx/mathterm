@@ -423,16 +423,49 @@ function attachTerminalRenderer(pane, term) {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => {
       webgl.dispose();
+      if (pane._rendererAddon === webgl) pane._rendererAddon = null;
       pane._renderer = 'canvas';
-      try { term.loadAddon(new CanvasAddon()); } catch {}
+      try {
+        const canvas = new CanvasAddon();
+        term.loadAddon(canvas);
+        pane._rendererAddon = canvas;
+      } catch {}
       updateRendererIndicator(pane);
     });
     term.loadAddon(webgl);
+    pane._rendererAddon = webgl;
     pane._renderer = 'webgl';
   } catch {
-    try { term.loadAddon(new CanvasAddon()); pane._renderer = 'canvas'; } catch { pane._renderer = 'dom'; }
+    try {
+      const canvas = new CanvasAddon();
+      term.loadAddon(canvas);
+      pane._rendererAddon = canvas;
+      pane._renderer = 'canvas';
+    } catch {
+      pane._rendererAddon = null;
+      pane._renderer = 'dom';
+    }
   }
   scheduleTerminalRefresh(pane);
+}
+
+function resetPaneRenderer(pane) {
+  if (!pane || !pane.term) return false;
+  try { pane._rendererAddon?.dispose?.(); } catch {}
+  pane._rendererAddon = null;
+  attachTerminalRenderer(pane, pane.term);
+  updateRendererIndicator(pane);
+  fitPane(pane);
+  scheduleTerminalRefresh(pane);
+  requestAnimationFrame(() => {
+    fitPane(pane);
+    try { pane.term.refresh(0, Math.max(0, pane.term.rows - 1)); } catch {}
+  });
+  return true;
+}
+
+function resetActiveRenderer() {
+  return resetPaneRenderer(getActivePane());
 }
 
 function attachPaneLinkHandlers(pane, term) {
@@ -1302,6 +1335,8 @@ module.exports = {
   togglePaneMaximize,
   isPaneShortcut,
   handlePaneShortcut,
+  resetActiveRenderer,
+  resetPaneRenderer,
   fitVisiblePanes,
   scheduleFitVisiblePanes,
   updateRendererIndicator,

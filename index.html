@@ -655,6 +655,14 @@
       font-size: var(--ui-font-size);
       flex-shrink: 0;
     }
+    #render-ind {
+      cursor: pointer;
+      user-select: none;
+    }
+    #render-ind:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
     #cwd-link {
       color: var(--fg-muted);
       cursor: pointer;
@@ -801,7 +809,7 @@
   </div>
   <div id="status-bar">
     <div class="left">
-      <span id="render-ind" class="render-ind" title="xterm.js renderer: GL=WebGL, CV=Canvas, DOM=default"></span>
+      <span id="render-ind" class="render-ind" role="button" tabindex="0" title="xterm.js renderer: GL=WebGL, CV=Canvas, DOM=default. Click to reset renderer."></span>
       <span id="zoom-ind" class="render-ind hidden"></span>
       <span id="render-sep"> | </span>
       <a id="cwd-link" title="Open in file manager"></a>

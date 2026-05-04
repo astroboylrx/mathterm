@@ -1,7 +1,14 @@
 const { state, getActivePane } = require('./state');
 const { settings, isMac, applySettings } = require('./settings');
 const { loadUserThemes } = require('./themes');
-const { createTab, switchTab, restoreSession, handlePaneShortcut, fitVisiblePanes } = require('./tabs');
+const {
+  createTab,
+  switchTab,
+  restoreSession,
+  handlePaneShortcut,
+  fitVisiblePanes,
+  resetActiveRenderer
+} = require('./tabs');
 const {
   blockSessionWritesUntilChange,
   hasSessionFile,
@@ -26,6 +33,12 @@ state.zoomInd = document.getElementById('zoom-ind');
 state.cwdLink = document.getElementById('cwd-link');
 state.gitSep = document.getElementById('git-sep');
 state.gitBranch = document.getElementById('git-branch');
+state.renderInd.addEventListener('click', () => resetActiveRenderer());
+state.renderInd.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  resetActiveRenderer();
+});
 state.cwdLink.addEventListener('click', () => {
   const cwd = state.cwdLink.dataset.cwd;
   if (cwd) window.mathterm.shell.openPath(cwd);
