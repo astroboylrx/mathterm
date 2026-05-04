@@ -13,16 +13,21 @@ const { loadUserThemes, getThemeList, resolveTheme, applyTheme } = require('../r
 loadUserThemes();
 
 let settings = loadSettings();
-let activeTab = new URLSearchParams(window.location.search).get('tab') || 'settings';
+let activeTab = normalizeTab(new URLSearchParams(window.location.search).get('tab'));
 
 function $(id) { return document.getElementById(id); }
 
+function normalizeTab(tab) {
+  if (tab === 'settings') return 'appearance';
+  return ['appearance', 'behavior', 'shortcuts'].includes(tab) ? tab : 'appearance';
+}
+
 function setActiveTab(tab) {
-  activeTab = tab === 'shortcuts' ? 'shortcuts' : 'settings';
-  $('tab-settings').classList.toggle('active', activeTab === 'settings');
-  $('tab-shortcuts').classList.toggle('active', activeTab === 'shortcuts');
-  $('settings-panel').classList.toggle('active', activeTab === 'settings');
-  $('shortcuts-panel').classList.toggle('active', activeTab === 'shortcuts');
+  activeTab = normalizeTab(tab);
+  for (const name of ['appearance', 'behavior', 'shortcuts']) {
+    $(`tab-${name}`).classList.toggle('active', activeTab === name);
+    $(`${name}-panel`).classList.toggle('active', activeTab === name);
+  }
 }
 
 function updateThemePreview(themeId) {

@@ -254,11 +254,17 @@ function sendFocused(channel, ...args) {
   wc.send(channel, ...args);
 }
 
-function createPreferencesWindow(tab = 'settings') {
+function normalizePreferencesTab(tab) {
+  if (tab === 'settings') return 'appearance';
+  return ['appearance', 'behavior', 'shortcuts'].includes(tab) ? tab : 'appearance';
+}
+
+function createPreferencesWindow(tab = 'appearance') {
+  const targetTab = normalizePreferencesTab(tab);
   if (preferencesWindow && !preferencesWindow.isDestroyed()) {
     preferencesWindow.show();
     preferencesWindow.focus();
-    preferencesWindow.webContents.send('preferences-section', tab);
+    preferencesWindow.webContents.send('preferences-section', targetTab);
     return preferencesWindow;
   }
   preferencesWindow = new BrowserWindow({
@@ -275,7 +281,7 @@ function createPreferencesWindow(tab = 'settings') {
     preferencesWindow = null;
   });
   const params = new URLSearchParams();
-  params.set('tab', tab === 'shortcuts' ? 'shortcuts' : 'settings');
+  params.set('tab', targetTab);
   preferencesWindow.loadFile(path.join(APP_ROOT, 'dist', 'preferences.html'), { query: Object.fromEntries(params) });
   return preferencesWindow;
 }
@@ -408,7 +414,7 @@ function buildMenu(autoRender) {
         {
           label: 'Preferences...',
           accelerator: 'CmdOrCtrl+,',
-          click: () => createPreferencesWindow('settings')
+          click: () => createPreferencesWindow('appearance')
         },
         { type: 'separator' },
         { role: 'services' },
@@ -490,7 +496,7 @@ function buildMenu(autoRender) {
           { type: 'separator' },
           {
             label: 'Preferences...',
-            click: () => createPreferencesWindow('settings')
+            click: () => createPreferencesWindow('appearance')
           }
         ])
       ]

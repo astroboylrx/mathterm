@@ -177,22 +177,27 @@
 <body>
   <header>
     <nav class="tabs">
-      <button id="tab-settings" data-tab="settings">Settings</button>
-      <button id="tab-shortcuts" data-tab="shortcuts">Keyboard Shortcuts</button>
+      <button id="tab-appearance" data-tab="appearance">Appearance</button>
+      <button id="tab-behavior" data-tab="behavior">Behavior</button>
+      <button id="tab-shortcuts" data-tab="shortcuts">Shortcuts</button>
     </nav>
   </header>
   <main>
-    <section id="settings-panel">
-      <h2>Preferences</h2>
+    <section id="appearance-panel">
+      <h2>Appearance</h2>
       <label><span>Theme</span><select id="theme"></select></label>
       <div id="theme-preview"></div>
-      <label><span>Scrollback lines</span><input type="number" id="scrollback" min="100" max="100000" step="1000"></label>
       <label><span>Font size</span><input type="number" id="fontSize" min="8" max="32"></label>
       <label><span>Font family</span><input type="text" id="fontFamily"></label>
+      <label><span>Cursor style</span><select id="cursorStyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
+      <div class="note" id="config-path"></div>
+    </section>
+    <section id="behavior-panel">
+      <h2>Behavior</h2>
+      <label><span>Scrollback lines</span><input type="number" id="scrollback" min="100" max="100000" step="1000"></label>
       <label><span>Auto-render LaTeX</span><input type="checkbox" id="autoRender"></label>
       <label><span>Auto-render delay (ms)</span><input type="number" id="autoRenderDelay" min="500" max="10000" step="250"></label>
       <label><span>Match LaTeX symbols and Unicode symbols in math search</span><input type="checkbox" id="mathSymbolSearch"></label>
-      <label><span>Cursor style</span><select id="cursorStyle"><option value="block">Block</option><option value="bar">Bar</option><option value="underline">Underline</option></select></label>
       <label><span>New tab inherits directory</span><input type="checkbox" id="inheritCwd"></label>
       <label><span>Restore last session</span><input type="checkbox" id="restoreLastSession"></label>
       <label><span>Copy on select</span><input type="checkbox" id="copyOnSelect"></label>
@@ -201,7 +206,6 @@
       <label id="quit-last-tab-row"><span>Quit when last tab closes</span><input type="checkbox" id="quitWhenLastTabClosed"></label>
       <label class="field-block"><span>Persistent LaTeX macros</span><textarea id="latexMacros" spellcheck="false" placeholder="\newcommand{\R}{\mathbb{R}}&#10;\newcommand{\vect}[1]{\mathbf{#1}}"></textarea></label>
       <div class="note">Scrollback changes require new panes to take full effect. Persistent macros are loaded from this config and used by all KaTeX renders.</div>
-      <div class="note" id="config-path"></div>
     </section>
     <section id="shortcuts-panel">
       <h2>Keyboard Shortcuts</h2>
