@@ -155,6 +155,14 @@ function detachPaneView(paneBackendId, viewId) {
   try { ptyManager.detachView(paneBackendId, viewId); } catch {}
 }
 
+function sweepLiveWorkspaceTransfers(now = Date.now()) {
+  for (const [token, transfer] of liveWorkspaceTransfers) {
+    const age = now - Number(transfer.createdAt || 0);
+    const claimedAge = transfer.claimedAt ? now - Number(transfer.claimedAt) : 0;
+    if (age > 120000 || claimedAge > 30000) liveWorkspaceTransfers.delete(token);
+  }
+}
+
 function sendNextPaneOutput(paneBackendId, viewId) {
   const ref = paneViews.get(paneViewKey(paneBackendId, viewId));
   if (!ref) return;
@@ -832,6 +840,7 @@ ipcMain.on('detach-tab', (event, opts) => {
 });
 
 ipcMain.handle('detach-live-tab', async (event, payload = {}) => {
+  sweepLiveWorkspaceTransfers();
   const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
   const panes = Array.isArray(workspace?.panes) ? workspace.panes : [];
   if (!workspace || !panes.length) return { ok: false, error: 'No live workspace was provided.' };
@@ -855,6 +864,64 @@ ipcMain.handle('claim-live-workspace', async (event, token) => {
   if (!transfer) return { ok: false, error: 'Live workspace transfer is no longer available.' };
   liveWorkspaceTransfers.delete(key);
   return { ok: true, workspace: transfer.workspace };
+});
+
+function validateLiveWorkspace(workspace) {
+  const panes = Array.isArray(workspace?.panes) ? workspace.panes : [];
+  if (!workspace || !panes.length) return 'No live workspace was provided.';
+  for (const pane of panes) {
+    if (!ptyManager.getPane(String(pane.paneBackendId || ''))) {
+      return `Unknown pane backend: ${pane.paneBackendId || ''}`;
+    }
+  }
+  return null;
+}
+
+ipcMain.on('prepare-live-tab-drag', (event, payload = {}) => {
+  sweepLiveWorkspaceTransfers();
+  const token = String(payload.token || '');
+  const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
+  const error = validateLiveWorkspace(workspace);
+  if (!token || error) return;
+  liveWorkspaceTransfers.set(token, {
+    workspace,
+    sourceWebContentsId: event.sender.id,
+    sourceWorkspaceId: workspace.id,
+    createdAt: Date.now()
+  });
+});
+
+ipcMain.handle('accept-live-tab-drag', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live tab drag is no longer available.' };
+  if (transfer.claimed) return { ok: false, error: 'Live tab drag was already claimed.' };
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    return { ok: false, error };
+  }
+  transfer.claimed = true;
+  transfer.claimedAt = Date.now();
+  transfer.claimedByWebContentsId = event.sender.id;
+  return { ok: true, workspace: transfer.workspace };
+});
+
+ipcMain.handle('complete-live-tab-drag', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer || transfer.claimedByWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live tab drag completion is no longer valid.' };
+  }
+  liveWorkspaceTransfers.delete(key);
+  const source = webContents.fromId(transfer.sourceWebContentsId);
+  if (source && !source.isDestroyed()) {
+    source.send('live-tab-transfer-complete', {
+      workspaceId: transfer.sourceWorkspaceId,
+      token: key
+    });
+  }
+  return { ok: true };
 });
 
 ipcMain.on('pane-create-sync', (event, opts = {}) => {

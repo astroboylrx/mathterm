@@ -12,6 +12,7 @@ const state = {
   dragDropHandled: false,
   dragStartClientX: 0,
   dragStartClientY: 0,
+  dragTransferToken: null,
   tabContextMenuId: null,
   _hostname: window.mathterm.os.hostname().split('.')[0],
 

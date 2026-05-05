@@ -94,7 +94,7 @@ contextBridge.exposeInMainWorld('mathterm', {
     send: (channel, ...args) => {
       const allowed = [
         'close-window', 'detach-tab', 'rebuild-menu', 'notify-command-finished',
-        'save-window-session', 'clear-session'
+        'save-window-session', 'clear-session', 'prepare-live-tab-drag'
       ];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
     },
@@ -108,14 +108,17 @@ contextBridge.exposeInMainWorld('mathterm', {
         'split-pane-right', 'split-pane-down', 'close-pane', 'toggle-pane-maximize',
         'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
         'focus-next-pane', 'focus-prev-pane',
-        'settings-updated'
+        'settings-updated', 'live-tab-transfer-complete'
       ];
       if (allowed.includes(channel)) {
         ipcRenderer.on(channel, (event, ...args) => callback(...args));
       }
     },
     invoke: (channel, ...args) => {
-      const allowed = ['export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace'];
+      const allowed = [
+        'export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace',
+        'accept-live-tab-drag', 'complete-live-tab-drag'
+      ];
       if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
       return Promise.reject(new Error('Channel not allowed: ' + channel));
     }

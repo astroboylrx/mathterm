@@ -55,6 +55,7 @@ const { cloneLayout } = require('../shared/sessionFormat');
 
 const IMAGE_MAX_COUNT = 50;
 const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
+const LIVE_TAB_TRANSFER_MIME = 'application/x-mathterm-live-tab';
 
 function updateRendererIndicator(pane) {
   const el = state.renderInd;
@@ -783,21 +784,23 @@ function createRestoredWorkspace(snapshot) {
   return workspace;
 }
 
-async function createLiveWorkspace(snapshot) {
+async function createLiveWorkspace(snapshot, opts = {}) {
   if (!snapshot || !Array.isArray(snapshot.panes) || !snapshot.panes.length) return null;
-  const id = Number.isInteger(snapshot.id) ? snapshot.id : state.tabIdCounter++;
-  state.tabIdCounter = Math.max(state.tabIdCounter, id + 1);
+  const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id, { workspaceBackendId: snapshot.workspaceBackendId });
   workspace.cwd = snapshot.cwd || mt.os.env.HOME;
   workspace.title = snapshot.title || workspace.title;
   workspace._customTitle = snapshot.customTitle || null;
-  workspace.layout = cloneLayout(snapshot.layout);
+
+  const idMap = new Map();
+  for (const paneData of snapshot.panes) {
+    if (Number.isInteger(paneData.id)) idMap.set(paneData.id, state.paneIdCounter++);
+  }
+  workspace.layout = remapLayoutPaneIds(cloneLayout(snapshot.layout), idMap);
   if (!workspace.layout) return null;
   const layoutPaneIds = new Set(paneIdsInLayout(workspace.layout));
-  workspace.activePaneId = Number.isInteger(snapshot.activePaneId)
-    ? snapshot.activePaneId
-    : firstPaneIdInLayout(workspace.layout);
-  workspace.maximizedPaneId = Number.isInteger(snapshot.maximizedPaneId) ? snapshot.maximizedPaneId : null;
+  workspace.activePaneId = idMap.get(snapshot.activePaneId) || firstPaneIdInLayout(workspace.layout);
+  workspace.maximizedPaneId = idMap.get(snapshot.maximizedPaneId) || null;
 
   const container = document.createElement('div');
   container.className = 'tab-container';
@@ -818,12 +821,21 @@ async function createLiveWorkspace(snapshot) {
   workspace.tabEl = tabEl;
   state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
   state.workspaces.push(workspace);
+  if (Number.isInteger(opts.insertIndex)) {
+    const currentIndex = state.workspaces.indexOf(workspace);
+    const targetIndex = Math.max(0, Math.min(opts.insertIndex, state.workspaces.length - 1));
+    if (currentIndex !== -1 && currentIndex !== targetIndex) {
+      state.workspaces.splice(currentIndex, 1);
+      state.workspaces.splice(targetIndex, 0, workspace);
+      rebuildTabBarDOM();
+    }
+  }
 
   renderLayout(workspace);
   for (const paneData of snapshot.panes) {
-    if (!Number.isInteger(paneData.id) || !layoutPaneIds.has(paneData.id) || !paneData.paneBackendId) continue;
-    state.paneIdCounter = Math.max(state.paneIdCounter, paneData.id + 1);
-    const leaf = getPaneLeaf(workspace, paneData.id);
+    const paneId = idMap.get(paneData.id);
+    if (!Number.isInteger(paneId) || !layoutPaneIds.has(paneId) || !paneData.paneBackendId) continue;
+    const leaf = getPaneLeaf(workspace, paneId);
     if (!leaf) continue;
     let paneSnapshot = null;
     try {
@@ -834,7 +846,7 @@ async function createLiveWorkspace(snapshot) {
       console.error('Failed to snapshot live pane:', err);
     }
     const pane = createPaneSession({
-      id: paneData.id,
+      id: paneId,
       cwd: paneData.cwd || workspace.cwd || mt.os.env.HOME,
       leafEl: leaf,
       workspace,
@@ -1294,6 +1306,49 @@ function shouldDetachDraggedTab(e) {
     || e.clientY > tabBarRect.bottom + margin;
 }
 
+function makeLiveTabTransferToken(id) {
+  const rand = Math.random().toString(36).slice(2);
+  return `live-tab:${Date.now()}:${id}:${rand}`;
+}
+
+function liveTabTokenFromDrop(e) {
+  return e.dataTransfer?.getData?.(LIVE_TAB_TRANSFER_MIME) || '';
+}
+
+function prepareLiveTabDrag(workspace) {
+  if (!workspace || !workspace.panes.length) return '';
+  const token = makeLiveTabTransferToken(workspace.id);
+  state.dragTransferToken = token;
+  try {
+    mt.ipc.send('prepare-live-tab-drag', {
+      token,
+      workspace: captureLiveWorkspace(workspace)
+    });
+  } catch {}
+  return token;
+}
+
+async function acceptLiveTabDrop(e, insertIndex = state.workspaces.length) {
+  const token = liveTabTokenFromDrop(e);
+  if (!token || token === state.dragTransferToken) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  state.dragDropHandled = true;
+  const result = await mt.ipc.invoke('accept-live-tab-drag', token);
+  if (!result?.ok || !result.workspace) throw new Error(result?.error || 'Live tab transfer failed');
+  const workspace = await createLiveWorkspace(result.workspace, { insertIndex });
+  if (!workspace) throw new Error('Live tab transfer had no restorable workspace');
+  const complete = await mt.ipc.invoke('complete-live-tab-drag', token);
+  if (!complete?.ok) throw new Error(complete?.error || 'Live tab transfer completion failed');
+  activateWorkspaceShell(workspace);
+  updatePaneActiveClasses(workspace);
+  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (pane) focusPane(pane.id);
+  stabilizeVisiblePanes(workspace, pane?.id || null);
+  markSessionChanged({ structural: true });
+  return true;
+}
+
 function attachTabElementListeners(workspace, tabEl) {
   const id = workspace.id;
   tabEl.addEventListener('click', e => {
@@ -1314,11 +1369,18 @@ function attachTabElementListeners(workspace, tabEl) {
     state.dragStartClientY = e.clientY;
     tabEl.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(id));
+    const token = prepareLiveTabDrag(workspace);
+    if (token) {
+      e.dataTransfer.setData(LIVE_TAB_TRANSFER_MIME, token);
+    } else {
+      e.dataTransfer.setData('text/plain', String(id));
+    }
   });
   tabEl.addEventListener('dragend', e => {
-    const shouldDetach = state.dragTabId === id && shouldDetachDraggedTab(e);
+    const movedToDropTarget = e.dataTransfer?.dropEffect === 'move';
+    const shouldDetach = state.dragTabId === id && !movedToDropTarget && shouldDetachDraggedTab(e);
     state.dragTabId = null;
+    state.dragTransferToken = null;
     state.dragDropHandled = false;
     tabEl.classList.remove('dragging');
     document.querySelectorAll('.tab-item').forEach(el => {
@@ -1344,13 +1406,19 @@ function attachTabElementListeners(workspace, tabEl) {
     e.preventDefault();
     state.dragDropHandled = true;
     tabEl.classList.remove('drag-over-left', 'drag-over-right');
+    const rect = tabEl.getBoundingClientRect();
+    const mid = rect.left + rect.width / 2;
+    const insertBefore = e.clientX < mid;
+    if (state.dragTabId === null) {
+      const toIdx = getTabIndex(id);
+      const insertIndex = toIdx + (insertBefore ? 0 : 1);
+      acceptLiveTabDrop(e, insertIndex).catch(err => console.error('Failed to accept live tab drop:', err));
+      return;
+    }
     if (state.dragTabId === null || state.dragTabId === id) return;
     const fromIdx = getTabIndex(state.dragTabId);
     const toIdx = getTabIndex(id);
     if (fromIdx === -1 || toIdx === -1) return;
-    const rect = tabEl.getBoundingClientRect();
-    const mid = rect.left + rect.width / 2;
-    const insertBefore = e.clientX < mid;
     const [moved] = state.workspaces.splice(fromIdx, 1);
     let newIdx = getTabIndex(id);
     if (!insertBefore) newIdx++;
@@ -1461,6 +1529,20 @@ async function detachTab(id) {
 }
 
 function initTabContextListeners() {
+  mt.ipc.on('live-tab-transfer-complete', payload => {
+    const workspaceId = Number(payload?.workspaceId);
+    if (!Number.isInteger(workspaceId)) return;
+    closeTab(workspaceId, { killBackend: false });
+  });
+  state.tabBar.addEventListener('dragover', e => {
+    if (!liveTabTokenFromDrop(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  state.tabBar.addEventListener('drop', e => {
+    if (e.target?.closest?.('.tab-item')) return;
+    acceptLiveTabDrop(e, state.workspaces.length).catch(err => console.error('Failed to accept live tab drop:', err));
+  });
   document.getElementById('tctx-rename').addEventListener('click', () => { renameTab(state.tabContextMenuId); hideTabContextMenu(); });
   document.getElementById('tctx-moveleft').addEventListener('click', () => { moveTab(state.tabContextMenuId, -1); hideTabContextMenu(); });
   document.getElementById('tctx-moveright').addEventListener('click', () => { moveTab(state.tabContextMenuId, 1); hideTabContextMenu(); });
