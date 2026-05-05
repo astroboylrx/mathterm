@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, Notification } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -6,6 +6,7 @@ const { execFileSync } = require('child_process');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shortcutDefaults');
 const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
 const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
+const { clampRestoredBounds } = require('../shared/windowBounds');
 
 let mainWindow;
 let preferencesWindow;
@@ -297,16 +298,19 @@ function isToggleDevToolsInput(input) {
 function createWindow(opts = {}) {
   const sessionWindowId = String(opts.sessionWindowId || nextSessionWindowId++);
   let preserveSessionOnClose = false;
-  const bounds = opts.windowState?.bounds || {};
+  const bounds = opts.windowState?.bounds
+    ? clampRestoredBounds(opts.windowState.bounds, screen.getAllDisplays())
+    : {};
+  const safeBounds = bounds || {};
   const windowOptions = {
-    width: bounds.width || 960,
-    height: bounds.height || 700,
+    width: safeBounds.width || 960,
+    height: safeBounds.height || 700,
     title: 'MathTerm',
     show: opts.showInitially !== false,
     webPreferences: webPrefs
   };
-  if (Number.isFinite(bounds.x)) windowOptions.x = bounds.x;
-  if (Number.isFinite(bounds.y)) windowOptions.y = bounds.y;
+  if (Number.isFinite(safeBounds.x)) windowOptions.x = safeBounds.x;
+  if (Number.isFinite(safeBounds.y)) windowOptions.y = safeBounds.y;
   const win = new BrowserWindow({
     ...windowOptions
   });

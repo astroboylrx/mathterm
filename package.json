@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/cliOptions.test.js && node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/sessionFormat.test.js && node test/session.test.js",
+    "test": "node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/sessionFormat.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "dev:linux": "npm run build && electron . --no-sandbox",
     "rebuild": "electron-builder install-app-deps",
