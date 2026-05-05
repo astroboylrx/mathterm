@@ -77,6 +77,26 @@ async function testReplayAndAck() {
   manager.closeAll();
 }
 
+async function testOutputAndExitEvents() {
+  const { manager } = createManager();
+  const pane = manager.createPane({ paneBackendId: 'pane-events' });
+  const outputReady = [];
+  const exits = [];
+  const outputDisposable = manager.onOutputReady(id => outputReady.push(id));
+  const exitDisposable = manager.onExit((id, exitState) => exits.push({ id, exitState }));
+
+  pane.pty.emitData('evented output');
+  await manager.waitForTerminalWrites('pane-events');
+  assert.deepStrictEqual(outputReady, ['pane-events']);
+
+  pane.pty.kill(3, 0);
+  assert.deepStrictEqual(exits, [{ id: 'pane-events', exitState: { exitCode: 3, signal: 0 } }]);
+
+  outputDisposable.dispose();
+  exitDisposable.dispose();
+  manager.closePane('pane-events');
+}
+
 async function testExitCleansShimButKeepsSnapshot() {
   const { manager } = createManager();
   const pane = manager.createPane({ paneBackendId: 'pane-exit' });
@@ -97,6 +117,7 @@ async function testExitCleansShimButKeepsSnapshot() {
 async function run() {
   await testCreateWriteResizeSnapshotAndClose();
   await testReplayAndAck();
+  await testOutputAndExitEvents();
   await testExitCleansShimButKeepsSnapshot();
   console.log('ptyManager tests passed');
 }

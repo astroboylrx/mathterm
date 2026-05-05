@@ -45,7 +45,6 @@ class PaneSession {
     this._promptPrefix = null;
     this._promptYSet = new Set();
     this._promptStartYSet = new Set();
-    this._shimDir = null;
     this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;

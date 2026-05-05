@@ -1,13 +1,15 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const nodePty = require('node-pty');
 const { execFileSync } = require('child_process');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shortcutDefaults');
 const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
 const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
 const { clampRestoredBounds } = require('../shared/windowBounds');
 const { sweepStaleShellShims } = require('./shellShim');
+const { PtyManager } = require('./ptyManager');
 
 let mainWindow;
 let preferencesWindow;
@@ -18,6 +20,8 @@ const isMac = process.platform === 'darwin';
 const cliOptions = parseCliOptions(process.argv);
 let cliSessionImportFailed = false;
 const APP_ROOT = path.join(__dirname, '..', '..');
+const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: process.env });
+const paneViews = new Map();
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -130,6 +134,55 @@ function loadRestoreLastSession() {
     return false;
   }
 }
+
+function paneViewKey(paneBackendId, viewId) {
+  return `${paneBackendId}:${viewId}`;
+}
+
+function registerPaneView(paneBackendId, viewId, wc) {
+  paneViews.set(paneViewKey(paneBackendId, viewId), { paneBackendId, viewId, webContentsId: wc.id });
+}
+
+function unregisterPaneView(paneBackendId, viewId) {
+  paneViews.delete(paneViewKey(paneBackendId, viewId));
+}
+
+function sendNextPaneOutput(paneBackendId, viewId) {
+  const ref = paneViews.get(paneViewKey(paneBackendId, viewId));
+  if (!ref) return;
+  const wc = webContents.fromId(ref.webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    try { ptyManager.detachView(paneBackendId, viewId); } catch {}
+    unregisterPaneView(paneBackendId, viewId);
+    return;
+  }
+  let batch;
+  try { batch = ptyManager.flushOutput(paneBackendId, viewId); } catch { return; }
+  if (!batch) return;
+  wc.send('pane-output', {
+    paneBackendId,
+    viewId,
+    batchId: batch.batchId,
+    fromSeq: batch.fromSeq,
+    toSeq: batch.toSeq,
+    data: batch.data
+  });
+}
+
+ptyManager.onOutputReady((paneBackendId) => {
+  for (const ref of paneViews.values()) {
+    if (ref.paneBackendId === paneBackendId) sendNextPaneOutput(ref.paneBackendId, ref.viewId);
+  }
+});
+
+ptyManager.onExit((paneBackendId, exitState) => {
+  for (const ref of [...paneViews.values()]) {
+    if (ref.paneBackendId !== paneBackendId) continue;
+    const wc = webContents.fromId(ref.webContentsId);
+    if (wc && !wc.isDestroyed()) wc.send('pane-exit', { paneBackendId, exitState });
+    unregisterPaneView(ref.paneBackendId, ref.viewId);
+  }
+});
 
 function backupInvalidSessionFile(reason) {
   try {
@@ -767,6 +820,62 @@ ipcMain.on('close-window', (event, opts = {}) => {
 
 ipcMain.on('detach-tab', (event, opts) => {
   createWindow({ cwd: opts?.cwd, title: opts?.title });
+});
+
+ipcMain.on('pane-create-sync', (event, opts = {}) => {
+  try {
+    const backend = ptyManager.createPane({
+      paneBackendId: String(opts.paneBackendId || ''),
+      shellCmd: opts.shellCmd || process.env.SHELL || '/bin/bash',
+      cwd: opts.cwd || process.env.HOME || os.homedir(),
+      cols: Number.isInteger(opts.cols) ? opts.cols : 80,
+      rows: Number.isInteger(opts.rows) ? opts.rows : 24,
+      scrollback: Number.isInteger(opts.scrollback) ? opts.scrollback : 1000
+    });
+    event.returnValue = { ok: true, paneBackendId: backend.id, pid: backend.pty.pid };
+  } catch (err) {
+    event.returnValue = { ok: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.on('pane-attach-ready', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  if (!paneBackendId || !viewId) return;
+  try {
+    registerPaneView(paneBackendId, viewId, event.sender);
+    ptyManager.attachView(paneBackendId, viewId);
+    ptyManager.enqueueReplay(paneBackendId, viewId, Number(opts.afterSeq) || 0);
+    sendNextPaneOutput(paneBackendId, viewId);
+  } catch (err) {
+    event.sender.send('pane-exit', { paneBackendId, exitState: { error: err.message || String(err) } });
+  }
+});
+
+ipcMain.on('pane-input', (event, opts = {}) => {
+  try { ptyManager.writePane(String(opts.paneBackendId || ''), String(opts.data || '')); } catch {}
+});
+
+ipcMain.on('pane-resize', (event, opts = {}) => {
+  const cols = Math.max(2, Math.floor(Number(opts.cols) || 0));
+  const rows = Math.max(1, Math.floor(Number(opts.rows) || 0));
+  try { ptyManager.resizePane(String(opts.paneBackendId || ''), cols, rows); } catch {}
+});
+
+ipcMain.on('pane-output-ack', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  try {
+    ptyManager.ackOutput(paneBackendId, viewId, opts.batchId);
+    sendNextPaneOutput(paneBackendId, viewId);
+  } catch {}
+});
+
+ipcMain.on('pane-close', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  if (paneBackendId && viewId) unregisterPaneView(paneBackendId, viewId);
+  try { ptyManager.closePane(paneBackendId); } catch {}
 });
 
 ipcMain.handle('export-pdf', async (event) => {

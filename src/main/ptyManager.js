@@ -14,6 +14,18 @@ class PtyManager {
     this.env = env;
     this.idFactory = idFactory;
     this.panes = new Map();
+    this.outputReadyHandlers = new Set();
+    this.exitHandlers = new Set();
+  }
+
+  onOutputReady(callback) {
+    this.outputReadyHandlers.add(callback);
+    return { dispose: () => this.outputReadyHandlers.delete(callback) };
+  }
+
+  onExit(callback) {
+    this.exitHandlers.add(callback);
+    return { dispose: () => this.exitHandlers.delete(callback) };
   }
 
   createPane({
@@ -66,6 +78,7 @@ class PtyManager {
     pty.onData(data => {
       outputTransport.push(data);
       backend.terminalWriteChain = backend.terminalWriteChain.then(() => terminalState.write(data));
+      this._emitOutputReady(backend.id);
     });
     pty.onExit(event => {
       backend.state = 'closed';
@@ -77,6 +90,7 @@ class PtyManager {
       backend.attachedViews.clear();
       removeShellShim({ fs: this.fs, shimDir: backend.shimDir });
       backend.shimDir = null;
+      this._emitExit(backend.id, backend.exitState);
     });
 
     this.panes.set(paneBackendId, backend);
@@ -173,6 +187,14 @@ class PtyManager {
     const pane = this.getPane(paneBackendId);
     if (!pane) throw new Error(`unknown pane backend: ${paneBackendId}`);
     return pane;
+  }
+
+  _emitOutputReady(paneBackendId) {
+    for (const handler of this.outputReadyHandlers) handler(paneBackendId);
+  }
+
+  _emitExit(paneBackendId, exitState) {
+    for (const handler of this.exitHandlers) handler(paneBackendId, exitState);
   }
 }
 

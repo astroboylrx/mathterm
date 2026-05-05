@@ -2,17 +2,72 @@ const { contextBridge, ipcRenderer, clipboard, shell } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const pty = require('node-pty');
+let paneSeq = 0;
+const paneHandlers = new Map();
+
+ipcRenderer.on('pane-output', (event, payload = {}) => {
+  const handlers = paneHandlers.get(String(payload.paneBackendId || ''));
+  if (!handlers || handlers.viewId !== payload.viewId) return;
+  const meta = {
+    batchId: payload.batchId,
+    fromSeq: payload.fromSeq,
+    toSeq: payload.toSeq
+  };
+  for (const cb of handlers.dataCallbacks) cb(payload.data || '', meta);
+});
+
+ipcRenderer.on('pane-exit', (event, payload = {}) => {
+  const paneBackendId = String(payload.paneBackendId || '');
+  const handlers = paneHandlers.get(paneBackendId);
+  if (!handlers) return;
+  for (const cb of handlers.exitCallbacks) cb(payload.exitState || {});
+  paneHandlers.delete(paneBackendId);
+});
 
 function spawnPty(file, args, opts) {
-  const p = pty.spawn(file, args, opts);
+  const requestedPaneBackendId = String(opts?.paneBackendId || `pane-renderer-${Date.now()}-${++paneSeq}`);
+  const viewId = `view-${process.pid}-${Date.now()}-${++paneSeq}`;
+  const result = ipcRenderer.sendSync('pane-create-sync', {
+    paneBackendId: requestedPaneBackendId,
+    shellCmd: file,
+    cwd: opts?.cwd,
+    cols: opts?.cols,
+    rows: opts?.rows,
+    scrollback: opts?.scrollback
+  });
+  if (!result || !result.ok) {
+    throw new Error(result?.error || 'Failed to create pane backend');
+  }
+  const paneBackendId = String(result.paneBackendId || requestedPaneBackendId);
+  paneHandlers.set(paneBackendId, {
+    viewId,
+    attached: false,
+    dataCallbacks: [],
+    exitCallbacks: []
+  });
   return {
-    pid: p.pid,
-    write: (data) => p.write(data),
-    resize: (cols, rows) => p.resize(cols, rows),
-    kill: () => p.kill(),
-    onData: (cb) => { p.onData(cb); },
-    onExit: (cb) => { p.onExit(cb); }
+    pid: result.pid,
+    paneBackendId,
+    write: (data) => ipcRenderer.send('pane-input', { paneBackendId, data }),
+    resize: (cols, rows) => ipcRenderer.send('pane-resize', { paneBackendId, cols, rows }),
+    kill: () => {
+      ipcRenderer.send('pane-close', { paneBackendId, viewId });
+      paneHandlers.delete(paneBackendId);
+    },
+    ack: (batchId) => ipcRenderer.send('pane-output-ack', { paneBackendId, viewId, batchId }),
+    onData: (cb) => {
+      const handlers = paneHandlers.get(paneBackendId);
+      if (!handlers) return;
+      handlers.dataCallbacks.push(cb);
+      if (!handlers.attached) {
+        handlers.attached = true;
+        ipcRenderer.send('pane-attach-ready', { paneBackendId, viewId, afterSeq: 0 });
+      }
+    },
+    onExit: (cb) => {
+      const handlers = paneHandlers.get(paneBackendId);
+      if (handlers) handlers.exitCallbacks.push(cb);
+    }
   };
 }
 

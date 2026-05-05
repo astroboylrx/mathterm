@@ -26,7 +26,6 @@ const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 const { escapeHtml } = require('./ansi');
 const { PaneSession } = require('./paneSession');
 const { TabWorkspace } = require('./workspace');
-const { createShellShim, buildShellArgs } = require('./shellShim');
 const {
   tabFeedSection,
   refreshRichViewAfterLayout,
@@ -490,28 +489,26 @@ function finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace) {
 
 function spawnPaneShell(pane, term) {
   const shellCmd = mt.os.env.SHELL || '/bin/bash';
-  const shimDir = createShellShim(shellCmd);
-  pane._shimDir = shimDir;
-  const { args: shellArgs, env: shellEnv } = buildShellArgs(shellCmd, shimDir);
-  const ptyProc = mt.pty.spawn(shellCmd, shellArgs, {
-    name: 'xterm-256color',
-    cols: term.cols,
-    rows: term.rows,
-    cwd: pane.cwd,
-    env: {
-      ...shellEnv,
-      TERM_PROGRAM: 'MathTerm',
-      TERM_PROGRAM_VERSION: '0.6',
-      COLORTERM: 'truecolor'
-    }
-  });
+  let ptyProc;
+  try {
+    ptyProc = mt.pty.spawn(shellCmd, [], {
+      paneBackendId: pane.paneBackendId,
+      name: 'xterm-256color',
+      cols: term.cols,
+      rows: term.rows,
+      cwd: pane.cwd,
+      scrollback: settings.scrollback
+    });
+  } catch (err) {
+    const message = err?.message || String(err || 'Unknown PTY error');
+    console.error('Failed to spawn pane shell:', err);
+    term.write(`\r\n\x1b[31mMathTerm could not start the shell.\x1b[0m\r\n${message}\r\n`);
+    pane.ptyProc = null;
+    return null;
+  }
   pane.ptyProc = ptyProc;
 
   ptyProc.onExit(() => {
-    if (pane._shimDir) {
-      try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
-      pane._shimDir = null;
-    }
     pane.ptyProc = null;
     if (!pane._closing && getPaneById(pane.id)) {
       setTimeout(() => closePane(pane.id), 0);
@@ -615,14 +612,25 @@ function attachOsc133Tracking(pane, term) {
 
 function attachPtyDataPipeline(pane, term) {
   const ptyProc = pane.ptyProc;
-  ptyProc.onData(data => {
+  if (!ptyProc) return;
+  ptyProc.onData((data, meta = {}) => {
     const { images, cleanData } = pane.osc1337Parser.feed(data);
     if (images.length) {
       const y = term.buffer.active.baseY + term.buffer.active.cursorY;
       for (const img of images) pane.inlineImages.push({ ...img, lineY: y });
       trimInlineImages(pane.inlineImages);
     }
-    term.write(cleanData, () => scheduleTerminalRefresh(pane));
+    const ackOutput = () => {
+      if (meta.batchId != null && ptyProc.ack) ptyProc.ack(meta.batchId);
+    };
+    if (cleanData) {
+      term.write(cleanData, () => {
+        scheduleTerminalRefresh(pane);
+        ackOutput();
+      });
+    } else {
+      ackOutput();
+    }
     if (images.length) {
       setTimeout(() => {
         const { showManualRichView } = require('./richView');
@@ -822,10 +830,6 @@ function disposePane(pane) {
   try { if (pane.ptyProc) pane.ptyProc.kill(); } catch {}
   try { pane._searchResultDisposable?.dispose(); } catch {}
   try { pane.term?.dispose(); } catch {}
-  if (pane._shimDir) {
-    try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
-    pane._shimDir = null;
-  }
   try { pane.container?.remove(); } catch {}
 }
 
