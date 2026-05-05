@@ -7,6 +7,7 @@ const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shor
 const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
 const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
 const { clampRestoredBounds } = require('../shared/windowBounds');
+const { sweepStaleShellShims } = require('./shellShim');
 
 let mainWindow;
 let preferencesWindow;
@@ -22,6 +23,7 @@ if (cliOptions.help) {
   process.exit(0);
 }
 app.setName('MathTerm');
+try { sweepStaleShellShims({ fs, path, os }); } catch {}
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) app.quit();
 

@@ -1,10 +1,12 @@
 const { state } = require('./state');
+const { nextWorkspaceBackendId } = require('./runtimeBackends');
 
 // Workspaces are the internal model for user-visible tabs. Each workspace owns
 // a layout tree and one or more pane sessions.
 class TabWorkspace {
-  constructor(id) {
+  constructor(id, opts = {}) {
     this.id = id;
+    this.workspaceBackendId = opts.workspaceBackendId || nextWorkspaceBackendId();
     this.title = state._hostname + ': ~';
     this.cwd = null;
     this.container = null;

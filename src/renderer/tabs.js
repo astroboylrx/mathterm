@@ -634,8 +634,8 @@ function attachPtyDataPipeline(pane, term) {
   });
 }
 
-function createPaneSession({ id, cwd, leafEl, workspace }) {
-  const pane = new PaneSession(id, workspace);
+function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId }) {
+  const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd);
   buildPaneSessionDom(pane, leafEl);
   const { term, fitAddon, searchAddon } = createPaneTerminal(pane);
