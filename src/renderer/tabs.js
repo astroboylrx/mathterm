@@ -51,6 +51,7 @@ const {
   removePaneFromLayout
 } = require('./layoutTree');
 const { markSessionChanged } = require('./sessionEvents');
+const { cloneLayout } = require('../shared/sessionFormat');
 
 const IMAGE_MAX_COUNT = 50;
 const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
@@ -487,18 +488,20 @@ function finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace) {
   fitPane(pane);
 }
 
-function spawnPaneShell(pane, term) {
+function spawnPaneShell(pane, term, opts = {}) {
   const shellCmd = mt.os.env.SHELL || '/bin/bash';
   let ptyProc;
   try {
-    ptyProc = mt.pty.spawn(shellCmd, [], {
-      paneBackendId: pane.paneBackendId,
-      name: 'xterm-256color',
-      cols: term.cols,
-      rows: term.rows,
-      cwd: pane.cwd,
-      scrollback: settings.scrollback
-    });
+    ptyProc = opts.attachExisting
+      ? mt.pty.attach(pane.paneBackendId, { afterSeq: opts.afterSeq })
+      : mt.pty.spawn(shellCmd, [], {
+        paneBackendId: pane.paneBackendId,
+        name: 'xterm-256color',
+        cols: term.cols,
+        rows: term.rows,
+        cwd: pane.cwd,
+        scrollback: settings.scrollback
+      });
   } catch (err) {
     const message = err?.message || String(err || 'Unknown PTY error');
     console.error('Failed to spawn pane shell:', err);
@@ -642,7 +645,7 @@ function attachPtyDataPipeline(pane, term) {
   });
 }
 
-function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId }) {
+function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null }) {
   const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd);
   buildPaneSessionDom(pane, leafEl);
@@ -652,10 +655,20 @@ function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId }) {
   attachTerminalRenderer(pane, term);
   attachPaneLinkHandlers(pane, term);
   finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace);
-  spawnPaneShell(pane, term);
+  spawnPaneShell(pane, term, {
+    attachExisting,
+    afterSeq: snapshot?.snapshotSeq || 0
+  });
   attachTerminalEventHandlers(pane, term);
   attachOsc133Tracking(pane, term);
-  attachPtyDataPipeline(pane, term);
+  if (attachExisting && snapshot?.snapshot) {
+    term.write(snapshot.snapshot, () => {
+      scheduleTerminalRefresh(pane);
+      attachPtyDataPipeline(pane, term);
+    });
+  } else {
+    attachPtyDataPipeline(pane, term);
+  }
   return pane;
 }
 
@@ -770,6 +783,91 @@ function createRestoredWorkspace(snapshot) {
   return workspace;
 }
 
+async function createLiveWorkspace(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.panes) || !snapshot.panes.length) return null;
+  const id = Number.isInteger(snapshot.id) ? snapshot.id : state.tabIdCounter++;
+  state.tabIdCounter = Math.max(state.tabIdCounter, id + 1);
+  const workspace = new TabWorkspace(id, { workspaceBackendId: snapshot.workspaceBackendId });
+  workspace.cwd = snapshot.cwd || mt.os.env.HOME;
+  workspace.title = snapshot.title || workspace.title;
+  workspace._customTitle = snapshot.customTitle || null;
+  workspace.layout = cloneLayout(snapshot.layout);
+  if (!workspace.layout) return null;
+  const layoutPaneIds = new Set(paneIdsInLayout(workspace.layout));
+  workspace.activePaneId = Number.isInteger(snapshot.activePaneId)
+    ? snapshot.activePaneId
+    : firstPaneIdInLayout(workspace.layout);
+  workspace.maximizedPaneId = Number.isInteger(snapshot.maximizedPaneId) ? snapshot.maximizedPaneId : null;
+
+  const container = document.createElement('div');
+  container.className = 'tab-container';
+  container.dataset.id = id;
+  workspace.container = container;
+  state.termContainer.appendChild(container);
+  if (typeof ResizeObserver !== 'undefined') {
+    workspace._resizeObserver = new ResizeObserver(() => scheduleFitVisiblePanes(workspace));
+    workspace._resizeObserver.observe(container);
+  }
+
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab-item';
+  tabEl.dataset.id = id;
+  tabEl.draggable = true;
+  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace._customTitle || workspace.title) + '</span><span class="tab-close">\u00d7</span>';
+  attachTabElementListeners(workspace, tabEl);
+  workspace.tabEl = tabEl;
+  state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
+  state.workspaces.push(workspace);
+
+  renderLayout(workspace);
+  for (const paneData of snapshot.panes) {
+    if (!Number.isInteger(paneData.id) || !layoutPaneIds.has(paneData.id) || !paneData.paneBackendId) continue;
+    state.paneIdCounter = Math.max(state.paneIdCounter, paneData.id + 1);
+    const leaf = getPaneLeaf(workspace, paneData.id);
+    if (!leaf) continue;
+    let paneSnapshot = null;
+    try {
+      const result = await mt.pty.snapshot(paneData.paneBackendId);
+      if (result?.ok) paneSnapshot = result;
+      else throw new Error(result?.error || 'Snapshot failed');
+    } catch (err) {
+      console.error('Failed to snapshot live pane:', err);
+    }
+    const pane = createPaneSession({
+      id: paneData.id,
+      cwd: paneData.cwd || workspace.cwd || mt.os.env.HOME,
+      leafEl: leaf,
+      workspace,
+      paneBackendId: paneData.paneBackendId,
+      attachExisting: true,
+      snapshot: paneSnapshot
+    });
+    pane.autoRender = paneData.autoRender !== undefined ? paneData.autoRender : settings.autoRender;
+    pane.zoomFactor = paneData.zoomFactor ?? 1;
+    applyZoomToTab(pane);
+  }
+  if (!workspace.panes.some(pane => pane.id === workspace.activePaneId)) {
+    workspace.activePaneId = workspace.panes[0]?.id || firstPaneIdInLayout(workspace.layout);
+  }
+  updateTabBar();
+  return workspace;
+}
+
+async function restoreLiveWorkspaceToken(token) {
+  if (!token) return false;
+  const result = await mt.ipc.invoke('claim-live-workspace', token);
+  if (!result?.ok || !result.workspace) throw new Error(result?.error || 'Failed to claim live workspace');
+  const workspace = await createLiveWorkspace(result.workspace);
+  if (!workspace) return false;
+  activateWorkspaceShell(workspace);
+  updatePaneActiveClasses(workspace);
+  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (pane) focusPane(pane.id);
+  stabilizeVisiblePanes(workspace, pane?.id || null);
+  markSessionChanged({ structural: true });
+  return true;
+}
+
 function restoreSession(session) {
   if (!session || !Array.isArray(session.workspaces) || !session.workspaces.length) return false;
   const restored = [];
@@ -823,11 +921,16 @@ function switchTab(id, opts = {}) {
   }
 }
 
-function disposePane(pane) {
+function disposePane(pane, opts = {}) {
   pane._closing = true;
   clearTimeout(pane.sectionTimer);
   clearTimeout(pane._promptJumpFlashTimer);
-  try { if (pane.ptyProc) pane.ptyProc.kill(); } catch {}
+  try {
+    if (pane.ptyProc) {
+      if (opts.killBackend === false && pane.ptyProc.detach) pane.ptyProc.detach();
+      else pane.ptyProc.kill();
+    }
+  } catch {}
   try { pane._searchResultDisposable?.dispose(); } catch {}
   try { pane.term?.dispose(); } catch {}
   try { pane.container?.remove(); } catch {}
@@ -878,12 +981,12 @@ function closeActivePane() {
   if (pane) closePane(pane.id);
 }
 
-function closeTab(id) {
+function closeTab(id, opts = {}) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
   const workspace = state.workspaces[idx];
   const wasActive = state.activeWorkspaceId === id;
-  for (const pane of [...workspace.panes]) disposePane(pane);
+  for (const pane of [...workspace.panes]) disposePane(pane, { killBackend: opts.killBackend !== false });
   if (workspace._fitRaf) {
     cancelAnimationFrame(workspace._fitRaf);
     workspace._fitRaf = null;
@@ -1176,6 +1279,21 @@ function rebuildTabBarDOM() {
   for (const workspace of state.workspaces) state.tabBar.insertBefore(workspace.tabEl, newBtn);
 }
 
+function shouldDetachDraggedTab(e) {
+  if (!e || state.dragDropHandled) return false;
+  const dx = Number(e.clientX) - Number(state.dragStartClientX || 0);
+  const dy = Number(e.clientY) - Number(state.dragStartClientY || 0);
+  if (Math.hypot(dx, dy) < 24) return false;
+  const tabBarRect = state.tabBar?.getBoundingClientRect?.();
+  if (!tabBarRect) return false;
+  if (e.clientX === 0 && e.clientY === 0) return true;
+  const margin = 10;
+  return e.clientX < tabBarRect.left - margin
+    || e.clientX > tabBarRect.right + margin
+    || e.clientY < tabBarRect.top - margin
+    || e.clientY > tabBarRect.bottom + margin;
+}
+
 function attachTabElementListeners(workspace, tabEl) {
   const id = workspace.id;
   tabEl.addEventListener('click', e => {
@@ -1191,16 +1309,24 @@ function attachTabElementListeners(workspace, tabEl) {
 
   tabEl.addEventListener('dragstart', e => {
     state.dragTabId = id;
+    state.dragDropHandled = false;
+    state.dragStartClientX = e.clientX;
+    state.dragStartClientY = e.clientY;
     tabEl.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(id));
   });
-  tabEl.addEventListener('dragend', () => {
+  tabEl.addEventListener('dragend', e => {
+    const shouldDetach = state.dragTabId === id && shouldDetachDraggedTab(e);
     state.dragTabId = null;
+    state.dragDropHandled = false;
     tabEl.classList.remove('dragging');
     document.querySelectorAll('.tab-item').forEach(el => {
       el.classList.remove('drag-over-left', 'drag-over-right');
     });
+    if (shouldDetach && state.workspaces.some(w => w.id === id)) {
+      setTimeout(() => detachTab(id), 0);
+    }
   });
   tabEl.addEventListener('dragover', e => {
     e.preventDefault();
@@ -1216,6 +1342,7 @@ function attachTabElementListeners(workspace, tabEl) {
   });
   tabEl.addEventListener('drop', e => {
     e.preventDefault();
+    state.dragDropHandled = true;
     tabEl.classList.remove('drag-over-left', 'drag-over-right');
     if (state.dragTabId === null || state.dragTabId === id) return;
     const fromIdx = getTabIndex(state.dragTabId);
@@ -1239,7 +1366,7 @@ function showTabContextMenu(id, x, y) {
   const workspace = state.workspaces.find(w => w.id === id);
   document.getElementById('tctx-moveleft').classList.toggle('disabled', idx <= 0);
   document.getElementById('tctx-moveright').classList.toggle('disabled', idx >= state.workspaces.length - 1);
-  document.getElementById('tctx-detach').classList.toggle('disabled', !!workspace && workspace.panes.length > 1);
+  document.getElementById('tctx-detach').classList.toggle('disabled', !workspace || workspace.panes.length < 1);
   const menu = document.getElementById('tab-context-menu');
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
@@ -1297,15 +1424,40 @@ function moveTab(id, direction) {
   markSessionChanged({ structural: true });
 }
 
-function detachTab(id) {
+function captureLiveWorkspace(workspace) {
+  return {
+    id: workspace.id,
+    workspaceBackendId: workspace.workspaceBackendId,
+    title: workspace.title,
+    cwd: workspace.cwd || null,
+    activePaneId: workspace.activePaneId,
+    maximizedPaneId: workspace.maximizedPaneId,
+    customTitle: workspace._customTitle || null,
+    layout: cloneLayout(workspace.layout),
+    panes: workspace.panes.map(pane => ({
+      id: pane.id,
+      paneBackendId: pane.paneBackendId,
+      cwd: pane.cwd || workspace.cwd || mt.os.env.HOME,
+      autoRender: !!pane.autoRender,
+      zoomFactor: pane.zoomFactor ?? 1
+    }))
+  };
+}
+
+async function detachTab(id) {
   const workspace = state.workspaces.find(w => w.id === id);
-  if (!workspace || workspace.panes.length > 1) return;
-  const pane = workspace.panes[0];
-  mt.ipc.send('detach-tab', {
-    cwd: pane.cwd,
-    title: workspace._customTitle || workspace.title
-  });
-  closeTab(id);
+  if (!workspace || !workspace.panes.length) return;
+  try {
+    const result = await mt.ipc.invoke('detach-live-tab', { workspace: captureLiveWorkspace(workspace) });
+    if (!result?.ok) throw new Error(result?.error || 'Detach failed');
+    closeTab(id, { killBackend: false });
+  } catch (err) {
+    console.error('Failed to detach live tab:', err);
+    const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+    try {
+      pane?.term?.write(`\r\n\x1b[31mMathTerm could not detach this tab.\x1b[0m\r\n${err?.message || err}\r\n`);
+    } catch {}
+  }
 }
 
 function initTabContextListeners() {
@@ -1326,6 +1478,7 @@ function initTabContextListeners() {
 module.exports = {
   createTab,
   restoreSession,
+  restoreLiveWorkspaceToken,
   switchTab,
   closeTab,
   closePane,

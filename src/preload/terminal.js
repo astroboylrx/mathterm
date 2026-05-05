@@ -26,7 +26,6 @@ ipcRenderer.on('pane-exit', (event, payload = {}) => {
 
 function spawnPty(file, args, opts) {
   const requestedPaneBackendId = String(opts?.paneBackendId || `pane-renderer-${Date.now()}-${++paneSeq}`);
-  const viewId = `view-${process.pid}-${Date.now()}-${++paneSeq}`;
   const result = ipcRenderer.sendSync('pane-create-sync', {
     paneBackendId: requestedPaneBackendId,
     shellCmd: file,
@@ -39,19 +38,38 @@ function spawnPty(file, args, opts) {
     throw new Error(result?.error || 'Failed to create pane backend');
   }
   const paneBackendId = String(result.paneBackendId || requestedPaneBackendId);
+  return createPtyProxy(paneBackendId, { pid: result.pid, afterSeq: 0 });
+}
+
+function attachPty(paneBackendId, opts = {}) {
+  const id = String(paneBackendId || '');
+  if (!id) throw new Error('paneBackendId is required');
+  return createPtyProxy(id, {
+    pid: opts.pid || null,
+    afterSeq: Number(opts.afterSeq) || 0
+  });
+}
+
+function createPtyProxy(paneBackendId, opts = {}) {
+  const viewId = `view-${process.pid}-${Date.now()}-${++paneSeq}`;
   paneHandlers.set(paneBackendId, {
     viewId,
     attached: false,
+    afterSeq: Number(opts.afterSeq) || 0,
     dataCallbacks: [],
     exitCallbacks: []
   });
   return {
-    pid: result.pid,
+    pid: opts.pid || null,
     paneBackendId,
     write: (data) => ipcRenderer.send('pane-input', { paneBackendId, data }),
     resize: (cols, rows) => ipcRenderer.send('pane-resize', { paneBackendId, cols, rows }),
     kill: () => {
       ipcRenderer.send('pane-close', { paneBackendId, viewId });
+      paneHandlers.delete(paneBackendId);
+    },
+    detach: () => {
+      ipcRenderer.send('pane-detach', { paneBackendId, viewId });
       paneHandlers.delete(paneBackendId);
     },
     ack: (batchId) => ipcRenderer.send('pane-output-ack', { paneBackendId, viewId, batchId }),
@@ -61,7 +79,7 @@ function spawnPty(file, args, opts) {
       handlers.dataCallbacks.push(cb);
       if (!handlers.attached) {
         handlers.attached = true;
-        ipcRenderer.send('pane-attach-ready', { paneBackendId, viewId, afterSeq: 0 });
+        ipcRenderer.send('pane-attach-ready', { paneBackendId, viewId, afterSeq: handlers.afterSeq });
       }
     },
     onExit: (cb) => {
@@ -97,7 +115,7 @@ contextBridge.exposeInMainWorld('mathterm', {
       }
     },
     invoke: (channel, ...args) => {
-      const allowed = ['export-pdf', 'save-png'];
+      const allowed = ['export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace'];
       if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
       return Promise.reject(new Error('Channel not allowed: ' + channel));
     }
@@ -144,6 +162,8 @@ contextBridge.exposeInMainWorld('mathterm', {
   },
 
   pty: {
-    spawn: spawnPty
+    spawn: spawnPty,
+    attach: attachPty,
+    snapshot: (paneBackendId) => ipcRenderer.invoke('pane-snapshot', { paneBackendId })
   }
 });

@@ -16,12 +16,14 @@ let preferencesWindow;
 let nextSessionWindowId = 1;
 let appIsQuitting = false;
 let suppressActiveWindowWrites = false;
+let nextLiveWorkspaceTransferId = 1;
 const isMac = process.platform === 'darwin';
 const cliOptions = parseCliOptions(process.argv);
 let cliSessionImportFailed = false;
 const APP_ROOT = path.join(__dirname, '..', '..');
 const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: process.env });
 const paneViews = new Map();
+const liveWorkspaceTransfers = new Map();
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -145,6 +147,12 @@ function registerPaneView(paneBackendId, viewId, wc) {
 
 function unregisterPaneView(paneBackendId, viewId) {
   paneViews.delete(paneViewKey(paneBackendId, viewId));
+}
+
+function detachPaneView(paneBackendId, viewId) {
+  if (!paneBackendId || !viewId) return;
+  unregisterPaneView(paneBackendId, viewId);
+  try { ptyManager.detachView(paneBackendId, viewId); } catch {}
 }
 
 function sendNextPaneOutput(paneBackendId, viewId) {
@@ -380,6 +388,7 @@ function createWindow(opts = {}) {
   if (opts.title) params.set('title', opts.title);
   if (opts.restoreSession) params.set('restoreSession', '1');
   if (opts.forceRestoreSession) params.set('forceRestoreSession', '1');
+  if (opts.liveWorkspaceToken) params.set('liveWorkspaceToken', opts.liveWorkspaceToken);
   params.set('sessionWindowId', sessionWindowId);
   win.on('focus', () => markActiveSessionWindow(sessionWindowId));
   win.on('close', () => {
@@ -822,6 +831,32 @@ ipcMain.on('detach-tab', (event, opts) => {
   createWindow({ cwd: opts?.cwd, title: opts?.title });
 });
 
+ipcMain.handle('detach-live-tab', async (event, payload = {}) => {
+  const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
+  const panes = Array.isArray(workspace?.panes) ? workspace.panes : [];
+  if (!workspace || !panes.length) return { ok: false, error: 'No live workspace was provided.' };
+  for (const pane of panes) {
+    if (!ptyManager.getPane(String(pane.paneBackendId || ''))) {
+      return { ok: false, error: `Unknown pane backend: ${pane.paneBackendId || ''}` };
+    }
+  }
+  const token = `live-workspace-${Date.now()}-${nextLiveWorkspaceTransferId++}`;
+  liveWorkspaceTransfers.set(token, {
+    workspace,
+    createdAt: Date.now()
+  });
+  createWindow({ liveWorkspaceToken: token, title: workspace.customTitle || workspace.title });
+  return { ok: true, token };
+});
+
+ipcMain.handle('claim-live-workspace', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live workspace transfer is no longer available.' };
+  liveWorkspaceTransfers.delete(key);
+  return { ok: true, workspace: transfer.workspace };
+});
+
 ipcMain.on('pane-create-sync', (event, opts = {}) => {
   try {
     const backend = ptyManager.createPane({
@@ -852,6 +887,17 @@ ipcMain.on('pane-attach-ready', (event, opts = {}) => {
   }
 });
 
+ipcMain.handle('pane-snapshot', async (event, opts = {}) => {
+  try {
+    const paneBackendId = String(opts.paneBackendId || '');
+    if (!paneBackendId) throw new Error('paneBackendId is required');
+    const snapshot = await ptyManager.snapshotPane(paneBackendId);
+    return { ok: true, paneBackendId, ...snapshot };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.on('pane-input', (event, opts = {}) => {
   try { ptyManager.writePane(String(opts.paneBackendId || ''), String(opts.data || '')); } catch {}
 });
@@ -869,6 +915,10 @@ ipcMain.on('pane-output-ack', (event, opts = {}) => {
     ptyManager.ackOutput(paneBackendId, viewId, opts.batchId);
     sendNextPaneOutput(paneBackendId, viewId);
   } catch {}
+});
+
+ipcMain.on('pane-detach', (event, opts = {}) => {
+  detachPaneView(String(opts.paneBackendId || ''), String(opts.viewId || ''));
 });
 
 ipcMain.on('pane-close', (event, opts = {}) => {
