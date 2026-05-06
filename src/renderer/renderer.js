@@ -48,6 +48,8 @@ state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
 state.searchCount = document.getElementById('search-count');
 state.contextMenu = document.getElementById('context-menu');
+const params = new URLSearchParams(window.location.search);
+const isSpareWindow = params.get('spareWindow') === '1';
 
 loadUserThemes();
 applySettings();
@@ -437,13 +439,53 @@ initIpc();
 initClipboardListeners();
 initSearchListeners();
 initTabContextListeners();
-initSessionPersistence();
+let sessionPersistenceStarted = false;
+function startSessionPersistence() {
+  if (sessionPersistenceStarted) return;
+  sessionPersistenceStarted = true;
+  initSessionPersistence();
+}
+if (!isSpareWindow) startSessionPersistence();
 
-const urlCwd = new URLSearchParams(window.location.search).get('cwd');
-const urlTitle = new URLSearchParams(window.location.search).get('title');
-const shouldRestoreSession = new URLSearchParams(window.location.search).get('restoreSession') === '1';
-const forceRestoreSession = new URLSearchParams(window.location.search).get('forceRestoreSession') === '1';
-const liveWorkspaceToken = new URLSearchParams(window.location.search).get('liveWorkspaceToken');
+const urlCwd = params.get('cwd');
+const urlTitle = params.get('title');
+const shouldRestoreSession = params.get('restoreSession') === '1';
+const forceRestoreSession = params.get('forceRestoreSession') === '1';
+const liveWorkspaceToken = params.get('liveWorkspaceToken');
+let spareConsumed = false;
+
+function updateStartupIndicators(firstTab) {
+  if (!firstTab) return;
+  state.autoIndicator.textContent = 'AUTO';
+  state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
+  const ri = state.renderInd;
+  if (ri) ri.textContent = firstTab._renderer === 'webgl' ? 'GL' : firstTab._renderer === 'canvas' ? 'CV' : 'DOM';
+}
+
+async function activateSpareLiveWorkspace(token) {
+  if (spareConsumed) return;
+  spareConsumed = true;
+  try {
+    startSessionPersistence();
+    const restored = await restoreLiveWorkspaceToken(token);
+    if (!restored) throw new Error('Spare live workspace restore returned false');
+    updateStartupIndicators(getActivePane());
+  } catch (err) {
+    console.error('Failed to activate spare live workspace:', err);
+    try {
+      await window.mathterm.ipc.invoke('live-tab-spare-failed', {
+        token,
+        error: err?.message || String(err)
+      });
+    } catch {}
+  }
+}
+
+window.mathterm.ipc.on('activate-spare-live-workspace', payload => {
+  activateSpareLiveWorkspace(String(payload?.token || '')).catch(err => {
+    console.error('Failed to activate spare live workspace:', err);
+  });
+});
 
 (async () => {
   const sz = settings.fontSize;
@@ -456,7 +498,14 @@ const liveWorkspaceToken = new URLSearchParams(window.location.search).get('live
   const timeout = new Promise(r => setTimeout(r, 1500));
   await Promise.race([loadFonts, timeout]);
 
-  if (liveWorkspaceToken) {
+  if (isSpareWindow) {
+    try {
+      await window.mathterm.ipc.invoke('live-tab-spare-ready');
+    } catch (err) {
+      console.error('Failed to mark live tab spare ready:', err);
+    }
+    return;
+  } else if (liveWorkspaceToken) {
     let restored = false;
     try {
       restored = await restoreLiveWorkspaceToken(liveWorkspaceToken);
@@ -482,11 +531,5 @@ const liveWorkspaceToken = new URLSearchParams(window.location.search).get('live
     createTab();
   }
 
-  const firstTab = getActivePane();
-  if (firstTab) {
-    state.autoIndicator.textContent = 'AUTO';
-    state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
-    const ri = state.renderInd;
-    if (ri) ri.textContent = firstTab._renderer === 'webgl' ? 'GL' : firstTab._renderer === 'canvas' ? 'CV' : 'DOM';
-  }
+  updateStartupIndicators(getActivePane());
 })();

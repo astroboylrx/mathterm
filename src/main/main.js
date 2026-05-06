@@ -18,6 +18,7 @@ let appIsQuitting = false;
 let suppressActiveWindowWrites = false;
 let nextLiveWorkspaceTransferId = 1;
 let activeLiveTabDragToken = null;
+let liveTabSpareWindow = null;
 const isMac = process.platform === 'darwin';
 const cliOptions = parseCliOptions(process.argv);
 let cliSessionImportFailed = false;
@@ -26,6 +27,8 @@ const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: proc
 const paneViews = new Map();
 const liveWorkspaceTransfers = new Map();
 const DEBUG_LIVE_TAB_DRAG = process.env.MATHTERM_DEBUG_DRAG === '1';
+const LIVE_TAB_SPARE_READY_TIMEOUT_MS = 8000;
+const LIVE_TAB_SPARE_CONSUME_TIMEOUT_MS = 1500;
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -560,7 +563,7 @@ const preferencesWebPrefs = {
 
 function getFocusedWebContents() {
   const win = BrowserWindow.getFocusedWindow() || mainWindow;
-  if (!win || win === preferencesWindow || win.isDestroyed()) return null;
+  if (!win || win === preferencesWindow || win.isDestroyed() || isLiveTabSpareWindow(win)) return null;
   return win.webContents;
 }
 
@@ -611,7 +614,22 @@ function isToggleDevToolsInput(input) {
     || input.key === 'F12';
 }
 
+function isLiveTabSpareWindow(win) {
+  return !!win && !win.isDestroyed?.() && !!win.__mathtermLiveTabSpare;
+}
+
+function terminalWindows() {
+  return BrowserWindow.getAllWindows().filter(win => !win.isDestroyed()
+    && win !== preferencesWindow
+    && !isLiveTabSpareWindow(win));
+}
+
+function userVisibleWindows() {
+  return BrowserWindow.getAllWindows().filter(win => !win.isDestroyed() && !isLiveTabSpareWindow(win));
+}
+
 function createWindow(opts = {}) {
+  const isSpareWindow = !!opts.spareWindow;
   const sessionWindowId = String(opts.sessionWindowId || nextSessionWindowId++);
   let preserveSessionOnClose = false;
   const bounds = opts.windowState?.bounds
@@ -624,6 +642,7 @@ function createWindow(opts = {}) {
     height: safeBounds.height || 700,
     title: 'MathTerm',
     show: showInitially,
+    skipTaskbar: isSpareWindow,
     backgroundColor: currentWindowBackgroundColor(),
     webPreferences: webPrefs
   };
@@ -632,6 +651,7 @@ function createWindow(opts = {}) {
   const win = new BrowserWindow({
     ...windowOptions
   });
+  win.__mathtermLiveTabSpare = isSpareWindow;
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
       event.preventDefault();
@@ -644,18 +664,23 @@ function createWindow(opts = {}) {
   if (opts.restoreSession) params.set('restoreSession', '1');
   if (opts.forceRestoreSession) params.set('forceRestoreSession', '1');
   if (opts.liveWorkspaceToken) params.set('liveWorkspaceToken', opts.liveWorkspaceToken);
+  if (isSpareWindow) params.set('spareWindow', '1');
   params.set('sessionWindowId', sessionWindowId);
-  win.on('focus', () => markActiveSessionWindow(sessionWindowId));
+  win.on('focus', () => {
+    if (!isLiveTabSpareWindow(win)) markActiveSessionWindow(sessionWindowId);
+  });
   win.on('close', () => {
-    const windows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
+    const windows = userVisibleWindows();
     const quitsWhenLastAppWindowCloses = process.platform !== 'darwin' || loadQuitWhenLastTabClosed();
     preserveSessionOnClose = appIsQuitting || (quitsWhenLastAppWindowCloses && windows.length <= 1);
   });
   win.on('closed', () => {
+    const wasStillSpare = !!win.__mathtermLiveTabSpare;
     if (mainWindow === win) {
-      mainWindow = BrowserWindow.getAllWindows().find(w => w !== preferencesWindow && !w.isDestroyed()) || null;
+      mainWindow = terminalWindows()[0] || null;
     }
-    if (!preserveSessionOnClose) removeSessionWindow(sessionWindowId);
+    if (!wasStillSpare && !preserveSessionOnClose) removeSessionWindow(sessionWindowId);
+    if (!wasStillSpare) handleTerminalWindowClosed();
   });
   win.loadFile(path.join(APP_ROOT, 'dist', 'index.html'), { query: Object.fromEntries(params) });
   if (showInitially && opts.focusInitially) {
@@ -667,6 +692,96 @@ function createWindow(opts = {}) {
     if (opts.windowState?.isFullScreen) win.setFullScreen(true);
   });
   return win;
+}
+
+function applyWindowStateToWindow(win, windowState) {
+  if (!win || win.isDestroyed() || !windowState?.bounds) return;
+  const bounds = clampRestoredBounds(windowState.bounds, screen.getAllDisplays());
+  if (bounds) win.setBounds(bounds);
+  if (windowState.isMaximized) win.maximize();
+  if (windowState.isFullScreen) win.setFullScreen(true);
+}
+
+function destroyLiveTabSpareWindow(reason = 'destroy') {
+  const record = liveTabSpareWindow;
+  liveTabSpareWindow = null;
+  if (!record) return;
+  if (record.readyTimer) clearTimeout(record.readyTimer);
+  if (record.consumeTimer) clearTimeout(record.consumeTimer);
+  const win = record.win;
+  debugLiveTabDrag('spare-destroy', { reason, webContentsId: win?.webContents?.id || null });
+  if (win && !win.isDestroyed()) {
+    win.destroy();
+  }
+}
+
+function createLiveTabSpareWindow() {
+  if (appIsQuitting || liveTabSpareWindow || !terminalWindows().length) return null;
+  const record = {
+    ready: false,
+    consuming: false,
+    win: null,
+    readyTimer: null,
+    consumeTimer: null
+  };
+  const win = createWindow({ spareWindow: true, showInitially: false });
+  record.win = win;
+  liveTabSpareWindow = record;
+  debugLiveTabDrag('spare-create', { webContentsId: win.webContents.id });
+  record.readyTimer = setTimeout(() => {
+    if (liveTabSpareWindow === record && !record.ready) destroyLiveTabSpareWindow('ready-timeout');
+  }, LIVE_TAB_SPARE_READY_TIMEOUT_MS);
+  win.on('closed', () => {
+    if (liveTabSpareWindow === record) liveTabSpareWindow = null;
+    if (!appIsQuitting && terminalWindows().length) {
+      setTimeout(() => ensureLiveTabSpareWindow(), 250);
+    }
+  });
+  return record;
+}
+
+function ensureLiveTabSpareWindow() {
+  if (appIsQuitting || !terminalWindows().length) return null;
+  if (liveTabSpareWindow?.win && !liveTabSpareWindow.win.isDestroyed() && !liveTabSpareWindow.consuming) {
+    return liveTabSpareWindow;
+  }
+  return createLiveTabSpareWindow();
+}
+
+function consumeLiveTabSpareWindow({ token, title, windowState }) {
+  const record = liveTabSpareWindow;
+  if (!record?.ready || record.consuming || !record.win || record.win.isDestroyed()) return false;
+  liveTabSpareWindow = null;
+  record.consuming = true;
+  if (record.readyTimer) clearTimeout(record.readyTimer);
+  const win = record.win;
+  win.__mathtermLiveTabSpare = false;
+  try { win.setSkipTaskbar(false); } catch {}
+  if (title) win.setTitle(title);
+  applyWindowStateToWindow(win, windowState);
+  win.show();
+  win.focus();
+  win.webContents.send('activate-spare-live-workspace', { token });
+  debugLiveTabDrag('spare-consume', { token, webContentsId: win.webContents.id, windowState });
+  record.consumeTimer = setTimeout(() => {
+    const transfer = liveWorkspaceTransfers.get(String(token || ''));
+    if (!transfer || transfer.claimedByWebContentsId === win.webContents.id) return;
+    debugLiveTabDrag('spare-consume-timeout', { token, webContentsId: win.webContents.id });
+    if (!win.isDestroyed()) win.destroy();
+    createWindow({ liveWorkspaceToken: token, title, windowState, focusInitially: true });
+    ensureLiveTabSpareWindow();
+  }, LIVE_TAB_SPARE_CONSUME_TIMEOUT_MS);
+  setTimeout(() => ensureLiveTabSpareWindow(), 0);
+  return true;
+}
+
+function handleTerminalWindowClosed() {
+  if (appIsQuitting || terminalWindows().length) return;
+  destroyLiveTabSpareWindow('no-terminal-windows');
+  mainWindow = null;
+  if (userVisibleWindows().length === 0 && (process.platform !== 'darwin' || loadQuitWhenLastTabClosed())) {
+    app.quit();
+  }
 }
 
 function createSessionWindows(session, forceRestoreSession = false) {
@@ -975,10 +1090,12 @@ app.whenReady().then(() => {
   importCliSessionFile();
   createStartupWindows();
   Menu.setApplicationMenu(buildMenu(true));
+  ensureLiveTabSpareWindow();
 });
 
 app.on('before-quit', () => {
   appIsQuitting = true;
+  destroyLiveTabSpareWindow('quit');
 });
 
 app.on('second-instance', (event, commandLine, workingDirectory) => {
@@ -1001,6 +1118,7 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
   Menu.setApplicationMenu(buildMenu(true));
   mainWindow.show();
   mainWindow.focus();
+  ensureLiveTabSpareWindow();
 });
 
 app.on('window-all-closed', () => {
@@ -1008,9 +1126,10 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (terminalWindows().length === 0) {
     createStartupWindows();
     Menu.setApplicationMenu(buildMenu(true));
+    ensureLiveTabSpareWindow();
   }
 });
 
@@ -1056,6 +1175,39 @@ ipcMain.on('clear-session', () => {
   clearSessionFile();
 });
 
+ipcMain.handle('live-tab-spare-ready', async (event) => {
+  const record = liveTabSpareWindow;
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!record || record.win !== win || !isLiveTabSpareWindow(win)) {
+    return { ok: false, error: 'No matching live tab spare window.' };
+  }
+  record.ready = true;
+  if (record.readyTimer) {
+    clearTimeout(record.readyTimer);
+    record.readyTimer = null;
+  }
+  debugLiveTabDrag('spare-ready', { webContentsId: event.sender.id });
+  return { ok: true };
+});
+
+ipcMain.handle('live-tab-spare-failed', async (event, payload = {}) => {
+  const token = String(payload.token || '');
+  const win = BrowserWindow.fromWebContents(event.sender);
+  debugLiveTabDrag('spare-failed', { token, webContentsId: event.sender.id, error: payload.error || null });
+  if (win && !win.isDestroyed()) win.destroy();
+  const transfer = liveWorkspaceTransfers.get(token);
+  if (transfer && !transfer.claimed) {
+    createWindow({
+      liveWorkspaceToken: token,
+      title: transfer.workspace.customTitle || transfer.workspace.title,
+      windowState: transfer.sourceWindowState,
+      focusInitially: true
+    });
+  }
+  ensureLiveTabSpareWindow();
+  return { ok: true };
+});
+
 ipcMain.on('notify-command-finished', (event, payload = {}) => {
   if (!Notification.isSupported()) return;
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -1079,7 +1231,7 @@ ipcMain.on('close-window', (event, opts = {}) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (opts && opts.quitApp) {
     if (win && !win.isDestroyed()) win.close();
-    const openWindows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed() && w !== win);
+    const openWindows = userVisibleWindows().filter(w => w !== win);
     if (openWindows.length === 0) app.quit();
     return;
   }
@@ -1193,13 +1345,18 @@ ipcMain.handle('open-live-tab-transfer-window', async (event, payload) => {
     return { ok: false, error };
   }
   setActiveLiveTabDrag(null);
-  createWindow({
-    liveWorkspaceToken: key,
-    title: transfer.workspace.customTitle || transfer.workspace.title,
-    windowState: windowStateForLiveDetach(transfer, event.sender, request),
-    focusInitially: true
-  });
-  return { ok: true, token: key };
+  const title = transfer.workspace.customTitle || transfer.workspace.title;
+  const windowState = windowStateForLiveDetach(transfer, event.sender, request);
+  const usedSpare = consumeLiveTabSpareWindow({ token: key, title, windowState });
+  if (!usedSpare) {
+    createWindow({
+      liveWorkspaceToken: key,
+      title,
+      windowState,
+      focusInitially: true
+    });
+  }
+  return { ok: true, token: key, usedSpare };
 });
 
 ipcMain.handle('accept-live-tab-drag', async (event, token) => {
