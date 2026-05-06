@@ -28,6 +28,7 @@ const { PaneSession } = require('./paneSession');
 const { TabWorkspace } = require('./workspace');
 const {
   tabFeedSection,
+  showManualRichView,
   refreshRichViewAfterLayout,
   captureRichViewLayoutState,
   restoreRichViewLayoutState
@@ -370,10 +371,12 @@ function buildPaneSessionDom(pane, leafEl) {
   if (leafEl) leafEl.appendChild(container);
 }
 
-function createPaneTerminal(pane) {
+function createPaneTerminal(pane, opts = {}) {
   const { resolveTheme, selectionBgFor } = require('./themes');
   const themeColors = resolveTheme(settings.theme);
   const term = new Terminal({
+    cols: Number.isInteger(opts.cols) && opts.cols > 0 ? opts.cols : undefined,
+    rows: Number.isInteger(opts.rows) && opts.rows > 0 ? opts.rows : undefined,
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
     theme: {
@@ -724,11 +727,14 @@ function attachPtyMetadataPipeline(pane) {
   ptyProc.onMetadata((metadata) => applyMainPaneMetadata(pane, metadata));
 }
 
-function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null }) {
+function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null, onSnapshotReady = null }) {
   const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd);
   buildPaneSessionDom(pane, leafEl);
-  const { term, fitAddon, searchAddon } = createPaneTerminal(pane);
+  const { term, fitAddon, searchAddon } = createPaneTerminal(pane, {
+    cols: snapshot?.cols,
+    rows: snapshot?.rows
+  });
   attachMacImePunctuationBridge(pane);
   attachPaneKeyHandler(pane, term);
   attachTerminalRenderer(pane, term);
@@ -747,9 +753,11 @@ function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachEx
       rebuildPromptTrackingFromBuffer(pane);
       scheduleTerminalRefresh(pane);
       attachPtyDataPipeline(pane, term);
+      if (typeof onSnapshotReady === 'function') onSnapshotReady(pane);
     });
   } else {
     attachPtyDataPipeline(pane, term);
+    if (typeof onSnapshotReady === 'function') onSnapshotReady(pane);
   }
   return pane;
 }
@@ -814,6 +822,18 @@ function remapLayoutPaneIds(node, idMap) {
   };
 }
 
+function applyRestoredMaximizedLayout(workspace) {
+  if (!workspace || workspace.maximizedPaneId == null) return;
+  if (!workspace.panes.some(pane => pane.id === workspace.maximizedPaneId)) {
+    workspace.maximizedPaneId = null;
+    return;
+  }
+  renderLayout(workspace);
+  updatePaneActiveClasses(workspace);
+  scheduleFitVisiblePanes(workspace);
+  scheduleRichViewsAfterLayout(workspace);
+}
+
 function createRestoredWorkspace(snapshot) {
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id);
@@ -833,7 +853,9 @@ function createRestoredWorkspace(snapshot) {
   const idMap = new Map();
   for (const oldPaneId of snapshot.paneIds) idMap.set(oldPaneId, state.paneIdCounter++);
   workspace.layout = remapLayoutPaneIds(snapshot.layout, idMap);
-  workspace.activePaneId = idMap.get(snapshot.activePaneId) || firstPaneIdInLayout(workspace.layout);
+  workspace.activePaneId = idMap.has(snapshot.activePaneId)
+    ? idMap.get(snapshot.activePaneId)
+    : firstPaneIdInLayout(workspace.layout);
   workspace.maximizedPaneId = idMap.has(snapshot.maximizedPaneId) ? idMap.get(snapshot.maximizedPaneId) : null;
 
   const tabEl = document.createElement('div');
@@ -861,6 +883,7 @@ function createRestoredWorkspace(snapshot) {
     pane.zoomFactor = paneData.zoomFactor ?? 1;
     applyZoomToTab(pane);
   }
+  applyRestoredMaximizedLayout(workspace);
   updateTabBar();
   return workspace;
 }
@@ -880,8 +903,12 @@ async function createLiveWorkspace(snapshot, opts = {}) {
   workspace.layout = remapLayoutPaneIds(cloneLayout(snapshot.layout), idMap);
   if (!workspace.layout) return null;
   const layoutPaneIds = new Set(paneIdsInLayout(workspace.layout));
-  workspace.activePaneId = idMap.get(snapshot.activePaneId) || firstPaneIdInLayout(workspace.layout);
-  workspace.maximizedPaneId = idMap.get(snapshot.maximizedPaneId) || null;
+  workspace.activePaneId = idMap.has(snapshot.activePaneId)
+    ? idMap.get(snapshot.activePaneId)
+    : firstPaneIdInLayout(workspace.layout);
+  workspace.maximizedPaneId = idMap.has(snapshot.maximizedPaneId)
+    ? idMap.get(snapshot.maximizedPaneId)
+    : null;
 
   const container = document.createElement('div');
   container.className = 'tab-container';
@@ -938,7 +965,13 @@ async function createLiveWorkspace(snapshot, opts = {}) {
       workspace,
       paneBackendId: paneData.paneBackendId,
       attachExisting: true,
-      snapshot: paneSnapshot
+      snapshot: paneSnapshot,
+      onSnapshotReady: pane => {
+        if (paneData.richVisible) {
+          showManualRichView(pane);
+          restoreRichViewLayoutState(pane, paneData.richViewState);
+        }
+      }
     });
     pane.autoRender = paneData.autoRender !== undefined ? paneData.autoRender : settings.autoRender;
     pane.zoomFactor = paneData.zoomFactor ?? 1;
@@ -947,6 +980,7 @@ async function createLiveWorkspace(snapshot, opts = {}) {
   if (!workspace.panes.some(pane => pane.id === workspace.activePaneId)) {
     workspace.activePaneId = workspace.panes[0]?.id || firstPaneIdInLayout(workspace.layout);
   }
+  applyRestoredMaximizedLayout(workspace);
   updateTabBar();
   return workspace;
 }
@@ -1400,7 +1434,36 @@ function makeLiveTabTransferToken(id) {
 }
 
 function liveTabTokenFromDrop(e) {
-  return e.dataTransfer?.getData?.(LIVE_TAB_TRANSFER_MIME) || '';
+  try {
+    return e.dataTransfer?.getData?.(LIVE_TAB_TRANSFER_MIME) || '';
+  } catch {
+    return '';
+  }
+}
+
+function dragTypesInclude(e, type) {
+  const types = e?.dataTransfer?.types;
+  if (!types) return false;
+  if (typeof types.includes === 'function') return types.includes(type);
+  if (typeof types.contains === 'function') return types.contains(type);
+  return Array.from(types).includes(type);
+}
+
+function hasLiveTabDrag(e) {
+  return !!liveTabTokenFromDrop(e)
+    || dragTypesInclude(e, LIVE_TAB_TRANSFER_MIME)
+    || !!state.externalDragTransferToken;
+}
+
+async function tokenForLiveTabDrop(e) {
+  const token = liveTabTokenFromDrop(e) || state.externalDragTransferToken || '';
+  if (token) return token;
+  try {
+    const result = await mt.ipc.invoke('get-active-live-tab-drag');
+    return result?.ok ? (result.token || '') : '';
+  } catch {
+    return '';
+  }
 }
 
 function prepareLiveTabDrag(workspace) {
@@ -1417,7 +1480,7 @@ function prepareLiveTabDrag(workspace) {
 }
 
 async function acceptLiveTabDrop(e, insertIndex = state.workspaces.length) {
-  const token = liveTabTokenFromDrop(e);
+  const token = await tokenForLiveTabDrop(e);
   if (!token || token === state.dragTransferToken) return false;
   e.preventDefault();
   e.stopPropagation();
@@ -1468,9 +1531,11 @@ function attachTabElementListeners(workspace, tabEl) {
     const movedToDropTarget = e.dataTransfer?.dropEffect === 'move';
     const shouldDetach = state.dragTabId === id && !movedToDropTarget && shouldDetachDraggedTab(e);
     const detachToken = shouldDetach ? state.dragTransferToken : null;
+    const clearToken = state.dragTransferToken;
     state.dragTabId = null;
     state.dragTransferToken = null;
     state.dragDropHandled = false;
+    if (clearToken) mt.ipc.send('clear-live-tab-drag', { token: clearToken });
     tabEl.classList.remove('dragging');
     document.querySelectorAll('.tab-item').forEach(el => {
       el.classList.remove('drag-over-left', 'drag-over-right');
@@ -1480,6 +1545,7 @@ function attachTabElementListeners(workspace, tabEl) {
     }
   });
   tabEl.addEventListener('dragover', e => {
+    if (state.dragTabId === null && !hasLiveTabDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = tabEl.getBoundingClientRect();
@@ -1596,7 +1662,9 @@ function captureLiveWorkspace(workspace) {
       paneBackendId: pane.paneBackendId,
       cwd: pane.cwd || workspace.cwd || mt.os.env.HOME,
       autoRender: !!pane.autoRender,
-      zoomFactor: pane.zoomFactor ?? 1
+      zoomFactor: pane.zoomFactor ?? 1,
+      richVisible: !!pane.richVisible,
+      richViewState: captureRichViewLayoutState(pane)
     }))
   };
 }
@@ -1622,13 +1690,21 @@ async function detachTab(id, opts = {}) {
 }
 
 function initTabContextListeners() {
+  mt.ipc.on('live-tab-drag-started', payload => {
+    const token = String(payload?.token || '');
+    if (token && token !== state.dragTransferToken) state.externalDragTransferToken = token;
+  });
+  mt.ipc.on('live-tab-drag-ended', payload => {
+    const token = String(payload?.token || '');
+    if (!token || state.externalDragTransferToken === token) state.externalDragTransferToken = null;
+  });
   mt.ipc.on('live-tab-transfer-complete', payload => {
     const workspaceId = Number(payload?.workspaceId);
     if (!Number.isInteger(workspaceId)) return;
     closeTab(workspaceId, { killBackend: false });
   });
   state.tabBar.addEventListener('dragover', e => {
-    if (!liveTabTokenFromDrop(e)) return;
+    if (!hasLiveTabDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
   });
