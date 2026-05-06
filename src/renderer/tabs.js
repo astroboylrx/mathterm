@@ -1466,13 +1466,17 @@ async function tokenForLiveTabDrop(e) {
   }
 }
 
-function prepareLiveTabDrag(workspace) {
+function prepareLiveTabDrag(workspace, event = null) {
   if (!workspace || !workspace.panes.length) return '';
   const token = makeLiveTabTransferToken(workspace.id);
   state.dragTransferToken = token;
   try {
     mt.ipc.send('prepare-live-tab-drag', {
       token,
+      dragStartClientX: event?.clientX,
+      dragStartClientY: event?.clientY,
+      dragStartScreenX: event?.screenX,
+      dragStartScreenY: event?.screenY,
       workspace: captureLiveWorkspace(workspace)
     });
   } catch {}
@@ -1520,7 +1524,7 @@ function attachTabElementListeners(workspace, tabEl) {
     state.dragStartClientY = e.clientY;
     tabEl.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
-    const token = prepareLiveTabDrag(workspace);
+    const token = prepareLiveTabDrag(workspace, e);
     if (token) {
       e.dataTransfer.setData(LIVE_TAB_TRANSFER_MIME, token);
     } else {
@@ -1541,7 +1545,13 @@ function attachTabElementListeners(workspace, tabEl) {
       el.classList.remove('drag-over-left', 'drag-over-right');
     });
     if (shouldDetach && state.workspaces.some(w => w.id === id)) {
-      setTimeout(() => detachTab(id, { token: detachToken }), 0);
+      detachTab(id, {
+        token: detachToken,
+        dropClientX: e.clientX,
+        dropClientY: e.clientY,
+        dropScreenX: e.screenX,
+        dropScreenY: e.screenY
+      });
     }
   });
   tabEl.addEventListener('dragover', e => {
@@ -1674,7 +1684,13 @@ async function detachTab(id, opts = {}) {
   if (!workspace || !workspace.panes.length) return;
   try {
     if (opts.token) {
-      const result = await mt.ipc.invoke('open-live-tab-transfer-window', opts.token);
+      const result = await mt.ipc.invoke('open-live-tab-transfer-window', {
+        token: opts.token,
+        dropClientX: opts.dropClientX,
+        dropClientY: opts.dropClientY,
+        dropScreenX: opts.dropScreenX,
+        dropScreenY: opts.dropScreenY
+      });
       if (!result?.ok) throw new Error(result?.error || 'Detach failed');
     } else {
       const result = await mt.ipc.invoke('detach-live-tab', { workspace: captureLiveWorkspace(workspace) });

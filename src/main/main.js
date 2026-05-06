@@ -25,6 +25,7 @@ const APP_ROOT = path.join(__dirname, '..', '..');
 const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: process.env });
 const paneViews = new Map();
 const liveWorkspaceTransfers = new Map();
+const DEBUG_LIVE_TAB_DRAG = process.env.MATHTERM_DEBUG_DRAG === '1';
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -41,6 +42,19 @@ const SETTINGS_PATH = path.join(
 );
 const SESSION_PATH = path.join(path.dirname(SETTINGS_PATH), 'session.json');
 const sessionCwdAdapter = makeCwdAdapter({ fs, path, os, fallbackCwd: APP_ROOT });
+const BUILTIN_THEME_BACKGROUNDS = {
+  dark: '#1a1a2e',
+  'vscode-dark': '#1e1e1e',
+  'tokyo-night': '#1a1b26',
+  dracula: '#282a36',
+  nord: '#2e3440',
+  'solarized-dark': '#002b36',
+  'catppuccin-mocha': '#1e1e2e',
+  'gruvbox-dark': '#282828',
+  'vscode-light': '#ffffff',
+  'solarized-light': '#fdf6e3',
+  'catppuccin-latte': '#eff1f5',
+};
 
 // Mutter ≤ 47 on Wayland crashes Electron's GTK menu bar (Ubuntu 24.04).
 // Auto-engage the X11 hint only on the at-risk configuration: Wayland session
@@ -48,21 +62,83 @@ const sessionCwdAdapter = makeCwdAdapter({ fs, path, os, fallbackCwd: APP_ROOT }
 // Wayland compositors like KWin/Sway/Hyprland/Weston, Mutter 48+) gets native
 // Wayland by default. MATHTERM_OZONE env var and "displayBackend" in
 // mathterm.json override the auto-detection. See Wayland_issues.md.
+const linuxDisplayBackend = detectLinuxDisplayBackend();
+
 if (process.platform === 'linux') {
-  const envChoice = process.env.MATHTERM_OZONE;
-  let backend;
-  if (envChoice === 'wayland' || envChoice === 'x11') {
-    backend = envChoice;
-  } else {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
-      backend = parsed && parsed.displayBackend;
-    } catch {}
-  }
-  const useX11 = backend === 'x11' || (backend !== 'wayland' && shouldHintX11Linux());
-  if (useX11) {
+  if (linuxDisplayBackend === 'x11') {
     app.commandLine.appendSwitch('ozone-platform-hint', 'x11');
   }
+}
+
+function configuredLinuxDisplayBackend() {
+  if (process.platform !== 'linux') return null;
+  const cliChoice = cliLinuxDisplayBackend(process.argv);
+  if (cliChoice) return cliChoice;
+  const envChoice = process.env.MATHTERM_OZONE;
+  if (envChoice === 'wayland' || envChoice === 'x11') return envChoice;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    return parsed && (parsed.displayBackend === 'wayland' || parsed.displayBackend === 'x11')
+      ? parsed.displayBackend
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function cliLinuxDisplayBackend(argv = []) {
+  for (let i = 0; i < argv.length; i++) {
+    const arg = String(argv[i] || '');
+    const next = String(argv[i + 1] || '');
+    const value = arg.startsWith('--ozone-platform=')
+      ? arg.slice('--ozone-platform='.length)
+      : arg === '--ozone-platform'
+        ? next
+        : arg.startsWith('--ozone-platform-hint=')
+          ? arg.slice('--ozone-platform-hint='.length)
+          : arg === '--ozone-platform-hint'
+            ? next
+            : null;
+    if (value === 'x11' || value === 'wayland') return value;
+  }
+  return null;
+}
+
+function detectLinuxDisplayBackend() {
+  if (process.platform !== 'linux') return null;
+  const configured = configuredLinuxDisplayBackend();
+  if (configured) return configured;
+  if (shouldHintX11Linux()) return 'x11';
+  return process.env.XDG_SESSION_TYPE === 'wayland' || process.env.WAYLAND_DISPLAY ? 'wayland' : 'x11';
+}
+
+function safeReadJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function isHexColor(value) {
+  return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim());
+}
+
+function configuredThemeId() {
+  const parsed = safeReadJsonFile(SETTINGS_PATH);
+  return typeof parsed?.theme === 'string' && parsed.theme ? parsed.theme : 'dark';
+}
+
+function userThemeBackground(themeId) {
+  if (!themeId || BUILTIN_THEME_BACKGROUNDS[themeId]) return null;
+  const parsed = safeReadJsonFile(path.join(path.dirname(SETTINGS_PATH), 'themes', `${themeId}.json`));
+  const bg = parsed?.colors?.bg;
+  return isHexColor(bg) ? bg.trim() : null;
+}
+
+function currentWindowBackgroundColor() {
+  const themeId = configuredThemeId();
+  return userThemeBackground(themeId) || BUILTIN_THEME_BACKGROUNDS[themeId] || BUILTIN_THEME_BACKGROUNDS.dark;
 }
 
 function shouldHintX11Linux() {
@@ -181,6 +257,32 @@ function setActiveLiveTabDrag(token) {
   broadcastToTerminalWindows(next ? 'live-tab-drag-started' : 'live-tab-drag-ended', { token: next });
 }
 
+function debugLiveTabDrag(label, details = {}) {
+  if (!DEBUG_LIVE_TAB_DRAG) return;
+  try {
+    console.error(`[mathterm drag] ${label}`, JSON.stringify(details));
+  } catch {
+    console.error(`[mathterm drag] ${label}`, details);
+  }
+}
+
+function isUsableCursorPoint(point) {
+  return point
+    && Number.isFinite(Number(point.x))
+    && Number.isFinite(Number(point.y))
+    && screen.getAllDisplays().some(display => {
+      const bounds = display.bounds || display.workArea || display;
+      return Number(point.x) >= bounds.x
+        && Number(point.x) < bounds.x + bounds.width
+        && Number(point.y) >= bounds.y
+        && Number(point.y) < bounds.y + bounds.height;
+    });
+}
+
+function shouldPlaceLiveDetachWindow() {
+  return process.platform !== 'linux' || linuxDisplayBackend !== 'wayland';
+}
+
 function getSourceWindowSizeState(sender) {
   const win = BrowserWindow.fromWebContents(sender);
   if (!win || win.isDestroyed()) return null;
@@ -192,6 +294,104 @@ function getSourceWindowSizeState(sender) {
       height: bounds.height
     }
   };
+}
+
+function getSourceWindowDragOffset(sender, payload = {}) {
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win || win.isDestroyed()) return null;
+  const bounds = win.getBounds();
+  const contentBounds = win.getContentBounds();
+  const clientX = Number(payload.dragStartClientX);
+  const clientY = Number(payload.dragStartClientY);
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || !bounds) {
+    debugLiveTabDrag('missing-start-offset', { payload, bounds, contentBounds });
+    return null;
+  }
+  const offset = {
+    x: Math.round(contentBounds.x - bounds.x + clientX),
+    y: Math.round(contentBounds.y - bounds.y + clientY)
+  };
+  debugLiveTabDrag('source-offset', { payload, bounds, contentBounds, offset });
+  return offset;
+}
+
+function screenPointFromPayload(payload = {}) {
+  const x = Number(payload.dropScreenX);
+  const y = Number(payload.dropScreenY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (x === 0 && y === 0 && Number(payload.dropClientX) === 0 && Number(payload.dropClientY) === 0) return null;
+  return { x: Math.round(x), y: Math.round(y) };
+}
+
+function windowStateForLiveDetach(transfer, sender, payload = {}) {
+  const windowState = transfer?.sourceWindowState || getSourceWindowSizeState(sender);
+  if (!windowState?.bounds) {
+    debugLiveTabDrag('missing-window-state', { payload, windowState });
+    return windowState;
+  }
+  if (!shouldPlaceLiveDetachWindow()) {
+    debugLiveTabDrag('wayland-placement-skipped', {
+      payload,
+      linuxDisplayBackend,
+      xdgSessionType: process.env.XDG_SESSION_TYPE || null,
+      waylandDisplay: process.env.WAYLAND_DISPLAY || null,
+      windowState
+    });
+    return windowState;
+  }
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win || win.isDestroyed()) {
+    debugLiveTabDrag('missing-source-window', { payload, windowState });
+    return windowState;
+  }
+  const contentBounds = win.getContentBounds();
+  const dropClientX = Number(payload.dropClientX);
+  const dropClientY = Number(payload.dropClientY);
+  const clientDropPoint = Number.isFinite(dropClientX) && Number.isFinite(dropClientY)
+    ? {
+        x: Math.round(contentBounds.x + dropClientX),
+        y: Math.round(contentBounds.y + dropClientY)
+      }
+    : null;
+  const eventDropPoint = screenPointFromPayload(payload);
+  const cursorDropPoint = typeof screen.getCursorScreenPoint === 'function'
+    ? screen.getCursorScreenPoint()
+    : null;
+  const dropPoint = isUsableCursorPoint(eventDropPoint) ? eventDropPoint : cursorDropPoint;
+  const dragOffset = transfer?.sourceDragOffset;
+  if (!isUsableCursorPoint(dropPoint) || !dragOffset) {
+    debugLiveTabDrag('missing-drag-offset', {
+      payload,
+      windowState,
+      contentBounds,
+      clientDropPoint,
+      eventDropPoint,
+      cursorDropPoint,
+      dropPoint,
+      dragOffset
+    });
+    return windowState;
+  }
+  const nextWindowState = {
+    ...windowState,
+    bounds: {
+      ...windowState.bounds,
+      x: dropPoint.x - dragOffset.x,
+      y: dropPoint.y - dragOffset.y
+    }
+  };
+  debugLiveTabDrag('detach-window-state', {
+    payload,
+    windowState,
+    contentBounds,
+    clientDropPoint,
+    eventDropPoint,
+    cursorDropPoint,
+    dropPoint,
+    dragOffset,
+    nextWindowState
+  });
+  return nextWindowState;
 }
 
 function sendNextPaneOutput(paneBackendId, viewId) {
@@ -390,6 +590,7 @@ function createPreferencesWindow(tab = 'appearance') {
     minHeight: 520,
     title: 'MathTerm Preferences',
     autoHideMenuBar: true,
+    backgroundColor: currentWindowBackgroundColor(),
     webPreferences: preferencesWebPrefs
   });
   preferencesWindow.setMenuBarVisibility(false);
@@ -417,11 +618,13 @@ function createWindow(opts = {}) {
     ? clampRestoredBounds(opts.windowState.bounds, screen.getAllDisplays())
     : {};
   const safeBounds = bounds || {};
+  const showInitially = opts.showInitially !== false;
   const windowOptions = {
     width: safeBounds.width || 960,
     height: safeBounds.height || 700,
     title: 'MathTerm',
-    show: opts.showInitially !== false,
+    show: showInitially,
+    backgroundColor: currentWindowBackgroundColor(),
     webPreferences: webPrefs
   };
   if (Number.isFinite(safeBounds.x)) windowOptions.x = safeBounds.x;
@@ -455,6 +658,10 @@ function createWindow(opts = {}) {
     if (!preserveSessionOnClose) removeSessionWindow(sessionWindowId);
   });
   win.loadFile(path.join(APP_ROOT, 'dist', 'index.html'), { query: Object.fromEntries(params) });
+  if (showInitially && opts.focusInitially) {
+    win.show();
+    win.focus();
+  }
   win.once('ready-to-show', () => {
     if (opts.windowState?.isMaximized) win.maximize();
     if (opts.windowState?.isFullScreen) win.setFullScreen(true);
@@ -939,19 +1146,41 @@ ipcMain.on('prepare-live-tab-drag', (event, payload = {}) => {
   const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
   const error = validateLiveWorkspace(workspace);
   if (!token || error) return;
+  const sourceWindowState = getSourceWindowSizeState(event.sender);
+  const sourceDragOffset = getSourceWindowDragOffset(event.sender, payload);
+  debugLiveTabDrag('prepare', {
+    token,
+    sourceWebContentsId: event.sender.id,
+    payload: {
+      dragStartClientX: payload.dragStartClientX,
+      dragStartClientY: payload.dragStartClientY,
+      dragStartScreenX: payload.dragStartScreenX,
+      dragStartScreenY: payload.dragStartScreenY
+    },
+    sourceWindowState,
+    sourceDragOffset
+  });
   liveWorkspaceTransfers.set(token, {
     workspace,
     sourceWebContentsId: event.sender.id,
     sourceWorkspaceId: workspace.id,
-    sourceWindowState: getSourceWindowSizeState(event.sender),
+    sourceWindowState,
+    sourceDragOffset,
     createdAt: Date.now()
   });
   setActiveLiveTabDrag(token);
 });
 
-ipcMain.handle('open-live-tab-transfer-window', async (event, token) => {
-  const key = String(token || '');
+ipcMain.handle('open-live-tab-transfer-window', async (event, payload) => {
+  const request = payload && typeof payload === 'object' ? payload : { token: payload };
+  const key = String(request.token || '');
   const transfer = liveWorkspaceTransfers.get(key);
+  debugLiveTabDrag('open-request', {
+    token: key,
+    sourceWebContentsId: transfer?.sourceWebContentsId,
+    senderId: event.sender.id,
+    request
+  });
   if (!transfer) return { ok: false, error: 'Live tab drag is no longer available.' };
   if (transfer.sourceWebContentsId !== event.sender.id) {
     return { ok: false, error: 'Live tab drag does not belong to this window.' };
@@ -967,7 +1196,8 @@ ipcMain.handle('open-live-tab-transfer-window', async (event, token) => {
   createWindow({
     liveWorkspaceToken: key,
     title: transfer.workspace.customTitle || transfer.workspace.title,
-    windowState: transfer.sourceWindowState || getSourceWindowSizeState(event.sender)
+    windowState: windowStateForLiveDetach(transfer, event.sender, request),
+    focusInitially: true
   });
   return { ok: true, token: key };
 });
