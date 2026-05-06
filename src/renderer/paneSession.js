@@ -1,10 +1,12 @@
 const { state } = require('./state');
 const { Osc1337Parser } = require('./osc1337');
+const { nextPaneBackendId } = require('./runtimeBackends');
 
 // A pane session is one terminal inside a workspace/tab.
 class PaneSession {
-  constructor(id, workspace = null) {
+  constructor(id, workspace = null, opts = {}) {
     this.id = id;
+    this.paneBackendId = opts.paneBackendId || nextPaneBackendId();
     this.workspace = workspace;
     this.title = state._hostname + ': ~';
     this.cwd = window.mathterm.os.env.HOME;
@@ -43,11 +45,11 @@ class PaneSession {
     this._promptPrefix = null;
     this._promptYSet = new Set();
     this._promptStartYSet = new Set();
-    this._shimDir = null;
     this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;
     this._commandStartTime = 0;
+    this._mainCommandEndedAt = 0;
     this._promptStartY = undefined;
     this._promptBHandled = false;
     this._promptJumpFlash = null;

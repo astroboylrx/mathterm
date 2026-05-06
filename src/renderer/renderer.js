@@ -5,6 +5,7 @@ const {
   createTab,
   switchTab,
   restoreSession,
+  restoreLiveWorkspaceToken,
   handlePaneShortcut,
   fitVisiblePanes,
   resetActiveRenderer
@@ -442,6 +443,7 @@ const urlCwd = new URLSearchParams(window.location.search).get('cwd');
 const urlTitle = new URLSearchParams(window.location.search).get('title');
 const shouldRestoreSession = new URLSearchParams(window.location.search).get('restoreSession') === '1';
 const forceRestoreSession = new URLSearchParams(window.location.search).get('forceRestoreSession') === '1';
+const liveWorkspaceToken = new URLSearchParams(window.location.search).get('liveWorkspaceToken');
 
 (async () => {
   const sz = settings.fontSize;
@@ -454,7 +456,15 @@ const forceRestoreSession = new URLSearchParams(window.location.search).get('for
   const timeout = new Promise(r => setTimeout(r, 1500));
   await Promise.race([loadFonts, timeout]);
 
-  if (urlCwd) {
+  if (liveWorkspaceToken) {
+    let restored = false;
+    try {
+      restored = await restoreLiveWorkspaceToken(liveWorkspaceToken);
+    } catch (err) {
+      console.error('Failed to restore live workspace:', err);
+    }
+    if (!restored) withSessionChangesSuppressed(() => createTab(undefined, { skipSessionSave: true }));
+  } else if (urlCwd) {
     withSessionChangesSuppressed(() => createTab(urlCwd, { skipSessionSave: true, customTitle: urlTitle }));
   } else if (shouldRestoreSession && (settings.restoreLastSession || forceRestoreSession)) {
     const hadSessionFile = hasSessionFile();

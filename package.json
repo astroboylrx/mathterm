@@ -1,6 +1,6 @@
 {
   "name": "mathterm",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/sessionFormat.test.js && node test/session.test.js",
+    "test": "node test/backendLifecycle.test.js && node test/outputTransport.test.js && node test/headlessTerminalState.test.js && node test/headlessTerminalBudget.test.js && node test/runtimeIds.test.js && node test/shellShim.test.js && node test/terminalMetadata.test.js && node test/ptyManager.test.js && node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/sessionFormat.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "dev:linux": "npm run build && electron . --no-sandbox",
     "rebuild": "electron-builder install-app-deps",
@@ -58,9 +58,11 @@
     "@xterm/addon-canvas": "^0.7.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-search": "^0.16.0",
+    "@xterm/addon-serialize": "^0.13.0",
     "@xterm/addon-unicode11": "^0.9.0",
     "@xterm/addon-web-links": "^0.12.0",
     "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/headless": "^5.5.0",
     "@xterm/xterm": "^5.5.0",
     "katex": "^0.16.0",
     "marked": "^18.0.2",

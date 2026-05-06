@@ -26,9 +26,9 @@ const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 const { escapeHtml } = require('./ansi');
 const { PaneSession } = require('./paneSession');
 const { TabWorkspace } = require('./workspace');
-const { createShellShim, buildShellArgs } = require('./shellShim');
 const {
   tabFeedSection,
+  showManualRichView,
   refreshRichViewAfterLayout,
   captureRichViewLayoutState,
   restoreRichViewLayoutState
@@ -52,9 +52,11 @@ const {
   removePaneFromLayout
 } = require('./layoutTree');
 const { markSessionChanged } = require('./sessionEvents');
+const { cloneLayout } = require('../shared/sessionFormat');
 
 const IMAGE_MAX_COUNT = 50;
 const IMAGE_MAX_BYTES = 512 * 1024 * 1024;
+const LIVE_TAB_TRANSFER_MIME = 'application/x-mathterm-live-tab';
 
 function updateRendererIndicator(pane) {
   const el = state.renderInd;
@@ -369,10 +371,12 @@ function buildPaneSessionDom(pane, leafEl) {
   if (leafEl) leafEl.appendChild(container);
 }
 
-function createPaneTerminal(pane) {
+function createPaneTerminal(pane, opts = {}) {
   const { resolveTheme, selectionBgFor } = require('./themes');
   const themeColors = resolveTheme(settings.theme);
   const term = new Terminal({
+    cols: Number.isInteger(opts.cols) && opts.cols > 0 ? opts.cols : undefined,
+    rows: Number.isInteger(opts.rows) && opts.rows > 0 ? opts.rows : undefined,
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
     theme: {
@@ -488,30 +492,30 @@ function finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace) {
   fitPane(pane);
 }
 
-function spawnPaneShell(pane, term) {
+function spawnPaneShell(pane, term, opts = {}) {
   const shellCmd = mt.os.env.SHELL || '/bin/bash';
-  const shimDir = createShellShim(shellCmd);
-  pane._shimDir = shimDir;
-  const { args: shellArgs, env: shellEnv } = buildShellArgs(shellCmd, shimDir);
-  const ptyProc = mt.pty.spawn(shellCmd, shellArgs, {
-    name: 'xterm-256color',
-    cols: term.cols,
-    rows: term.rows,
-    cwd: pane.cwd,
-    env: {
-      ...shellEnv,
-      TERM_PROGRAM: 'MathTerm',
-      TERM_PROGRAM_VERSION: '0.6',
-      COLORTERM: 'truecolor'
-    }
-  });
+  let ptyProc;
+  try {
+    ptyProc = opts.attachExisting
+      ? mt.pty.attach(pane.paneBackendId, { afterSeq: opts.afterSeq })
+      : mt.pty.spawn(shellCmd, [], {
+        paneBackendId: pane.paneBackendId,
+        name: 'xterm-256color',
+        cols: term.cols,
+        rows: term.rows,
+        cwd: pane.cwd,
+        scrollback: settings.scrollback
+      });
+  } catch (err) {
+    const message = err?.message || String(err || 'Unknown PTY error');
+    console.error('Failed to spawn pane shell:', err);
+    term.write(`\r\n\x1b[31mMathTerm could not start the shell.\x1b[0m\r\n${message}\r\n`);
+    pane.ptyProc = null;
+    return null;
+  }
   pane.ptyProc = ptyProc;
 
   ptyProc.onExit(() => {
-    if (pane._shimDir) {
-      try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
-      pane._shimDir = null;
-    }
     pane.ptyProc = null;
     if (!pane._closing && getPaneById(pane.id)) {
       setTimeout(() => closePane(pane.id), 0);
@@ -615,14 +619,25 @@ function attachOsc133Tracking(pane, term) {
 
 function attachPtyDataPipeline(pane, term) {
   const ptyProc = pane.ptyProc;
-  ptyProc.onData(data => {
+  if (!ptyProc) return;
+  ptyProc.onData((data, meta = {}) => {
     const { images, cleanData } = pane.osc1337Parser.feed(data);
     if (images.length) {
       const y = term.buffer.active.baseY + term.buffer.active.cursorY;
       for (const img of images) pane.inlineImages.push({ ...img, lineY: y });
       trimInlineImages(pane.inlineImages);
     }
-    term.write(cleanData, () => scheduleTerminalRefresh(pane));
+    const ackOutput = () => {
+      if (meta.batchId != null && ptyProc.ack) ptyProc.ack(meta.batchId);
+    };
+    if (cleanData) {
+      term.write(cleanData, () => {
+        scheduleTerminalRefresh(pane);
+        ackOutput();
+      });
+    } else {
+      ackOutput();
+    }
     if (images.length) {
       setTimeout(() => {
         const { showManualRichView } = require('./richView');
@@ -634,20 +649,116 @@ function attachPtyDataPipeline(pane, term) {
   });
 }
 
-function createPaneSession({ id, cwd, leafEl, workspace }) {
-  const pane = new PaneSession(id, workspace);
+function rebuildPromptTrackingFromBuffer(pane) {
+  if (!pane?._promptPrefix || !pane.term?.buffer?.active) return;
+  const buf = pane.term.buffer.active;
+  const startY = Math.max(0, buf.baseY - settings.scrollback);
+  const endY = buf.baseY + buf.length - 1;
+  const prefix = pane._promptPrefix;
+  pane._promptYSet.clear();
+  pane._promptStartYSet.clear();
+  for (let y = startY; y <= endY; y++) {
+    let line;
+    try { line = buf.getLine(y); } catch { line = null; }
+    if (!line || line.isWrapped) continue;
+    const text = line.translateToString(true).trimStart();
+    if (!text.startsWith(prefix)) continue;
+    pane._promptYSet.add(y);
+    pane._promptStartYSet.add(y);
+  }
+  prunePromptTracking(pane, startY);
+}
+
+function handleBackgroundCommandEnded(pane, command = {}) {
+  const endedAt = Number(command.endedAt) || 0;
+  if (!endedAt || endedAt <= (pane._mainCommandEndedAt || 0)) return;
+  pane._mainCommandEndedAt = endedAt;
+  if (command.endedWithAttachedView) return;
+
+  const exitCode = command.lastExitCode || '';
+  const failed = exitCode !== '' && exitCode !== '0';
+  const elapsedMs = endedAt - (Number(command.startedAt) || endedAt);
+  const minMs = Number(settings.backgroundCommandNotificationMinMs) || 0;
+  const workspace = pane.workspace;
+  if (workspace && settings.backgroundCommandMarker) {
+    workspace.needsAttention = true;
+    workspace.attentionLevel = failed ? 'error' : 'success';
+    workspace.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
+    updateTabBar();
+  }
+  const windowIsBackground = document.hidden || !document.hasFocus();
+  if (settings.backgroundCommandNotifications && windowIsBackground && elapsedMs >= minMs) {
+    const workspaceTitle = workspace?.title || 'background tab';
+    mt.ipc.send('notify-command-finished', {
+      title: failed ? 'MathTerm command failed' : 'MathTerm command finished',
+      body: failed ? `${workspaceTitle} - exit ${exitCode || 'nonzero'}` : workspaceTitle
+    });
+  }
+}
+
+function applyMainPaneMetadata(pane, metadata = {}, opts = {}) {
+  let changed = false;
+  if (metadata.cwd && metadata.cwd !== pane.cwd) {
+    pane.cwd = metadata.cwd;
+    changed = true;
+  }
+  if (metadata.title && metadata.title !== pane._mainTitle) {
+    pane._mainTitle = metadata.title;
+    changed = true;
+  }
+  if (metadata.promptPrefix && metadata.promptPrefix !== pane._promptPrefix) {
+    pane._promptPrefix = metadata.promptPrefix;
+    changed = true;
+  }
+  if (metadata.command) {
+    pane._commandRunning = !!metadata.command.running;
+    pane._commandStartTime = metadata.command.startedAt || pane._commandStartTime || 0;
+    pane._lastExitCode = metadata.command.lastExitCode || pane._lastExitCode || '';
+    if (opts.fromSnapshot && !metadata.command.running) {
+      handleBackgroundCommandEnded(pane, metadata.command);
+    }
+  }
+  if (changed) refreshTabTitle(pane);
+}
+
+function attachPtyMetadataPipeline(pane) {
+  const ptyProc = pane.ptyProc;
+  if (!ptyProc?.onMetadata) return;
+  ptyProc.onMetadata((metadata) => applyMainPaneMetadata(pane, metadata));
+}
+
+function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null, onSnapshotReady = null }) {
+  const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd);
   buildPaneSessionDom(pane, leafEl);
-  const { term, fitAddon, searchAddon } = createPaneTerminal(pane);
+  const { term, fitAddon, searchAddon } = createPaneTerminal(pane, {
+    cols: snapshot?.cols,
+    rows: snapshot?.rows
+  });
   attachMacImePunctuationBridge(pane);
   attachPaneKeyHandler(pane, term);
   attachTerminalRenderer(pane, term);
   attachPaneLinkHandlers(pane, term);
   finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace);
-  spawnPaneShell(pane, term);
+  spawnPaneShell(pane, term, {
+    attachExisting,
+    afterSeq: snapshot?.snapshotSeq || 0
+  });
+  if (snapshot?.metadata) applyMainPaneMetadata(pane, snapshot.metadata, { fromSnapshot: attachExisting });
   attachTerminalEventHandlers(pane, term);
   attachOsc133Tracking(pane, term);
-  attachPtyDataPipeline(pane, term);
+  attachPtyMetadataPipeline(pane);
+  if (attachExisting && snapshot?.snapshot) {
+    term.write(snapshot.snapshot, () => {
+      rebuildPromptTrackingFromBuffer(pane);
+      scheduleTerminalRefresh(pane);
+      attachPtyDataPipeline(pane, term);
+      if (typeof onSnapshotReady === 'function') onSnapshotReady(pane);
+    });
+  } else {
+    attachPtyDataPipeline(pane, term);
+    if (typeof onSnapshotReady === 'function') onSnapshotReady(pane);
+  }
   return pane;
 }
 
@@ -711,6 +822,18 @@ function remapLayoutPaneIds(node, idMap) {
   };
 }
 
+function applyRestoredMaximizedLayout(workspace) {
+  if (!workspace || workspace.maximizedPaneId == null) return;
+  if (!workspace.panes.some(pane => pane.id === workspace.maximizedPaneId)) {
+    workspace.maximizedPaneId = null;
+    return;
+  }
+  renderLayout(workspace);
+  updatePaneActiveClasses(workspace);
+  scheduleFitVisiblePanes(workspace);
+  scheduleRichViewsAfterLayout(workspace);
+}
+
 function createRestoredWorkspace(snapshot) {
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id);
@@ -730,7 +853,9 @@ function createRestoredWorkspace(snapshot) {
   const idMap = new Map();
   for (const oldPaneId of snapshot.paneIds) idMap.set(oldPaneId, state.paneIdCounter++);
   workspace.layout = remapLayoutPaneIds(snapshot.layout, idMap);
-  workspace.activePaneId = idMap.get(snapshot.activePaneId) || firstPaneIdInLayout(workspace.layout);
+  workspace.activePaneId = idMap.has(snapshot.activePaneId)
+    ? idMap.get(snapshot.activePaneId)
+    : firstPaneIdInLayout(workspace.layout);
   workspace.maximizedPaneId = idMap.has(snapshot.maximizedPaneId) ? idMap.get(snapshot.maximizedPaneId) : null;
 
   const tabEl = document.createElement('div');
@@ -758,8 +883,123 @@ function createRestoredWorkspace(snapshot) {
     pane.zoomFactor = paneData.zoomFactor ?? 1;
     applyZoomToTab(pane);
   }
+  applyRestoredMaximizedLayout(workspace);
   updateTabBar();
   return workspace;
+}
+
+async function createLiveWorkspace(snapshot, opts = {}) {
+  if (!snapshot || !Array.isArray(snapshot.panes) || !snapshot.panes.length) return null;
+  const id = state.tabIdCounter++;
+  const workspace = new TabWorkspace(id, { workspaceBackendId: snapshot.workspaceBackendId });
+  workspace.cwd = snapshot.cwd || mt.os.env.HOME;
+  workspace.title = snapshot.title || workspace.title;
+  workspace._customTitle = snapshot.customTitle || null;
+
+  const idMap = new Map();
+  for (const paneData of snapshot.panes) {
+    if (Number.isInteger(paneData.id)) idMap.set(paneData.id, state.paneIdCounter++);
+  }
+  workspace.layout = remapLayoutPaneIds(cloneLayout(snapshot.layout), idMap);
+  if (!workspace.layout) return null;
+  const layoutPaneIds = new Set(paneIdsInLayout(workspace.layout));
+  workspace.activePaneId = idMap.has(snapshot.activePaneId)
+    ? idMap.get(snapshot.activePaneId)
+    : firstPaneIdInLayout(workspace.layout);
+  workspace.maximizedPaneId = idMap.has(snapshot.maximizedPaneId)
+    ? idMap.get(snapshot.maximizedPaneId)
+    : null;
+
+  const container = document.createElement('div');
+  container.className = 'tab-container';
+  container.dataset.id = id;
+  workspace.container = container;
+  state.termContainer.appendChild(container);
+  if (typeof ResizeObserver !== 'undefined') {
+    workspace._resizeObserver = new ResizeObserver(() => scheduleFitVisiblePanes(workspace));
+    workspace._resizeObserver.observe(container);
+  }
+
+  const tabEl = document.createElement('div');
+  tabEl.className = 'tab-item';
+  tabEl.dataset.id = id;
+  tabEl.draggable = true;
+  tabEl.innerHTML = '<span class="tab-title">' + escapeHtml(workspace._customTitle || workspace.title) + '</span><span class="tab-close">\u00d7</span>';
+  attachTabElementListeners(workspace, tabEl);
+  workspace.tabEl = tabEl;
+  state.tabBar.insertBefore(tabEl, document.getElementById('new-tab-btn'));
+  state.workspaces.push(workspace);
+  if (Number.isInteger(opts.insertIndex)) {
+    const currentIndex = state.workspaces.indexOf(workspace);
+    const targetIndex = Math.max(0, Math.min(opts.insertIndex, state.workspaces.length - 1));
+    if (currentIndex !== -1 && currentIndex !== targetIndex) {
+      state.workspaces.splice(currentIndex, 1);
+      state.workspaces.splice(targetIndex, 0, workspace);
+      rebuildTabBarDOM();
+    }
+  }
+
+  renderLayout(workspace);
+  const paneEntries = await Promise.all(snapshot.panes.map(async (paneData) => {
+    const paneId = idMap.get(paneData.id);
+    if (!Number.isInteger(paneId) || !layoutPaneIds.has(paneId) || !paneData.paneBackendId) return null;
+    const leaf = getPaneLeaf(workspace, paneId);
+    if (!leaf) return null;
+    let paneSnapshot = null;
+    try {
+      const result = await mt.pty.snapshot(paneData.paneBackendId);
+      if (result?.ok) paneSnapshot = result;
+      else throw new Error(result?.error || 'Snapshot failed');
+    } catch (err) {
+      console.error('Failed to snapshot live pane:', err);
+    }
+    return { paneData, paneId, leaf, paneSnapshot };
+  }));
+  for (const entry of paneEntries) {
+    if (!entry) continue;
+    const { paneData, paneId, leaf, paneSnapshot } = entry;
+    const pane = createPaneSession({
+      id: paneId,
+      cwd: paneSnapshot?.metadata?.cwd || paneData.cwd || workspace.cwd || mt.os.env.HOME,
+      leafEl: leaf,
+      workspace,
+      paneBackendId: paneData.paneBackendId,
+      attachExisting: true,
+      snapshot: paneSnapshot,
+      onSnapshotReady: pane => {
+        if (paneData.richVisible) {
+          showManualRichView(pane);
+          restoreRichViewLayoutState(pane, paneData.richViewState);
+        }
+      }
+    });
+    pane.autoRender = paneData.autoRender !== undefined ? paneData.autoRender : settings.autoRender;
+    pane.zoomFactor = paneData.zoomFactor ?? 1;
+    applyZoomToTab(pane);
+  }
+  if (!workspace.panes.some(pane => pane.id === workspace.activePaneId)) {
+    workspace.activePaneId = workspace.panes[0]?.id || firstPaneIdInLayout(workspace.layout);
+  }
+  applyRestoredMaximizedLayout(workspace);
+  updateTabBar();
+  return workspace;
+}
+
+async function restoreLiveWorkspaceToken(token) {
+  if (!token) return false;
+  const result = await mt.ipc.invoke('claim-live-workspace', token);
+  if (!result?.ok || !result.workspace) throw new Error(result?.error || 'Failed to claim live workspace');
+  const workspace = await createLiveWorkspace(result.workspace);
+  if (!workspace) return false;
+  const complete = await mt.ipc.invoke('complete-live-workspace', token);
+  if (!complete?.ok) throw new Error(complete?.error || 'Live workspace completion failed');
+  activateWorkspaceShell(workspace);
+  updatePaneActiveClasses(workspace);
+  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (pane) focusPane(pane.id);
+  stabilizeVisiblePanes(workspace, pane?.id || null);
+  markSessionChanged({ structural: true });
+  return true;
 }
 
 function restoreSession(session) {
@@ -815,17 +1055,18 @@ function switchTab(id, opts = {}) {
   }
 }
 
-function disposePane(pane) {
+function disposePane(pane, opts = {}) {
   pane._closing = true;
   clearTimeout(pane.sectionTimer);
   clearTimeout(pane._promptJumpFlashTimer);
-  try { if (pane.ptyProc) pane.ptyProc.kill(); } catch {}
+  try {
+    if (pane.ptyProc) {
+      if (opts.killBackend === false && pane.ptyProc.detach) pane.ptyProc.detach();
+      else pane.ptyProc.kill();
+    }
+  } catch {}
   try { pane._searchResultDisposable?.dispose(); } catch {}
   try { pane.term?.dispose(); } catch {}
-  if (pane._shimDir) {
-    try { mt.fs.rmSync(pane._shimDir, { recursive: true, force: true }); } catch {}
-    pane._shimDir = null;
-  }
   try { pane.container?.remove(); } catch {}
 }
 
@@ -874,12 +1115,12 @@ function closeActivePane() {
   if (pane) closePane(pane.id);
 }
 
-function closeTab(id) {
+function closeTab(id, opts = {}) {
   const idx = getTabIndex(id);
   if (idx === -1) return;
   const workspace = state.workspaces[idx];
   const wasActive = state.activeWorkspaceId === id;
-  for (const pane of [...workspace.panes]) disposePane(pane);
+  for (const pane of [...workspace.panes]) disposePane(pane, { killBackend: opts.killBackend !== false });
   if (workspace._fitRaf) {
     cancelAnimationFrame(workspace._fitRaf);
     workspace._fitRaf = null;
@@ -1172,6 +1413,93 @@ function rebuildTabBarDOM() {
   for (const workspace of state.workspaces) state.tabBar.insertBefore(workspace.tabEl, newBtn);
 }
 
+function shouldDetachDraggedTab(e) {
+  if (!e || state.dragDropHandled) return false;
+  const dx = Number(e.clientX) - Number(state.dragStartClientX || 0);
+  const dy = Number(e.clientY) - Number(state.dragStartClientY || 0);
+  if (Math.hypot(dx, dy) < 24) return false;
+  const tabBarRect = state.tabBar?.getBoundingClientRect?.();
+  if (!tabBarRect) return false;
+  if (e.clientX === 0 && e.clientY === 0) return true;
+  const margin = 10;
+  return e.clientX < tabBarRect.left - margin
+    || e.clientX > tabBarRect.right + margin
+    || e.clientY < tabBarRect.top - margin
+    || e.clientY > tabBarRect.bottom + margin;
+}
+
+function makeLiveTabTransferToken(id) {
+  const rand = Math.random().toString(36).slice(2);
+  return `live-tab:${Date.now()}:${id}:${rand}`;
+}
+
+function liveTabTokenFromDrop(e) {
+  try {
+    return e.dataTransfer?.getData?.(LIVE_TAB_TRANSFER_MIME) || '';
+  } catch {
+    return '';
+  }
+}
+
+function dragTypesInclude(e, type) {
+  const types = e?.dataTransfer?.types;
+  if (!types) return false;
+  if (typeof types.includes === 'function') return types.includes(type);
+  if (typeof types.contains === 'function') return types.contains(type);
+  return Array.from(types).includes(type);
+}
+
+function hasLiveTabDrag(e) {
+  return !!liveTabTokenFromDrop(e)
+    || dragTypesInclude(e, LIVE_TAB_TRANSFER_MIME)
+    || !!state.externalDragTransferToken;
+}
+
+async function tokenForLiveTabDrop(e) {
+  const token = liveTabTokenFromDrop(e) || state.externalDragTransferToken || '';
+  if (token) return token;
+  try {
+    const result = await mt.ipc.invoke('get-active-live-tab-drag');
+    return result?.ok ? (result.token || '') : '';
+  } catch {
+    return '';
+  }
+}
+
+function prepareLiveTabDrag(workspace) {
+  if (!workspace || !workspace.panes.length) return '';
+  const token = makeLiveTabTransferToken(workspace.id);
+  state.dragTransferToken = token;
+  try {
+    mt.ipc.send('prepare-live-tab-drag', {
+      token,
+      workspace: captureLiveWorkspace(workspace)
+    });
+  } catch {}
+  return token;
+}
+
+async function acceptLiveTabDrop(e, insertIndex = state.workspaces.length) {
+  const token = await tokenForLiveTabDrop(e);
+  if (!token || token === state.dragTransferToken) return false;
+  e.preventDefault();
+  e.stopPropagation();
+  state.dragDropHandled = true;
+  const result = await mt.ipc.invoke('accept-live-tab-drag', token);
+  if (!result?.ok || !result.workspace) throw new Error(result?.error || 'Live tab transfer failed');
+  const workspace = await createLiveWorkspace(result.workspace, { insertIndex });
+  if (!workspace) throw new Error('Live tab transfer had no restorable workspace');
+  const complete = await mt.ipc.invoke('complete-live-tab-drag', token);
+  if (!complete?.ok) throw new Error(complete?.error || 'Live tab transfer completion failed');
+  activateWorkspaceShell(workspace);
+  updatePaneActiveClasses(workspace);
+  const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+  if (pane) focusPane(pane.id);
+  stabilizeVisiblePanes(workspace, pane?.id || null);
+  markSessionChanged({ structural: true });
+  return true;
+}
+
 function attachTabElementListeners(workspace, tabEl) {
   const id = workspace.id;
   tabEl.addEventListener('click', e => {
@@ -1187,18 +1515,37 @@ function attachTabElementListeners(workspace, tabEl) {
 
   tabEl.addEventListener('dragstart', e => {
     state.dragTabId = id;
+    state.dragDropHandled = false;
+    state.dragStartClientX = e.clientX;
+    state.dragStartClientY = e.clientY;
     tabEl.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', String(id));
+    const token = prepareLiveTabDrag(workspace);
+    if (token) {
+      e.dataTransfer.setData(LIVE_TAB_TRANSFER_MIME, token);
+    } else {
+      e.dataTransfer.setData('text/plain', String(id));
+    }
   });
-  tabEl.addEventListener('dragend', () => {
+  tabEl.addEventListener('dragend', e => {
+    const movedToDropTarget = e.dataTransfer?.dropEffect === 'move';
+    const shouldDetach = state.dragTabId === id && !movedToDropTarget && shouldDetachDraggedTab(e);
+    const detachToken = shouldDetach ? state.dragTransferToken : null;
+    const clearToken = state.dragTransferToken;
     state.dragTabId = null;
+    state.dragTransferToken = null;
+    state.dragDropHandled = false;
+    if (clearToken) mt.ipc.send('clear-live-tab-drag', { token: clearToken });
     tabEl.classList.remove('dragging');
     document.querySelectorAll('.tab-item').forEach(el => {
       el.classList.remove('drag-over-left', 'drag-over-right');
     });
+    if (shouldDetach && state.workspaces.some(w => w.id === id)) {
+      setTimeout(() => detachTab(id, { token: detachToken }), 0);
+    }
   });
   tabEl.addEventListener('dragover', e => {
+    if (state.dragTabId === null && !hasLiveTabDrag(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = tabEl.getBoundingClientRect();
@@ -1212,14 +1559,21 @@ function attachTabElementListeners(workspace, tabEl) {
   });
   tabEl.addEventListener('drop', e => {
     e.preventDefault();
+    state.dragDropHandled = true;
     tabEl.classList.remove('drag-over-left', 'drag-over-right');
-    if (state.dragTabId === null || state.dragTabId === id) return;
-    const fromIdx = getTabIndex(state.dragTabId);
-    const toIdx = getTabIndex(id);
-    if (fromIdx === -1 || toIdx === -1) return;
     const rect = tabEl.getBoundingClientRect();
     const mid = rect.left + rect.width / 2;
     const insertBefore = e.clientX < mid;
+    if (state.dragTabId === null) {
+      const toIdx = getTabIndex(id);
+      const insertIndex = toIdx + (insertBefore ? 0 : 1);
+      acceptLiveTabDrop(e, insertIndex).catch(err => console.error('Failed to accept live tab drop:', err));
+      return;
+    }
+    if (state.dragTabId === id) return;
+    const fromIdx = getTabIndex(state.dragTabId);
+    const toIdx = getTabIndex(id);
+    if (fromIdx === -1 || toIdx === -1) return;
     const [moved] = state.workspaces.splice(fromIdx, 1);
     let newIdx = getTabIndex(id);
     if (!insertBefore) newIdx++;
@@ -1235,7 +1589,7 @@ function showTabContextMenu(id, x, y) {
   const workspace = state.workspaces.find(w => w.id === id);
   document.getElementById('tctx-moveleft').classList.toggle('disabled', idx <= 0);
   document.getElementById('tctx-moveright').classList.toggle('disabled', idx >= state.workspaces.length - 1);
-  document.getElementById('tctx-detach').classList.toggle('disabled', !!workspace && workspace.panes.length > 1);
+  document.getElementById('tctx-detach').classList.toggle('disabled', !workspace || workspace.panes.length < 1);
   const menu = document.getElementById('tab-context-menu');
   menu.style.left = x + 'px';
   menu.style.top = y + 'px';
@@ -1293,18 +1647,71 @@ function moveTab(id, direction) {
   markSessionChanged({ structural: true });
 }
 
-function detachTab(id) {
+function captureLiveWorkspace(workspace) {
+  return {
+    id: workspace.id,
+    workspaceBackendId: workspace.workspaceBackendId,
+    title: workspace.title,
+    cwd: workspace.cwd || null,
+    activePaneId: workspace.activePaneId,
+    maximizedPaneId: workspace.maximizedPaneId,
+    customTitle: workspace._customTitle || null,
+    layout: cloneLayout(workspace.layout),
+    panes: workspace.panes.map(pane => ({
+      id: pane.id,
+      paneBackendId: pane.paneBackendId,
+      cwd: pane.cwd || workspace.cwd || mt.os.env.HOME,
+      autoRender: !!pane.autoRender,
+      zoomFactor: pane.zoomFactor ?? 1,
+      richVisible: !!pane.richVisible,
+      richViewState: captureRichViewLayoutState(pane)
+    }))
+  };
+}
+
+async function detachTab(id, opts = {}) {
   const workspace = state.workspaces.find(w => w.id === id);
-  if (!workspace || workspace.panes.length > 1) return;
-  const pane = workspace.panes[0];
-  mt.ipc.send('detach-tab', {
-    cwd: pane.cwd,
-    title: workspace._customTitle || workspace.title
-  });
-  closeTab(id);
+  if (!workspace || !workspace.panes.length) return;
+  try {
+    if (opts.token) {
+      const result = await mt.ipc.invoke('open-live-tab-transfer-window', opts.token);
+      if (!result?.ok) throw new Error(result?.error || 'Detach failed');
+    } else {
+      const result = await mt.ipc.invoke('detach-live-tab', { workspace: captureLiveWorkspace(workspace) });
+      if (!result?.ok) throw new Error(result?.error || 'Detach failed');
+    }
+  } catch (err) {
+    console.error('Failed to detach live tab:', err);
+    const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
+    try {
+      pane?.term?.write(`\r\n\x1b[31mMathTerm could not detach this tab.\x1b[0m\r\n${err?.message || err}\r\n`);
+    } catch {}
+  }
 }
 
 function initTabContextListeners() {
+  mt.ipc.on('live-tab-drag-started', payload => {
+    const token = String(payload?.token || '');
+    if (token && token !== state.dragTransferToken) state.externalDragTransferToken = token;
+  });
+  mt.ipc.on('live-tab-drag-ended', payload => {
+    const token = String(payload?.token || '');
+    if (!token || state.externalDragTransferToken === token) state.externalDragTransferToken = null;
+  });
+  mt.ipc.on('live-tab-transfer-complete', payload => {
+    const workspaceId = Number(payload?.workspaceId);
+    if (!Number.isInteger(workspaceId)) return;
+    closeTab(workspaceId, { killBackend: false });
+  });
+  state.tabBar.addEventListener('dragover', e => {
+    if (!hasLiveTabDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  });
+  state.tabBar.addEventListener('drop', e => {
+    if (e.target?.closest?.('.tab-item')) return;
+    acceptLiveTabDrop(e, state.workspaces.length).catch(err => console.error('Failed to accept live tab drop:', err));
+  });
   document.getElementById('tctx-rename').addEventListener('click', () => { renameTab(state.tabContextMenuId); hideTabContextMenu(); });
   document.getElementById('tctx-moveleft').addEventListener('click', () => { moveTab(state.tabContextMenuId, -1); hideTabContextMenu(); });
   document.getElementById('tctx-moveright').addEventListener('click', () => { moveTab(state.tabContextMenuId, 1); hideTabContextMenu(); });
@@ -1322,6 +1729,7 @@ function initTabContextListeners() {
 module.exports = {
   createTab,
   restoreSession,
+  restoreLiveWorkspaceToken,
   switchTab,
   closeTab,
   closePane,

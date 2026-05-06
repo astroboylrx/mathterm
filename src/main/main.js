@@ -1,27 +1,36 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const nodePty = require('node-pty');
 const { execFileSync } = require('child_process');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shortcutDefaults');
 const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
 const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
 const { clampRestoredBounds } = require('../shared/windowBounds');
+const { sweepStaleShellShims } = require('./shellShim');
+const { PtyManager } = require('./ptyManager');
 
 let mainWindow;
 let preferencesWindow;
 let nextSessionWindowId = 1;
 let appIsQuitting = false;
 let suppressActiveWindowWrites = false;
+let nextLiveWorkspaceTransferId = 1;
+let activeLiveTabDragToken = null;
 const isMac = process.platform === 'darwin';
 const cliOptions = parseCliOptions(process.argv);
 let cliSessionImportFailed = false;
 const APP_ROOT = path.join(__dirname, '..', '..');
+const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: process.env });
+const paneViews = new Map();
+const liveWorkspaceTransfers = new Map();
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
 }
 app.setName('MathTerm');
+try { sweepStaleShellShims({ fs, path, os }); } catch {}
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) app.quit();
 
@@ -128,6 +137,112 @@ function loadRestoreLastSession() {
     return false;
   }
 }
+
+function paneViewKey(paneBackendId, viewId) {
+  return `${paneBackendId}:${viewId}`;
+}
+
+function registerPaneView(paneBackendId, viewId, wc) {
+  paneViews.set(paneViewKey(paneBackendId, viewId), { paneBackendId, viewId, webContentsId: wc.id });
+}
+
+function unregisterPaneView(paneBackendId, viewId) {
+  paneViews.delete(paneViewKey(paneBackendId, viewId));
+}
+
+function detachPaneView(paneBackendId, viewId) {
+  if (!paneBackendId || !viewId) return;
+  unregisterPaneView(paneBackendId, viewId);
+  try { ptyManager.detachView(paneBackendId, viewId); } catch {}
+}
+
+function sweepLiveWorkspaceTransfers(now = Date.now()) {
+  for (const [token, transfer] of liveWorkspaceTransfers) {
+    const age = now - Number(transfer.createdAt || 0);
+    const claimedAge = transfer.claimedAt ? now - Number(transfer.claimedAt) : 0;
+    if (age > 120000 || claimedAge > 30000) {
+      liveWorkspaceTransfers.delete(token);
+      if (activeLiveTabDragToken === token) setActiveLiveTabDrag(null);
+    }
+  }
+}
+
+function broadcastToTerminalWindows(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win || win === preferencesWindow || win.isDestroyed()) continue;
+    win.webContents.send(channel, payload);
+  }
+}
+
+function setActiveLiveTabDrag(token) {
+  const next = token ? String(token) : null;
+  if (activeLiveTabDragToken === next) return;
+  activeLiveTabDragToken = next;
+  broadcastToTerminalWindows(next ? 'live-tab-drag-started' : 'live-tab-drag-ended', { token: next });
+}
+
+function getSourceWindowSizeState(sender) {
+  const win = BrowserWindow.fromWebContents(sender);
+  if (!win || win.isDestroyed()) return null;
+  const bounds = win.getBounds();
+  if (!bounds || !Number.isFinite(bounds.width) || !Number.isFinite(bounds.height)) return null;
+  return {
+    bounds: {
+      width: bounds.width,
+      height: bounds.height
+    }
+  };
+}
+
+function sendNextPaneOutput(paneBackendId, viewId) {
+  const ref = paneViews.get(paneViewKey(paneBackendId, viewId));
+  if (!ref) return;
+  const wc = webContents.fromId(ref.webContentsId);
+  if (!wc || wc.isDestroyed()) {
+    try { ptyManager.detachView(paneBackendId, viewId); } catch {}
+    unregisterPaneView(paneBackendId, viewId);
+    return;
+  }
+  let batch;
+  try { batch = ptyManager.flushOutput(paneBackendId, viewId); } catch { return; }
+  if (!batch) return;
+  wc.send('pane-output', {
+    paneBackendId,
+    viewId,
+    batchId: batch.batchId,
+    fromSeq: batch.fromSeq,
+    toSeq: batch.toSeq,
+    data: batch.data
+  });
+}
+
+ptyManager.onOutputReady((paneBackendId) => {
+  for (const ref of paneViews.values()) {
+    if (ref.paneBackendId === paneBackendId) sendNextPaneOutput(ref.paneBackendId, ref.viewId);
+  }
+});
+
+ptyManager.onExit((paneBackendId, exitState) => {
+  for (const ref of [...paneViews.values()]) {
+    if (ref.paneBackendId !== paneBackendId) continue;
+    const wc = webContents.fromId(ref.webContentsId);
+    if (wc && !wc.isDestroyed()) wc.send('pane-exit', { paneBackendId, exitState });
+    unregisterPaneView(ref.paneBackendId, ref.viewId);
+  }
+});
+
+ptyManager.onMetadata((paneBackendId, metadata, updates) => {
+  for (const ref of paneViews.values()) {
+    if (ref.paneBackendId !== paneBackendId) continue;
+    const wc = webContents.fromId(ref.webContentsId);
+    if (wc && !wc.isDestroyed()) wc.send('pane-metadata', {
+      paneBackendId,
+      viewId: ref.viewId,
+      metadata,
+      updates
+    });
+  }
+});
 
 function backupInvalidSessionFile(reason) {
   try {
@@ -325,6 +440,7 @@ function createWindow(opts = {}) {
   if (opts.title) params.set('title', opts.title);
   if (opts.restoreSession) params.set('restoreSession', '1');
   if (opts.forceRestoreSession) params.set('forceRestoreSession', '1');
+  if (opts.liveWorkspaceToken) params.set('liveWorkspaceToken', opts.liveWorkspaceToken);
   params.set('sessionWindowId', sessionWindowId);
   win.on('focus', () => markActiveSessionWindow(sessionWindowId));
   win.on('close', () => {
@@ -763,8 +879,245 @@ ipcMain.on('close-window', (event, opts = {}) => {
   if (win) win.close();
 });
 
-ipcMain.on('detach-tab', (event, opts) => {
-  createWindow({ cwd: opts?.cwd, title: opts?.title });
+ipcMain.handle('detach-live-tab', async (event, payload = {}) => {
+  sweepLiveWorkspaceTransfers();
+  const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
+  const panes = Array.isArray(workspace?.panes) ? workspace.panes : [];
+  if (!workspace || !panes.length) return { ok: false, error: 'No live workspace was provided.' };
+  for (const pane of panes) {
+    if (!ptyManager.getPane(String(pane.paneBackendId || ''))) {
+      return { ok: false, error: `Unknown pane backend: ${pane.paneBackendId || ''}` };
+    }
+  }
+  const token = `live-workspace-${Date.now()}-${nextLiveWorkspaceTransferId++}`;
+  liveWorkspaceTransfers.set(token, {
+    workspace,
+    sourceWebContentsId: event.sender.id,
+    sourceWorkspaceId: workspace.id,
+    sourceWindowState: getSourceWindowSizeState(event.sender),
+    createdAt: Date.now()
+  });
+  createWindow({
+    liveWorkspaceToken: token,
+    title: workspace.customTitle || workspace.title,
+    windowState: getSourceWindowSizeState(event.sender)
+  });
+  return { ok: true, token };
+});
+
+ipcMain.handle('claim-live-workspace', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live workspace transfer is no longer available.' };
+  if (transfer.claimed) return { ok: false, error: 'Live workspace transfer was already claimed.' };
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    if (activeLiveTabDragToken === key) setActiveLiveTabDrag(null);
+    return { ok: false, error };
+  }
+  transfer.claimed = true;
+  transfer.claimedAt = Date.now();
+  transfer.claimedByWebContentsId = event.sender.id;
+  return { ok: true, workspace: transfer.workspace };
+});
+
+function validateLiveWorkspace(workspace) {
+  const panes = Array.isArray(workspace?.panes) ? workspace.panes : [];
+  if (!workspace || !panes.length) return 'No live workspace was provided.';
+  for (const pane of panes) {
+    if (!ptyManager.getPane(String(pane.paneBackendId || ''))) {
+      return `Unknown pane backend: ${pane.paneBackendId || ''}`;
+    }
+  }
+  return null;
+}
+
+ipcMain.on('prepare-live-tab-drag', (event, payload = {}) => {
+  sweepLiveWorkspaceTransfers();
+  const token = String(payload.token || '');
+  const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
+  const error = validateLiveWorkspace(workspace);
+  if (!token || error) return;
+  liveWorkspaceTransfers.set(token, {
+    workspace,
+    sourceWebContentsId: event.sender.id,
+    sourceWorkspaceId: workspace.id,
+    sourceWindowState: getSourceWindowSizeState(event.sender),
+    createdAt: Date.now()
+  });
+  setActiveLiveTabDrag(token);
+});
+
+ipcMain.handle('open-live-tab-transfer-window', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live tab drag is no longer available.' };
+  if (transfer.sourceWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live tab drag does not belong to this window.' };
+  }
+  if (transfer.claimed) return { ok: false, error: 'Live tab drag was already claimed.' };
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    if (activeLiveTabDragToken === key) setActiveLiveTabDrag(null);
+    return { ok: false, error };
+  }
+  setActiveLiveTabDrag(null);
+  createWindow({
+    liveWorkspaceToken: key,
+    title: transfer.workspace.customTitle || transfer.workspace.title,
+    windowState: transfer.sourceWindowState || getSourceWindowSizeState(event.sender)
+  });
+  return { ok: true, token: key };
+});
+
+ipcMain.handle('accept-live-tab-drag', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live tab drag is no longer available.' };
+  if (transfer.claimed) return { ok: false, error: 'Live tab drag was already claimed.' };
+  if (transfer.sourceWebContentsId === event.sender.id) {
+    return { ok: false, error: 'Live tab drag cannot be accepted by its source window.' };
+  }
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    if (activeLiveTabDragToken === key) setActiveLiveTabDrag(null);
+    return { ok: false, error };
+  }
+  transfer.claimed = true;
+  transfer.claimedAt = Date.now();
+  transfer.claimedByWebContentsId = event.sender.id;
+  setActiveLiveTabDrag(null);
+  return { ok: true, workspace: transfer.workspace };
+});
+
+ipcMain.handle('get-active-live-tab-drag', async () => {
+  sweepLiveWorkspaceTransfers();
+  if (!activeLiveTabDragToken) return { ok: true, token: null };
+  const transfer = liveWorkspaceTransfers.get(activeLiveTabDragToken);
+  if (!transfer || transfer.claimed) {
+    setActiveLiveTabDrag(null);
+    return { ok: true, token: null };
+  }
+  return { ok: true, token: activeLiveTabDragToken };
+});
+
+ipcMain.on('clear-live-tab-drag', (event, payload = {}) => {
+  const token = String(payload.token || '');
+  if (!token || token !== activeLiveTabDragToken) return;
+  setTimeout(() => {
+    const transfer = liveWorkspaceTransfers.get(token);
+    if (activeLiveTabDragToken === token && (!transfer || !transfer.claimed)) {
+      setActiveLiveTabDrag(null);
+    }
+  }, 2000);
+});
+
+ipcMain.handle('complete-live-tab-drag', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer || transfer.claimedByWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live tab drag completion is no longer valid.' };
+  }
+  liveWorkspaceTransfers.delete(key);
+  const source = webContents.fromId(transfer.sourceWebContentsId);
+  if (source && !source.isDestroyed()) {
+    source.send('live-tab-transfer-complete', {
+      workspaceId: transfer.sourceWorkspaceId,
+      token: key
+    });
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('complete-live-workspace', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer || transfer.claimedByWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live workspace completion is no longer valid.' };
+  }
+  liveWorkspaceTransfers.delete(key);
+  const source = webContents.fromId(transfer.sourceWebContentsId);
+  if (source && !source.isDestroyed()) {
+    source.send('live-tab-transfer-complete', {
+      workspaceId: transfer.sourceWorkspaceId,
+      token: key
+    });
+  }
+  return { ok: true };
+});
+
+ipcMain.on('pane-create-sync', (event, opts = {}) => {
+  try {
+    const backend = ptyManager.createPane({
+      paneBackendId: String(opts.paneBackendId || ''),
+      shellCmd: opts.shellCmd || process.env.SHELL || '/bin/bash',
+      cwd: opts.cwd || process.env.HOME || os.homedir(),
+      cols: Number.isInteger(opts.cols) ? opts.cols : 80,
+      rows: Number.isInteger(opts.rows) ? opts.rows : 24,
+      scrollback: Number.isInteger(opts.scrollback) ? opts.scrollback : 1000
+    });
+    event.returnValue = { ok: true, paneBackendId: backend.id, pid: backend.pty.pid };
+  } catch (err) {
+    event.returnValue = { ok: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.on('pane-attach-ready', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  if (!paneBackendId || !viewId) return;
+  try {
+    registerPaneView(paneBackendId, viewId, event.sender);
+    ptyManager.attachView(paneBackendId, viewId);
+    ptyManager.enqueueReplay(paneBackendId, viewId, Number(opts.afterSeq) || 0);
+    sendNextPaneOutput(paneBackendId, viewId);
+  } catch (err) {
+    event.sender.send('pane-exit', { paneBackendId, exitState: { error: err.message || String(err) } });
+  }
+});
+
+ipcMain.handle('pane-snapshot', async (event, opts = {}) => {
+  try {
+    const paneBackendId = String(opts.paneBackendId || '');
+    if (!paneBackendId) throw new Error('paneBackendId is required');
+    const snapshot = await ptyManager.snapshotPane(paneBackendId);
+    return { ok: true, paneBackendId, ...snapshot };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.on('pane-input', (event, opts = {}) => {
+  try { ptyManager.writePane(String(opts.paneBackendId || ''), String(opts.data || '')); } catch {}
+});
+
+ipcMain.on('pane-resize', (event, opts = {}) => {
+  const cols = Math.max(2, Math.floor(Number(opts.cols) || 0));
+  const rows = Math.max(1, Math.floor(Number(opts.rows) || 0));
+  try { ptyManager.resizePane(String(opts.paneBackendId || ''), cols, rows); } catch {}
+});
+
+ipcMain.on('pane-output-ack', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  try {
+    ptyManager.ackOutput(paneBackendId, viewId, opts.batchId);
+    sendNextPaneOutput(paneBackendId, viewId);
+  } catch {}
+});
+
+ipcMain.on('pane-detach', (event, opts = {}) => {
+  detachPaneView(String(opts.paneBackendId || ''), String(opts.viewId || ''));
+});
+
+ipcMain.on('pane-close', (event, opts = {}) => {
+  const paneBackendId = String(opts.paneBackendId || '');
+  const viewId = String(opts.viewId || '');
+  if (paneBackendId && viewId) unregisterPaneView(paneBackendId, viewId);
+  try { ptyManager.closePane(paneBackendId); } catch {}
 });
 
 ipcMain.handle('export-pdf', async (event) => {
