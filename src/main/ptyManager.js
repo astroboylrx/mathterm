@@ -1,6 +1,7 @@
 const { PaneOutputTransport } = require('./outputTransport');
 const { createHeadlessTerminalState } = require('./headlessTerminalState');
 const { createShellShim, removeShellShim } = require('./shellShim');
+const { createTerminalMetadataTracker } = require('./terminalMetadata');
 const { createRuntimeIdFactory } = require('../shared/runtimeIds');
 
 class PtyManager {
@@ -16,6 +17,7 @@ class PtyManager {
     this.panes = new Map();
     this.outputReadyHandlers = new Set();
     this.exitHandlers = new Set();
+    this.metadataHandlers = new Set();
   }
 
   onOutputReady(callback) {
@@ -26,6 +28,11 @@ class PtyManager {
   onExit(callback) {
     this.exitHandlers.add(callback);
     return { dispose: () => this.exitHandlers.delete(callback) };
+  }
+
+  onMetadata(callback) {
+    this.metadataHandlers.add(callback);
+    return { dispose: () => this.metadataHandlers.delete(callback) };
   }
 
   createPane({
@@ -45,6 +52,11 @@ class PtyManager {
       env: this.env
     });
     const terminalState = createHeadlessTerminalState({ cols, rows, scrollback });
+    const metadata = createTerminalMetadataTracker({
+      cwd,
+      home: this.env.HOME || this.os.homedir(),
+      user: this.env.USER || ''
+    });
     const pty = this.ptyAdapter.spawn(shellCmd, shim.shellArgs, {
       name: 'xterm-256color',
       cols,
@@ -67,6 +79,7 @@ class PtyManager {
       shimDir: shim.shimDir,
       cwd,
       title: null,
+      metadata,
       rows,
       cols,
       terminalState,
@@ -77,6 +90,19 @@ class PtyManager {
 
     pty.onData(data => {
       outputTransport.push(data);
+      const metadataUpdates = metadata.feed(data);
+      if (metadataUpdates.length) {
+        for (const update of metadataUpdates) {
+          if (update.type === 'command-ended') {
+            metadata.command.endedWithAttachedView = backend.attachedViews.size > 0;
+            update.command = { ...metadata.command };
+          }
+        }
+        const snapshot = metadata.snapshot();
+        backend.cwd = snapshot.cwd || backend.cwd;
+        backend.title = snapshot.title || backend.title;
+        this._emitMetadata(backend.id, snapshot, metadataUpdates);
+      }
       backend.terminalWriteChain = backend.terminalWriteChain.then(() => terminalState.write(data));
       this._emitOutputReady(backend.id);
     });
@@ -142,7 +168,8 @@ class PtyManager {
       snapshotBytes: Buffer.byteLength(snapshot),
       cols: pane.cols,
       rows: pane.rows,
-      exitState: pane.exitState
+      exitState: pane.exitState,
+      metadata: pane.metadata.snapshot()
     };
   }
 
@@ -195,6 +222,10 @@ class PtyManager {
 
   _emitExit(paneBackendId, exitState) {
     for (const handler of this.exitHandlers) handler(paneBackendId, exitState);
+  }
+
+  _emitMetadata(paneBackendId, metadata, updates) {
+    for (const handler of this.metadataHandlers) handler(paneBackendId, metadata, updates);
   }
 }
 

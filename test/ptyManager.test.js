@@ -40,11 +40,13 @@ async function testCreateWriteResizeSnapshotAndClose() {
   assert.strictEqual(pane.terminalState.terminal.rows, 30);
 
   pane.pty.emitData('hello\r\nworld');
+  pane.pty.emitData('\x1b]7;file://host/tmp\x07');
   await manager.waitForTerminalWrites('pane-test');
   const snapshot = await manager.snapshotPane('pane-test');
-  assert.strictEqual(snapshot.snapshotSeq, 1);
+  assert.strictEqual(snapshot.snapshotSeq, 2);
   assert.ok(snapshot.snapshot.includes('hello'));
   assert.ok(snapshot.snapshotBytes > 0);
+  assert.strictEqual(snapshot.metadata.cwd, '/tmp');
 
   manager.attachView('pane-test', 'view-a');
   assert.strictEqual(pane.state, 'attached');
@@ -82,18 +84,31 @@ async function testOutputAndExitEvents() {
   const pane = manager.createPane({ paneBackendId: 'pane-events' });
   const outputReady = [];
   const exits = [];
+  const metadata = [];
   const outputDisposable = manager.onOutputReady(id => outputReady.push(id));
   const exitDisposable = manager.onExit((id, exitState) => exits.push({ id, exitState }));
+  const metadataDisposable = manager.onMetadata((id, snapshot, updates) => metadata.push({ id, snapshot, updates }));
 
   pane.pty.emitData('evented output');
   await manager.waitForTerminalWrites('pane-events');
   assert.deepStrictEqual(outputReady, ['pane-events']);
+  pane.pty.emitData('\x1b]133;C\x07');
+  assert.strictEqual(metadata.length, 1);
+  assert.strictEqual(metadata[0].id, 'pane-events');
+  assert.strictEqual(metadata[0].snapshot.command.running, true);
+  assert.strictEqual(metadata[0].updates[0].type, 'command-started');
+  manager.attachView('pane-events', 'view-meta');
+  pane.pty.emitData('\x1b]133;D;0\x07');
+  assert.strictEqual(metadata.length, 2);
+  assert.strictEqual(metadata[1].snapshot.command.endedWithAttachedView, true);
+  manager.detachView('pane-events', 'view-meta');
 
   pane.pty.kill(3, 0);
   assert.deepStrictEqual(exits, [{ id: 'pane-events', exitState: { exitCode: 3, signal: 0 } }]);
 
   outputDisposable.dispose();
   exitDisposable.dispose();
+  metadataDisposable.dispose();
   manager.closePane('pane-events');
 }
 

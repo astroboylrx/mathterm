@@ -200,6 +200,19 @@ ptyManager.onExit((paneBackendId, exitState) => {
   }
 });
 
+ptyManager.onMetadata((paneBackendId, metadata, updates) => {
+  for (const ref of paneViews.values()) {
+    if (ref.paneBackendId !== paneBackendId) continue;
+    const wc = webContents.fromId(ref.webContentsId);
+    if (wc && !wc.isDestroyed()) wc.send('pane-metadata', {
+      paneBackendId,
+      viewId: ref.viewId,
+      metadata,
+      updates
+    });
+  }
+});
+
 function backupInvalidSessionFile(reason) {
   try {
     if (!fs.existsSync(SESSION_PATH)) return;
@@ -835,10 +848,6 @@ ipcMain.on('close-window', (event, opts = {}) => {
   if (win) win.close();
 });
 
-ipcMain.on('detach-tab', (event, opts) => {
-  createWindow({ cwd: opts?.cwd, title: opts?.title });
-});
-
 ipcMain.handle('detach-live-tab', async (event, payload = {}) => {
   sweepLiveWorkspaceTransfers();
   const workspace = payload && typeof payload === 'object' ? payload.workspace : null;
@@ -852,6 +861,8 @@ ipcMain.handle('detach-live-tab', async (event, payload = {}) => {
   const token = `live-workspace-${Date.now()}-${nextLiveWorkspaceTransferId++}`;
   liveWorkspaceTransfers.set(token, {
     workspace,
+    sourceWebContentsId: event.sender.id,
+    sourceWorkspaceId: workspace.id,
     createdAt: Date.now()
   });
   createWindow({ liveWorkspaceToken: token, title: workspace.customTitle || workspace.title });
@@ -862,7 +873,15 @@ ipcMain.handle('claim-live-workspace', async (event, token) => {
   const key = String(token || '');
   const transfer = liveWorkspaceTransfers.get(key);
   if (!transfer) return { ok: false, error: 'Live workspace transfer is no longer available.' };
-  liveWorkspaceTransfers.delete(key);
+  if (transfer.claimed) return { ok: false, error: 'Live workspace transfer was already claimed.' };
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    return { ok: false, error };
+  }
+  transfer.claimed = true;
+  transfer.claimedAt = Date.now();
+  transfer.claimedByWebContentsId = event.sender.id;
   return { ok: true, workspace: transfer.workspace };
 });
 
@@ -891,6 +910,23 @@ ipcMain.on('prepare-live-tab-drag', (event, payload = {}) => {
   });
 });
 
+ipcMain.handle('open-live-tab-transfer-window', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer) return { ok: false, error: 'Live tab drag is no longer available.' };
+  if (transfer.sourceWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live tab drag does not belong to this window.' };
+  }
+  if (transfer.claimed) return { ok: false, error: 'Live tab drag was already claimed.' };
+  const error = validateLiveWorkspace(transfer.workspace);
+  if (error) {
+    liveWorkspaceTransfers.delete(key);
+    return { ok: false, error };
+  }
+  createWindow({ liveWorkspaceToken: key, title: transfer.workspace.customTitle || transfer.workspace.title });
+  return { ok: true, token: key };
+});
+
 ipcMain.handle('accept-live-tab-drag', async (event, token) => {
   const key = String(token || '');
   const transfer = liveWorkspaceTransfers.get(key);
@@ -912,6 +948,23 @@ ipcMain.handle('complete-live-tab-drag', async (event, token) => {
   const transfer = liveWorkspaceTransfers.get(key);
   if (!transfer || transfer.claimedByWebContentsId !== event.sender.id) {
     return { ok: false, error: 'Live tab drag completion is no longer valid.' };
+  }
+  liveWorkspaceTransfers.delete(key);
+  const source = webContents.fromId(transfer.sourceWebContentsId);
+  if (source && !source.isDestroyed()) {
+    source.send('live-tab-transfer-complete', {
+      workspaceId: transfer.sourceWorkspaceId,
+      token: key
+    });
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('complete-live-workspace', async (event, token) => {
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  if (!transfer || transfer.claimedByWebContentsId !== event.sender.id) {
+    return { ok: false, error: 'Live workspace completion is no longer valid.' };
   }
   liveWorkspaceTransfers.delete(key);
   const source = webContents.fromId(transfer.sourceWebContentsId);

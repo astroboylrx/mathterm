@@ -24,6 +24,14 @@ ipcRenderer.on('pane-exit', (event, payload = {}) => {
   paneHandlers.delete(paneBackendId);
 });
 
+ipcRenderer.on('pane-metadata', (event, payload = {}) => {
+  const handlers = paneHandlers.get(String(payload.paneBackendId || ''));
+  if (!handlers || handlers.viewId !== payload.viewId) return;
+  for (const cb of handlers.metadataCallbacks) {
+    cb(payload.metadata || {}, payload.updates || []);
+  }
+});
+
 function spawnPty(file, args, opts) {
   const requestedPaneBackendId = String(opts?.paneBackendId || `pane-renderer-${Date.now()}-${++paneSeq}`);
   const result = ipcRenderer.sendSync('pane-create-sync', {
@@ -57,7 +65,8 @@ function createPtyProxy(paneBackendId, opts = {}) {
     attached: false,
     afterSeq: Number(opts.afterSeq) || 0,
     dataCallbacks: [],
-    exitCallbacks: []
+    exitCallbacks: [],
+    metadataCallbacks: []
   });
   return {
     pid: opts.pid || null,
@@ -85,6 +94,10 @@ function createPtyProxy(paneBackendId, opts = {}) {
     onExit: (cb) => {
       const handlers = paneHandlers.get(paneBackendId);
       if (handlers) handlers.exitCallbacks.push(cb);
+    },
+    onMetadata: (cb) => {
+      const handlers = paneHandlers.get(paneBackendId);
+      if (handlers) handlers.metadataCallbacks.push(cb);
     }
   };
 }
@@ -93,7 +106,7 @@ contextBridge.exposeInMainWorld('mathterm', {
   ipc: {
     send: (channel, ...args) => {
       const allowed = [
-        'close-window', 'detach-tab', 'rebuild-menu', 'notify-command-finished',
+        'close-window', 'rebuild-menu', 'notify-command-finished',
         'save-window-session', 'clear-session', 'prepare-live-tab-drag'
       ];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
@@ -117,7 +130,8 @@ contextBridge.exposeInMainWorld('mathterm', {
     invoke: (channel, ...args) => {
       const allowed = [
         'export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace',
-        'accept-live-tab-drag', 'complete-live-tab-drag'
+        'open-live-tab-transfer-window', 'accept-live-tab-drag',
+        'complete-live-tab-drag', 'complete-live-workspace'
       ];
       if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
       return Promise.reject(new Error('Channel not allowed: ' + channel));

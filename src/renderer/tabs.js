@@ -646,6 +646,84 @@ function attachPtyDataPipeline(pane, term) {
   });
 }
 
+function rebuildPromptTrackingFromBuffer(pane) {
+  if (!pane?._promptPrefix || !pane.term?.buffer?.active) return;
+  const buf = pane.term.buffer.active;
+  const startY = Math.max(0, buf.baseY - settings.scrollback);
+  const endY = buf.baseY + buf.length - 1;
+  const prefix = pane._promptPrefix;
+  pane._promptYSet.clear();
+  pane._promptStartYSet.clear();
+  for (let y = startY; y <= endY; y++) {
+    let line;
+    try { line = buf.getLine(y); } catch { line = null; }
+    if (!line || line.isWrapped) continue;
+    const text = line.translateToString(true).trimStart();
+    if (!text.startsWith(prefix)) continue;
+    pane._promptYSet.add(y);
+    pane._promptStartYSet.add(y);
+  }
+  prunePromptTracking(pane, startY);
+}
+
+function handleBackgroundCommandEnded(pane, command = {}) {
+  const endedAt = Number(command.endedAt) || 0;
+  if (!endedAt || endedAt <= (pane._mainCommandEndedAt || 0)) return;
+  pane._mainCommandEndedAt = endedAt;
+  if (command.endedWithAttachedView) return;
+
+  const exitCode = command.lastExitCode || '';
+  const failed = exitCode !== '' && exitCode !== '0';
+  const elapsedMs = endedAt - (Number(command.startedAt) || endedAt);
+  const minMs = Number(settings.backgroundCommandNotificationMinMs) || 0;
+  const workspace = pane.workspace;
+  if (workspace && settings.backgroundCommandMarker) {
+    workspace.needsAttention = true;
+    workspace.attentionLevel = failed ? 'error' : 'success';
+    workspace.attentionMessage = failed ? `Command failed: exit ${exitCode}` : 'Command finished';
+    updateTabBar();
+  }
+  const windowIsBackground = document.hidden || !document.hasFocus();
+  if (settings.backgroundCommandNotifications && windowIsBackground && elapsedMs >= minMs) {
+    const workspaceTitle = workspace?.title || 'background tab';
+    mt.ipc.send('notify-command-finished', {
+      title: failed ? 'MathTerm command failed' : 'MathTerm command finished',
+      body: failed ? `${workspaceTitle} - exit ${exitCode || 'nonzero'}` : workspaceTitle
+    });
+  }
+}
+
+function applyMainPaneMetadata(pane, metadata = {}, opts = {}) {
+  let changed = false;
+  if (metadata.cwd && metadata.cwd !== pane.cwd) {
+    pane.cwd = metadata.cwd;
+    changed = true;
+  }
+  if (metadata.title && metadata.title !== pane._mainTitle) {
+    pane._mainTitle = metadata.title;
+    changed = true;
+  }
+  if (metadata.promptPrefix && metadata.promptPrefix !== pane._promptPrefix) {
+    pane._promptPrefix = metadata.promptPrefix;
+    changed = true;
+  }
+  if (metadata.command) {
+    pane._commandRunning = !!metadata.command.running;
+    pane._commandStartTime = metadata.command.startedAt || pane._commandStartTime || 0;
+    pane._lastExitCode = metadata.command.lastExitCode || pane._lastExitCode || '';
+    if (opts.fromSnapshot && !metadata.command.running) {
+      handleBackgroundCommandEnded(pane, metadata.command);
+    }
+  }
+  if (changed) refreshTabTitle(pane);
+}
+
+function attachPtyMetadataPipeline(pane) {
+  const ptyProc = pane.ptyProc;
+  if (!ptyProc?.onMetadata) return;
+  ptyProc.onMetadata((metadata) => applyMainPaneMetadata(pane, metadata));
+}
+
 function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null }) {
   const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd);
@@ -660,10 +738,13 @@ function createPaneSession({ id, cwd, leafEl, workspace, paneBackendId, attachEx
     attachExisting,
     afterSeq: snapshot?.snapshotSeq || 0
   });
+  if (snapshot?.metadata) applyMainPaneMetadata(pane, snapshot.metadata, { fromSnapshot: attachExisting });
   attachTerminalEventHandlers(pane, term);
   attachOsc133Tracking(pane, term);
+  attachPtyMetadataPipeline(pane);
   if (attachExisting && snapshot?.snapshot) {
     term.write(snapshot.snapshot, () => {
+      rebuildPromptTrackingFromBuffer(pane);
       scheduleTerminalRefresh(pane);
       attachPtyDataPipeline(pane, term);
     });
@@ -832,11 +913,11 @@ async function createLiveWorkspace(snapshot, opts = {}) {
   }
 
   renderLayout(workspace);
-  for (const paneData of snapshot.panes) {
+  const paneEntries = await Promise.all(snapshot.panes.map(async (paneData) => {
     const paneId = idMap.get(paneData.id);
-    if (!Number.isInteger(paneId) || !layoutPaneIds.has(paneId) || !paneData.paneBackendId) continue;
+    if (!Number.isInteger(paneId) || !layoutPaneIds.has(paneId) || !paneData.paneBackendId) return null;
     const leaf = getPaneLeaf(workspace, paneId);
-    if (!leaf) continue;
+    if (!leaf) return null;
     let paneSnapshot = null;
     try {
       const result = await mt.pty.snapshot(paneData.paneBackendId);
@@ -845,9 +926,14 @@ async function createLiveWorkspace(snapshot, opts = {}) {
     } catch (err) {
       console.error('Failed to snapshot live pane:', err);
     }
+    return { paneData, paneId, leaf, paneSnapshot };
+  }));
+  for (const entry of paneEntries) {
+    if (!entry) continue;
+    const { paneData, paneId, leaf, paneSnapshot } = entry;
     const pane = createPaneSession({
       id: paneId,
-      cwd: paneData.cwd || workspace.cwd || mt.os.env.HOME,
+      cwd: paneSnapshot?.metadata?.cwd || paneData.cwd || workspace.cwd || mt.os.env.HOME,
       leafEl: leaf,
       workspace,
       paneBackendId: paneData.paneBackendId,
@@ -871,6 +957,8 @@ async function restoreLiveWorkspaceToken(token) {
   if (!result?.ok || !result.workspace) throw new Error(result?.error || 'Failed to claim live workspace');
   const workspace = await createLiveWorkspace(result.workspace);
   if (!workspace) return false;
+  const complete = await mt.ipc.invoke('complete-live-workspace', token);
+  if (!complete?.ok) throw new Error(complete?.error || 'Live workspace completion failed');
   activateWorkspaceShell(workspace);
   updatePaneActiveClasses(workspace);
   const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
@@ -1379,6 +1467,7 @@ function attachTabElementListeners(workspace, tabEl) {
   tabEl.addEventListener('dragend', e => {
     const movedToDropTarget = e.dataTransfer?.dropEffect === 'move';
     const shouldDetach = state.dragTabId === id && !movedToDropTarget && shouldDetachDraggedTab(e);
+    const detachToken = shouldDetach ? state.dragTransferToken : null;
     state.dragTabId = null;
     state.dragTransferToken = null;
     state.dragDropHandled = false;
@@ -1387,7 +1476,7 @@ function attachTabElementListeners(workspace, tabEl) {
       el.classList.remove('drag-over-left', 'drag-over-right');
     });
     if (shouldDetach && state.workspaces.some(w => w.id === id)) {
-      setTimeout(() => detachTab(id), 0);
+      setTimeout(() => detachTab(id, { token: detachToken }), 0);
     }
   });
   tabEl.addEventListener('dragover', e => {
@@ -1415,7 +1504,7 @@ function attachTabElementListeners(workspace, tabEl) {
       acceptLiveTabDrop(e, insertIndex).catch(err => console.error('Failed to accept live tab drop:', err));
       return;
     }
-    if (state.dragTabId === null || state.dragTabId === id) return;
+    if (state.dragTabId === id) return;
     const fromIdx = getTabIndex(state.dragTabId);
     const toIdx = getTabIndex(id);
     if (fromIdx === -1 || toIdx === -1) return;
@@ -1512,13 +1601,17 @@ function captureLiveWorkspace(workspace) {
   };
 }
 
-async function detachTab(id) {
+async function detachTab(id, opts = {}) {
   const workspace = state.workspaces.find(w => w.id === id);
   if (!workspace || !workspace.panes.length) return;
   try {
-    const result = await mt.ipc.invoke('detach-live-tab', { workspace: captureLiveWorkspace(workspace) });
-    if (!result?.ok) throw new Error(result?.error || 'Detach failed');
-    closeTab(id, { killBackend: false });
+    if (opts.token) {
+      const result = await mt.ipc.invoke('open-live-tab-transfer-window', opts.token);
+      if (!result?.ok) throw new Error(result?.error || 'Detach failed');
+    } else {
+      const result = await mt.ipc.invoke('detach-live-tab', { workspace: captureLiveWorkspace(workspace) });
+      if (!result?.ok) throw new Error(result?.error || 'Detach failed');
+    }
   } catch (err) {
     console.error('Failed to detach live tab:', err);
     const pane = workspace.panes.find(p => p.id === workspace.activePaneId) || workspace.panes[0];
