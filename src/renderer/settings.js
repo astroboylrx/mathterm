@@ -9,6 +9,14 @@ const {
 } = require('../shared/settingsStore');
 
 const settings = loadSettings();
+let _lastMenuAutoRender = null;
+
+function requestMenuRebuild(autoRender, opts = {}) {
+  const active = !!autoRender;
+  if (!opts.force && _lastMenuAutoRender === active) return;
+  _lastMenuAutoRender = active;
+  mt.ipc.send('rebuild-menu', active);
+}
 
 function applySettings() {
   const { applyTheme, selectionBgFor } = require('./themes');
@@ -38,7 +46,7 @@ function applySettings() {
     const { fitVisiblePanes } = require('./tabs');
     fitVisiblePanes(activeWorkspace);
   }
-  mt.ipc.send('rebuild-menu', active);
+  requestMenuRebuild(active);
   window.dispatchEvent(new CustomEvent('mathterm-settings-applied'));
 }
 
@@ -77,6 +85,7 @@ module.exports = {
   SETTINGS_PATH,
   isMac,
   applySettings,
+  requestMenuRebuild,
   replaceSettings,
   reloadSettingsFromDisk,
 };

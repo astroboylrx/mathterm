@@ -36,6 +36,7 @@ async function testCreateWriteResizeSnapshotAndClose() {
   manager.resizePane('pane-test', 100, 30);
   assert.strictEqual(pane.pty.cols, 100);
   assert.strictEqual(pane.pty.rows, 30);
+  await manager.waitForTerminalWrites('pane-test');
   assert.strictEqual(pane.terminalState.terminal.cols, 100);
   assert.strictEqual(pane.terminalState.terminal.rows, 30);
 

@@ -20,7 +20,7 @@ const {
   updateStatusBar,
   updateStatusBarCwd
 } = require('./state');
-const { settings, isMac } = require('./settings');
+const { settings, isMac, requestMenuRebuild } = require('./settings');
 const { parseShortcut, matchShortcut } = require('./keybindings');
 const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 const { escapeHtml } = require('./ansi');
@@ -1175,7 +1175,7 @@ function focusPane(paneId, opts = {}) {
   updateRendererIndicator(pane);
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = pane.autoRender ? '' : 'off';
-  mt.ipc.send('rebuild-menu', pane.autoRender);
+  requestMenuRebuild(pane.autoRender);
   scheduleFitVisiblePanes(workspace);
   markSessionChanged();
   if (opts.focusTerm !== false) {

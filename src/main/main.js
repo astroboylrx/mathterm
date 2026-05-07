@@ -175,8 +175,18 @@ function toElectronShortcuts(shortcuts) {
 
 const DEFAULT_SHORTCUTS = toElectronShortcuts(createDefaultShortcuts(isMac));
 const ELECTRON_LEGACY_MAC_SHORTCUTS = toElectronShortcuts(LEGACY_MAC_SHORTCUTS);
+let shortcutsCache = null;
+const menuCache = new Map();
+let appliedMenuAutoRender = null;
+
+function invalidateMenuCache() {
+  shortcutsCache = null;
+  menuCache.clear();
+  appliedMenuAutoRender = null;
+}
 
 function loadShortcuts() {
+  if (shortcutsCache) return shortcutsCache;
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
     const parsed = JSON.parse(raw);
@@ -186,9 +196,11 @@ function loadShortcuts() {
       const shortcut = modToCmdOrCtrl(sc[k]) || DEFAULT_SHORTCUTS[k];
       out[k] = isMac && shortcut === ELECTRON_LEGACY_MAC_SHORTCUTS[k] ? DEFAULT_SHORTCUTS[k] : shortcut;
     }
-    return out;
+    shortcutsCache = out;
+    return shortcutsCache;
   } catch {
-    return { ...DEFAULT_SHORTCUTS };
+    shortcutsCache = { ...DEFAULT_SHORTCUTS };
+    return shortcutsCache;
   }
 }
 
@@ -731,6 +743,8 @@ function openFileInMathMode() {
 }
 
 function buildMenu(autoRender) {
+  const cacheKey = autoRender ? 'auto' : 'manual';
+  if (menuCache.has(cacheKey)) return menuCache.get(cacheKey);
   const sc = loadShortcuts();
   const template = [
     ...(isMac ? [{
@@ -967,14 +981,23 @@ function buildMenu(autoRender) {
       ]
     }
   ];
-  return Menu.buildFromTemplate(template);
+  const menu = Menu.buildFromTemplate(template);
+  menuCache.set(cacheKey, menu);
+  return menu;
+}
+
+function setApplicationMenuForAutoRender(autoRender, opts = {}) {
+  const active = !!autoRender;
+  if (!opts.force && appliedMenuAutoRender === active) return;
+  Menu.setApplicationMenu(buildMenu(active));
+  appliedMenuAutoRender = active;
 }
 
 app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
   importCliSessionFile();
   createStartupWindows();
-  Menu.setApplicationMenu(buildMenu(true));
+  setApplicationMenuForAutoRender(true, { force: true });
 });
 
 app.on('before-quit', () => {
@@ -990,7 +1013,7 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
       const { session } = readCliSessionFile(secondOptions.sessionPath, workingDirectory || process.cwd());
       writeSessionFile(session);
       if (createSessionWindows(session, true)) {
-        Menu.setApplicationMenu(buildMenu(true));
+        setApplicationMenuForAutoRender(true, { force: true });
         return;
       }
     } catch (err) {
@@ -998,7 +1021,7 @@ app.on('second-instance', (event, commandLine, workingDirectory) => {
     }
   }
   mainWindow = createWindow();
-  Menu.setApplicationMenu(buildMenu(true));
+  setApplicationMenuForAutoRender(true, { force: true });
   mainWindow.show();
   mainWindow.focus();
 });
@@ -1010,16 +1033,17 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createStartupWindows();
-    Menu.setApplicationMenu(buildMenu(true));
+    setApplicationMenuForAutoRender(true, { force: true });
   }
 });
 
 ipcMain.on('rebuild-menu', (event, autoRender) => {
-  Menu.setApplicationMenu(buildMenu(!!autoRender));
+  setApplicationMenuForAutoRender(!!autoRender);
 });
 
 ipcMain.on('preferences-saved', (event, settings) => {
-  Menu.setApplicationMenu(buildMenu(!!(settings && settings.autoRender)));
+  invalidateMenuCache();
+  setApplicationMenuForAutoRender(!!(settings && settings.autoRender), { force: true });
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && win.webContents !== event.sender) {
       win.webContents.send('settings-updated', settings || {});

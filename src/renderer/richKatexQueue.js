@@ -51,8 +51,11 @@ function _flushKatex() {
   const started = performance.now();
   let rendered = 0;
   let consumed = 0;
-  while (consumed < _katexQueue.length
-    && (rendered < KATEX_CHUNK || performance.now() - started < KATEX_FRAME_BUDGET_MS)) {
+  while (consumed < _katexQueue.length) {
+    if (rendered > 0
+      && (rendered >= KATEX_CHUNK || performance.now() - started >= KATEX_FRAME_BUDGET_MS)) {
+      break;
+    }
     const { latex, el, displayMode, token } = _katexQueue[consumed];
     consumed++;
     if (!el.isConnected) continue;

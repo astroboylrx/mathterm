@@ -5,6 +5,11 @@ function byteLength(data) {
 function splitByMaxBytes(data, maxBytes) {
   const text = String(data);
   if (!Number.isFinite(maxBytes) || maxBytes <= 0 || byteLength(text) <= maxBytes) return [text];
+  if (/^[\x00-\x7f]*$/.test(text)) {
+    const chunks = [];
+    for (let i = 0; i < text.length; i += maxBytes) chunks.push(text.slice(i, i + maxBytes));
+    return chunks;
+  }
   const chunks = [];
   let current = '';
   let currentBytes = 0;
@@ -89,7 +94,14 @@ class PaneOutputTransport {
   }
 
   bufferedAfter(seq) {
-    return this.queue.filter(chunk => chunk.seq > seq);
+    let lo = 0;
+    let hi = this.queue.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (this.queue[mid].seq <= seq) lo = mid + 1;
+      else hi = mid;
+    }
+    return this.queue.slice(lo);
   }
 
   enqueueReplay(viewId, afterSeq) {

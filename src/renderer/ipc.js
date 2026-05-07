@@ -1,6 +1,6 @@
 const mt = window.mathterm;
 const { state, getActivePane, getActiveWorkspace } = require('./state');
-const { settings, reloadSettingsFromDisk, replaceSettings, applySettings } = require('./settings');
+const { settings, reloadSettingsFromDisk, replaceSettings, applySettings, requestMenuRebuild } = require('./settings');
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
@@ -16,7 +16,7 @@ function initIpc() {
     const active = tab ? tab.autoRender : false;
     state.autoIndicator.textContent = 'AUTO';
     state.autoIndicator.className = active ? '' : 'off';
-    mt.ipc.send('rebuild-menu', active);
+    requestMenuRebuild(active);
   });
   mt.ipc.on('clear-terminal', () => {
     const tab = getActivePane();

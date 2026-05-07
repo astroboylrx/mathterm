@@ -36,7 +36,9 @@ class TerminalMetadataTracker {
 
   feed(data) {
     const updates = [];
-    for (const ch of String(data || '')) {
+    const text = String(data || '');
+    if (this._state === 'normal' && !this._sawEsc && text.indexOf('\x1b') === -1) return updates;
+    for (const ch of text) {
       if (this._state === 'osc') {
         if (this._oscEsc) {
           if (ch === '\\') {

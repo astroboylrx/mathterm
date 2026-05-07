@@ -1,5 +1,5 @@
 const { state, getActivePane } = require('./state');
-const { settings, isMac, applySettings } = require('./settings');
+const { settings, isMac, applySettings, requestMenuRebuild } = require('./settings');
 const { loadUserThemes } = require('./themes');
 const {
   createTab,
@@ -64,7 +64,7 @@ window.toggleAutoRender = function() {
   tab.autoRender = !tab.autoRender;
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = tab.autoRender ? '' : 'off';
-  window.mathterm.ipc.send('rebuild-menu', tab.autoRender);
+  requestMenuRebuild(tab.autoRender);
 };
 window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;

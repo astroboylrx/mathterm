@@ -36,7 +36,7 @@ function looksLikeShellCommandSubstitution(body) {
 
 function hasStrongInlineMathSignal(inner) {
   const trimmed = inner.trim();
-  if (/^[a-z]$/.test(trimmed)) return true;
+  if (/^[A-Za-z]$/.test(trimmed)) return true;
   if (/^[0-9]+(?:\.[0-9]+)?$/.test(trimmed)) return true;
   if (LATEX_COMMANDS.test(trimmed)) return true;
   if (/[_^]/.test(trimmed)) return true;
@@ -125,6 +125,7 @@ function stripClosedCodeSpans(text) {
 }
 
 function hasLatex(text) {
+  if (!/[$\\^_]/.test(text)) return false;
   text = stripClosedCodeSpans(text);
   if (/\\\[.*?\\\]/s.test(text)) return true;
   if (/\\\(.*?\\\)/s.test(text)) return true;

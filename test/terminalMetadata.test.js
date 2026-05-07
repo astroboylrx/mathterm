@@ -43,8 +43,19 @@ function testOsc133CommandState() {
   assert.strictEqual(tracker.snapshot().command.endedAt, 2500);
 }
 
+function testPlainTextFastPathAndSplitEscape() {
+  const tracker = createTerminalMetadataTracker({ cwd: '/home/u', home: '/home/u', user: 'u' });
+  assert.deepStrictEqual(tracker.feed('plain output without escapes'), []);
+  assert.deepStrictEqual(tracker.feed('\x1b'), []);
+  const updates = tracker.feed(']0;u@host:~/later\x07');
+  assert.strictEqual(updates.length, 1);
+  assert.strictEqual(updates[0].title, 'u@host:~/later');
+  assert.strictEqual(updates[0].cwd, '/home/u/later');
+}
+
 testCwdHelpers();
 testChunkedOsc7AndTitle();
 testOsc133CommandState();
+testPlainTextFastPathAndSplitEscape();
 
 console.log('terminalMetadata tests passed');

@@ -1,5 +1,6 @@
 const { PaneOutputTransport } = require('./outputTransport');
 const { createHeadlessTerminalState } = require('./headlessTerminalState');
+const { HeadlessWriteBatcher } = require('./headlessWriteBatcher');
 const { createShellShim, removeShellShim } = require('./shellShim');
 const { createTerminalMetadataTracker } = require('./terminalMetadata');
 const { createRuntimeIdFactory } = require('../shared/runtimeIds');
@@ -52,6 +53,7 @@ class PtyManager {
       env: this.env
     });
     const terminalState = createHeadlessTerminalState({ cols, rows, scrollback });
+    const headlessWrites = new HeadlessWriteBatcher({ terminalState });
     const metadata = createTerminalMetadataTracker({
       cwd,
       home: this.env.HOME || this.os.homedir(),
@@ -83,9 +85,10 @@ class PtyManager {
       rows,
       cols,
       terminalState,
+      headlessWrites,
       outputTransport,
       exitState: null,
-      terminalWriteChain: Promise.resolve()
+      terminalWriteChain: headlessWrites.chain
     };
 
     pty.onData(data => {
@@ -103,7 +106,8 @@ class PtyManager {
         backend.title = snapshot.title || backend.title;
         this._emitMetadata(backend.id, snapshot, metadataUpdates);
       }
-      backend.terminalWriteChain = backend.terminalWriteChain.then(() => terminalState.write(data));
+      headlessWrites.push(data);
+      backend.terminalWriteChain = headlessWrites.chain;
       this._emitOutputReady(backend.id);
     });
     pty.onExit(event => {
@@ -137,7 +141,8 @@ class PtyManager {
     pane.cols = cols;
     pane.rows = rows;
     pane.pty.resize(cols, rows);
-    pane.terminalState.resize(cols, rows);
+    pane.headlessWrites.resize(cols, rows);
+    pane.terminalWriteChain = pane.headlessWrites.chain;
   }
 
   attachView(paneBackendId, viewId) {
@@ -159,7 +164,8 @@ class PtyManager {
 
   async snapshotPane(paneBackendId) {
     const pane = this._requirePane(paneBackendId);
-    await pane.terminalWriteChain;
+    await pane.headlessWrites.wait();
+    pane.terminalWriteChain = pane.headlessWrites.chain;
     const { snapshotSeq } = pane.outputTransport.beginSnapshot();
     const snapshot = pane.terminalState.serialize();
     return {
@@ -190,7 +196,8 @@ class PtyManager {
 
   async waitForTerminalWrites(paneBackendId) {
     const pane = this._requirePane(paneBackendId);
-    await pane.terminalWriteChain;
+    await pane.headlessWrites.wait();
+    pane.terminalWriteChain = pane.headlessWrites.chain;
   }
 
   closePane(paneBackendId) {
@@ -200,6 +207,7 @@ class PtyManager {
     pane.outputTransport.destroy();
     pane.attachedViews.clear();
     try { pane.pty.kill(); } catch {}
+    try { pane.headlessWrites.dispose(); } catch {}
     try { pane.terminalState.dispose(); } catch {}
     removeShellShim({ fs: this.fs, shimDir: pane.shimDir });
     pane.state = 'closed';

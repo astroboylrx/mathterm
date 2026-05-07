@@ -73,6 +73,7 @@ function testInlineMathStillWorks() {
   assert.strictEqual(hasLatex('smallest ($(1-\\alpha)^3$)'), true);
   assert.strictEqual(hasLatex('**The integral $I(\\alpha) > 0$ for all $0 < \\alpha < 1$**'), true);
   assert.strictEqual(hasLatex('For ${\\rm St}_{\\rm box}\\gg1$, using'), true);
+  assert.strictEqual(hasLatex('Where $Q$ is a heat source per unit volume, $\\rho$ is density, and $c_p$ is specific heat capacity.'), true);
   assert.deepStrictEqual(partsSummary('cost is $x^2$'), [
     { type: 'text', closed: undefined, raw: 'cost is ', content: 'cost is ' },
     { type: 'inline', closed: true, raw: '$x^2$', content: 'x^2' }
@@ -93,6 +94,15 @@ function testInlineMathStillWorks() {
     { type: 'text', closed: undefined, raw: 'For ', content: 'For ' },
     { type: 'inline', closed: true, raw: '${\\rm St}_{\\rm box}\\gg1$', content: '{\\rm St}_{\\rm box}\\gg1' },
     { type: 'text', closed: undefined, raw: ', using', content: ', using' }
+  ]);
+  assert.deepStrictEqual(partsSummary('Where $Q$ is a heat source per unit volume, $\\rho$ is density, and $c_p$ is specific heat capacity.'), [
+    { type: 'text', closed: undefined, raw: 'Where ', content: 'Where ' },
+    { type: 'inline', closed: true, raw: '$Q$', content: 'Q' },
+    { type: 'text', closed: undefined, raw: ' is a heat source per unit volume, ', content: ' is a heat source per unit volume, ' },
+    { type: 'inline', closed: true, raw: '$\\rho$', content: '\\rho' },
+    { type: 'text', closed: undefined, raw: ' is density, and ', content: ' is density, and ' },
+    { type: 'inline', closed: true, raw: '$c_p$', content: 'c_p' },
+    { type: 'text', closed: undefined, raw: ' is specific heat capacity.', content: ' is specific heat capacity.' }
   ]);
 }
 

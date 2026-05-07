@@ -98,6 +98,8 @@ function testPendingCapForStalledView() {
 
 function testOversizedOutputIsSplitBeforeBatching() {
   assert.deepStrictEqual(splitByMaxBytes('abcdef', 4), ['abcd', 'ef']);
+  assert.deepStrictEqual(splitByMaxBytes('abcdefghij', 3), ['abc', 'def', 'ghi', 'j']);
+  assert.deepStrictEqual(splitByMaxBytes('abécd', 4), ['abé', 'cd']);
   const transport = new PaneOutputTransport({ maxBatchBytes: 4 });
   transport.attachView('view-a');
   assert.strictEqual(transport.push('abcdef'), 2);
@@ -107,6 +109,17 @@ function testOversizedOutputIsSplitBeforeBatching() {
   assert.strictEqual(first.bytes, 4);
   assert.strictEqual(second.data, 'ef');
   assert.strictEqual(second.bytes, 2);
+}
+
+function testBufferedAfterUsesSequenceCutoff() {
+  const transport = new PaneOutputTransport({ maxBatchBytes: 1024 });
+  transport.push('one');
+  transport.push('two');
+  transport.push('three');
+  assert.deepStrictEqual(transport.bufferedAfter(0).map(chunk => chunk.data), ['one', 'two', 'three']);
+  assert.deepStrictEqual(transport.bufferedAfter(1).map(chunk => chunk.data), ['two', 'three']);
+  assert.deepStrictEqual(transport.bufferedAfter(3), []);
+  assert.deepStrictEqual(transport.bufferedAfter(99), []);
 }
 
 function testFakePtyFlowControlIntegration() {
@@ -150,6 +163,7 @@ testBatchingAndBackpressure();
 testQueueBoundAndDetach();
 testPendingCapForStalledView();
 testOversizedOutputIsSplitBeforeBatching();
+testBufferedAfterUsesSequenceCutoff();
 testFakePtyFlowControlIntegration();
 
 console.log('outputTransport tests passed');

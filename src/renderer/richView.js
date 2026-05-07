@@ -30,6 +30,7 @@ const { tryParseDisplayMath, tryParseFencedCodeBlock, tagSpan } = require('./ric
 
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
+const SECTION_LATEX_SCAN_OVERLAP = 32;
 
 function collectBufferLines(buf, startY, endY) {
   const raw = [];
@@ -117,10 +118,15 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab, op
 
 function insertImagesIntoContainer(container, tab, startY, endY) {
   if (!tab || !tab.inlineImages || tab.inlineImages.length === 0) return;
-  const relevant = tab.inlineImages.filter(img => img.lineY >= startY && img.lineY <= endY);
+  const relevant = tab.inlineImages
+    .map((img, index) => ({ img, index }))
+    .filter(item => item.img.lineY >= startY && item.img.lineY <= endY)
+    .sort((a, b) => a.img.lineY - b.img.lineY || a.index - b.index);
   if (relevant.length === 0) return;
   const lineEls = Array.from(container.querySelectorAll('.rline'));
-  for (const img of relevant) {
+  const lineYs = lineEls.map(lineEl => parseInt(lineEl.dataset.y));
+  let lineIndex = 0;
+  for (const { img } of relevant) {
     const wrap = document.createElement('div');
     wrap.className = 'inline-image';
     wrap.dataset.y = img.lineY;
@@ -132,16 +138,12 @@ function insertImagesIntoContainer(container, tab, startY, endY) {
     if (img.params.height) imgTag.style.height = img.params.height;
     if (img.params.preserveAspectRatio === '1') imgTag.style.objectFit = 'contain';
     wrap.appendChild(imgTag);
-    let inserted = false;
-    for (const lineEl of lineEls) {
-      const lineY = parseInt(lineEl.dataset.y);
-      if (!isNaN(lineY) && lineY > img.lineY) {
-        container.insertBefore(wrap, lineEl);
-        inserted = true;
-        break;
-      }
+    while (lineIndex < lineEls.length && (!Number.isFinite(lineYs[lineIndex]) || lineYs[lineIndex] <= img.lineY)) {
+      lineIndex++;
     }
-    if (!inserted) container.appendChild(wrap);
+    const before = lineEls[lineIndex] || null;
+    if (before) container.insertBefore(wrap, before);
+    else container.appendChild(wrap);
   }
 }
 
@@ -530,6 +532,7 @@ function tabResetSection(tab) {
   tab._sectionStartTime = 0;
   tab._sectionAltScreen = false;
   tab._sectionImageStart = tab.inlineImages ? tab.inlineImages.length : 0;
+  tab._sectionLatexCheckedLen = 0;
 }
 
 function tabFlushSection(tab) {
@@ -595,6 +598,7 @@ function tabFeedSection(tab, data) {
     clearTimeout(tab.sectionTimer);
     tab.sectionHasLatex = false;
     tab.sectionBuffer = '';
+    tab._sectionLatexCheckedLen = 0;
   }
   if (enteringAlt || leavingAlt) tab._sectionAltScreen = true;
   if (tab._sectionAltScreen) return;
@@ -605,9 +609,16 @@ function tabFeedSection(tab, data) {
   }
   tab.sectionBuffer += data;
   if (tab.sectionBuffer.length > SECTION_BUFFER_MAX) {
+    const trimmed = tab.sectionBuffer.length - SECTION_BUFFER_MAX;
     tab.sectionBuffer = tab.sectionBuffer.slice(-SECTION_BUFFER_MAX);
+    tab._sectionLatexCheckedLen = Math.max(0, (tab._sectionLatexCheckedLen || 0) - trimmed);
   }
-  if (hasLatex(stripAnsi(tab.sectionBuffer))) tab.sectionHasLatex = true;
+  if (!tab.sectionHasLatex) {
+    const checkedLen = Math.max(0, tab._sectionLatexCheckedLen || 0);
+    const scanStart = Math.max(0, checkedLen - SECTION_LATEX_SCAN_OVERLAP);
+    if (hasLatex(stripAnsi(tab.sectionBuffer.slice(scanStart)))) tab.sectionHasLatex = true;
+    tab._sectionLatexCheckedLen = tab.sectionBuffer.length;
+  }
   const elapsed = Date.now() - tab._sectionStartTime;
   if (tab.sectionHasLatex && (tab.sectionBuffer.length >= SECTION_BUFFER_MAX || elapsed >= SECTION_ELAPSED_MAX)) {
     clearTimeout(tab.sectionTimer);
