@@ -54,7 +54,9 @@ applySettings();
 
 window.createTab = createTab;
 window.splitPaneRight = require('./tabs').splitPaneRight;
+window.splitPaneLeft = require('./tabs').splitPaneLeft;
 window.splitPaneDown = require('./tabs').splitPaneDown;
+window.splitPaneUp = require('./tabs').splitPaneUp;
 window.closeActivePane = require('./tabs').closeActivePane;
 window.togglePaneMaximize = require('./tabs').togglePaneMaximize;
 window.toggleMathMode = toggleMathMode;

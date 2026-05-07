@@ -1186,7 +1186,7 @@ function focusPane(paneId, opts = {}) {
   }
 }
 
-function splitActivePane(direction) {
+function splitActivePane(direction, placement = 'after') {
   const pane = getActivePane();
   const workspace = getActiveWorkspace();
   if (!pane || !workspace) return;
@@ -1198,14 +1198,15 @@ function splitActivePane(direction) {
   if (!path) return;
 
   const newPaneId = state.paneIdCounter++;
+  const newPaneNode = { type: 'pane', paneId: newPaneId };
+  const oldPaneNode = { type: 'pane', paneId: pane.id };
   const newNode = {
     type: 'split',
     direction,
     sizes: [0.5, 0.5],
-    children: [
-      { type: 'pane', paneId: pane.id },
-      { type: 'pane', paneId: newPaneId }
-    ]
+    children: placement === 'before'
+      ? [newPaneNode, oldPaneNode]
+      : [oldPaneNode, newPaneNode]
   };
   workspace.layout = replaceNodeAtPath(workspace.layout, path, newNode);
   workspace.activePaneId = newPaneId;
@@ -1223,9 +1224,15 @@ function splitActivePane(direction) {
   parent.insertBefore(splitEl, oldLeaf);
   oldLeaf.style.flex = '0.5 1 0';
   newLeaf.style.flex = '0.5 1 0';
-  splitEl.appendChild(oldLeaf);
-  splitEl.appendChild(gutter);
-  splitEl.appendChild(newLeaf);
+  if (placement === 'before') {
+    splitEl.appendChild(newLeaf);
+    splitEl.appendChild(gutter);
+    splitEl.appendChild(oldLeaf);
+  } else {
+    splitEl.appendChild(oldLeaf);
+    splitEl.appendChild(gutter);
+    splitEl.appendChild(newLeaf);
+  }
   pane.leafEl = oldLeaf;
   oldLeaf.classList.remove('active');
   newLeaf.classList.add('active');
@@ -1249,8 +1256,16 @@ function splitPaneRight() {
   splitActivePane('row');
 }
 
+function splitPaneLeft() {
+  splitActivePane('row', 'before');
+}
+
 function splitPaneDown() {
   splitActivePane('column');
+}
+
+function splitPaneUp() {
+  splitActivePane('column', 'before');
 }
 
 function togglePaneMaximize() {
@@ -1751,7 +1766,9 @@ module.exports = {
   closePane,
   closeActivePane,
   splitPaneRight,
+  splitPaneLeft,
   splitPaneDown,
+  splitPaneUp,
   focusPane,
   focusPaneInDirection,
   focusNextPane,

@@ -742,6 +742,30 @@ function openFileInMathMode() {
   });
 }
 
+function showAboutDialog() {
+  const version = app.getVersion ? app.getVersion() : 'unknown';
+  const iconPath = path.join(APP_ROOT, 'assets', 'icons', 'png', '256x256.png');
+  const copyright = 'Copyright © 2026 Rixin Li';
+  if (typeof app.showAboutPanel === 'function') {
+    app.setAboutPanelOptions({
+      applicationName: 'MathTerm',
+      applicationVersion: version,
+      version,
+      copyright,
+      iconPath
+    });
+    app.showAboutPanel();
+    return;
+  }
+  dialog.showMessageBox(BrowserWindow.getFocusedWindow() || mainWindow, {
+    type: 'info',
+    title: 'About MathTerm',
+    message: 'MathTerm',
+    detail: `Version ${version}\n\n${copyright}`,
+    icon: iconPath
+  });
+}
+
 function buildMenu(autoRender) {
   const cacheKey = autoRender ? 'auto' : 'manual';
   if (menuCache.has(cacheKey)) return menuCache.get(cacheKey);
@@ -768,23 +792,8 @@ function buildMenu(autoRender) {
       ]
     }] : []),
     {
-      label: '&File',
+      label: '&Workspace',
       submenu: [
-        {
-          label: 'Open File in Math Mode...',
-          accelerator: 'CmdOrCtrl+Shift+O',
-          click: openFileInMathMode
-        },
-        { type: 'separator' },
-        {
-          label: 'Export Math View as PDF...',
-          click: () => sendFocused('export-rich-pdf')
-        },
-        {
-          label: 'Export Math View as PNG...',
-          click: () => sendFocused('export-rich-png')
-        },
-        { type: 'separator' },
         {
           label: 'New Window',
           accelerator: isMac ? 'CmdOrCtrl+N' : 'CmdOrCtrl+Shift+N',
@@ -795,14 +804,37 @@ function buildMenu(autoRender) {
           accelerator: isMac ? 'CmdOrCtrl+T' : 'CmdOrCtrl+Shift+T',
           click: () => sendFocused('new-tab')
         },
+        { type: 'separator' },
         {
-          label: 'Close Workspace',
+          label: 'Open File in Math Mode...',
+          accelerator: 'CmdOrCtrl+Shift+O',
+          click: openFileInMathMode
+        },
+        {
+          label: 'Export Math View as PDF...',
+          click: () => sendFocused('export-rich-pdf')
+        },
+        {
+          label: 'Export Math View as PNG...',
+          click: () => sendFocused('export-rich-png')
+        },
+        { type: 'separator' },
+        {
+          label: 'Close Pane',
+          accelerator: sc.closePane,
+          registerAccelerator: false,
+          click: () => sendFocused('close-pane')
+        },
+        {
+          label: 'Close Tab',
           click: () => sendFocused('close-tab')
         },
-        ...(isMac ? [] : [
-          { type: 'separator' },
-          { role: 'close' }
-        ])
+        { role: 'close', label: 'Close Window' },
+        ...(isMac ? [] : [{
+          label: 'Quit',
+          accelerator: 'Ctrl+Q',
+          click: () => app.quit()
+        }])
       ]
     },
     {
@@ -870,7 +902,6 @@ function buildMenu(autoRender) {
           registerAccelerator: false,
           click: () => sendFocused('toggle-math-mode')
         },
-        { type: 'separator' },
         {
           label: 'Auto-Render LaTeX',
           type: 'checkbox',
@@ -881,10 +912,18 @@ function buildMenu(autoRender) {
         },
         { type: 'separator' },
         {
+          label: 'Split Pane Left',
+          click: () => sendFocused('split-pane-left')
+        },
+        {
           label: 'Split Pane Right',
           accelerator: sc.splitPaneRight,
           registerAccelerator: false,
           click: () => sendFocused('split-pane-right')
+        },
+        {
+          label: 'Split Pane Up',
+          click: () => sendFocused('split-pane-up')
         },
         {
           label: 'Split Pane Down',
@@ -893,17 +932,31 @@ function buildMenu(autoRender) {
           click: () => sendFocused('split-pane-down')
         },
         {
-          label: 'Close Pane',
-          accelerator: sc.closePane,
-          registerAccelerator: false,
-          click: () => sendFocused('close-pane')
-        },
-        {
           label: 'Maximize Pane',
           accelerator: sc.togglePaneMaximize,
           registerAccelerator: false,
           click: () => sendFocused('toggle-pane-maximize')
         },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    {
+      label: '&Navi',
+      submenu: [
+        {
+          label: 'Next Tab',
+          accelerator: isMac ? 'CmdOrCtrl+Shift+]' : 'CmdOrCtrl+PageDown',
+          registerAccelerator: false,
+          click: () => sendFocused('next-tab')
+        },
+        {
+          label: 'Previous Tab',
+          accelerator: isMac ? 'CmdOrCtrl+Shift+[' : 'CmdOrCtrl+PageUp',
+          registerAccelerator: false,
+          click: () => sendFocused('prev-tab')
+        },
+        { type: 'separator' },
         ...(isMac ? [
           {
             label: 'Next Pane',
@@ -942,41 +995,35 @@ function buildMenu(autoRender) {
           accelerator: isMac ? 'CmdOrCtrl+Alt+Down' : 'Alt+Down',
           registerAccelerator: false,
           click: () => sendFocused('focus-pane-down')
-        },
-        { type: 'separator' },
-        { role: 'togglefullscreen' }
-      ]
-    },
-    {
-      label: '&Tabs',
-      submenu: [
-        {
-          label: 'Next Tab',
-          accelerator: isMac ? 'CmdOrCtrl+Shift+]' : 'CmdOrCtrl+PageDown',
-          registerAccelerator: false,
-          click: () => sendFocused('next-tab')
-        },
-        {
-          label: 'Previous Tab',
-          accelerator: isMac ? 'CmdOrCtrl+Shift+[' : 'CmdOrCtrl+PageUp',
-          registerAccelerator: false,
-          click: () => sendFocused('prev-tab')
         }
       ]
     },
-    ...(isMac ? [{
-      role: 'windowMenu'
-    }] : [{
+    {
       label: '&Window',
-      submenu: [
+      submenu: isMac ? [
         { role: 'minimize' },
-        { role: 'zoom' },
-        { role: 'close' }
+        {
+          label: 'Maximize',
+          click: () => {
+            const win = BrowserWindow.getFocusedWindow();
+            if (!win) return;
+            if (win.isMaximized()) win.unmaximize();
+            else win.maximize();
+          }
+        },
+        { type: 'separator' },
+        { role: 'front' }
+      ] : [
+        { role: 'minimize' },
       ]
-    }]),
+    },
     {
       label: '&Help',
       submenu: [
+        ...(isMac ? [] : [
+          { label: 'About MathTerm', click: showAboutDialog },
+          { type: 'separator' }
+        ]),
         { label: 'Keyboard Shortcuts', click: () => createPreferencesWindow('shortcuts') }
       ]
     }

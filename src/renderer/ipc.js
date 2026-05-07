@@ -4,7 +4,7 @@ const { settings, reloadSettingsFromDisk, replaceSettings, applySettings, reques
 const { tabHideRichView, toggleMathMode, renderFileContent } = require('./richView');
 const { doCopy, doPaste, doSelectAll } = require('./clipboard');
 const { openSearch, closeSearch } = require('./search');
-const { createTab, closeTab, switchTab, splitPaneRight, splitPaneDown, closeActivePane, focusPaneInDirection, focusNextPane, focusPrevPane, togglePaneMaximize } = require('./tabs');
+const { createTab, closeTab, switchTab, splitPaneRight, splitPaneLeft, splitPaneDown, splitPaneUp, closeActivePane, focusPaneInDirection, focusNextPane, focusPrevPane, togglePaneMaximize } = require('./tabs');
 const { exportPdf, exportPng } = require('./export');
 const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom } = require('./zoom');
 
@@ -51,7 +51,9 @@ function initIpc() {
     if (idx !== -1 && state.tabs.length > 1) switchTab(state.tabs[(idx - 1 + state.tabs.length) % state.tabs.length].id);
   });
   mt.ipc.on('split-pane-right', () => splitPaneRight());
+  mt.ipc.on('split-pane-left', () => splitPaneLeft());
   mt.ipc.on('split-pane-down', () => splitPaneDown());
+  mt.ipc.on('split-pane-up', () => splitPaneUp());
   mt.ipc.on('close-pane', () => closeActivePane());
   mt.ipc.on('toggle-pane-maximize', () => togglePaneMaximize());
   mt.ipc.on('focus-pane-left', () => focusPaneInDirection('left'));
