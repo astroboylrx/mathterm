@@ -1,5 +1,5 @@
 cask "mathterm" do
-  version "0.9.10"
+  version "0.10.0"
   sha256 :no_check
 
   url "https://github.com/astroboylrx/mathterm/archive/refs/tags/v#{version}.tar.gz",

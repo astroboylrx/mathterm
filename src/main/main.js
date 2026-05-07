@@ -13,6 +13,7 @@ const { PtyManager } = require('./ptyManager');
 
 let mainWindow;
 let preferencesWindow;
+let aboutWindow;
 let nextSessionWindowId = 1;
 let appIsQuitting = false;
 let suppressActiveWindowWrites = false;
@@ -139,6 +140,12 @@ function userThemeBackground(themeId) {
 function currentWindowBackgroundColor() {
   const themeId = configuredThemeId();
   return userThemeBackground(themeId) || BUILTIN_THEME_BACKGROUNDS[themeId] || BUILTIN_THEME_BACKGROUNDS.dark;
+}
+
+function configuredUiFontSize() {
+  const parsed = safeReadJsonFile(SETTINGS_PATH);
+  const size = Number(parsed?.fontSize);
+  return Number.isFinite(size) ? Math.min(32, Math.max(8, Math.round(size))) : 16;
 }
 
 function shouldHintX11Linux() {
@@ -742,11 +749,92 @@ function openFileInMathMode() {
   });
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch]));
+}
+
+function readableTextColor(backgroundColor) {
+  const match = /^#([0-9a-f]{6})$/i.exec(backgroundColor || '');
+  if (!match) return '#f4f4f5';
+  const value = match[1];
+  const r = parseInt(value.slice(0, 2), 16);
+  const g = parseInt(value.slice(2, 4), 16);
+  const b = parseInt(value.slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.55 ? '#111827' : '#f4f4f5';
+}
+
+function imageDataUrl(filePath) {
+  try {
+    return `data:image/png;base64,${fs.readFileSync(filePath).toString('base64')}`;
+  } catch {
+    return '';
+  }
+}
+
+function aboutDialogHtml({ version, iconUrl, copyright, fontSize, backgroundColor }) {
+  const foreground = readableTextColor(backgroundColor);
+  const dim = foreground === '#111827' ? '#4b5563' : '#a1a1aa';
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>About MathTerm</title>
+  <style>
+    :root {
+      color-scheme: ${foreground === '#111827' ? 'light' : 'dark'};
+      --ui-font-size: ${fontSize}px;
+      --bg: ${backgroundColor};
+      --fg: ${foreground};
+      --dim: ${dim};
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--fg);
+      font: var(--ui-font-size)/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    main {
+      width: min(100vw, 420px);
+      padding: 22px 28px;
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      text-align: center;
+    }
+    img { width: 72px; height: 72px; display: block; }
+    .name { font-weight: 650; }
+    .version, .copyright { color: var(--dim); }
+  </style>
+</head>
+<body>
+  <main>
+    ${iconUrl ? `<img src="${escapeHtml(iconUrl)}" alt="">` : ''}
+    <div class="name">MathTerm</div>
+    <div class="version">Version ${escapeHtml(version)}</div>
+    <div class="copyright">${escapeHtml(copyright)}</div>
+  </main>
+</body>
+</html>`;
+}
+
 function showAboutDialog() {
   const version = app.getVersion ? app.getVersion() : 'unknown';
   const iconPath = path.join(APP_ROOT, 'assets', 'icons', 'png', '256x256.png');
   const copyright = 'Copyright © 2026 Rixin Li';
-  if (typeof app.showAboutPanel === 'function') {
+  if (isMac && typeof app.showAboutPanel === 'function') {
     app.setAboutPanelOptions({
       applicationName: 'MathTerm',
       applicationVersion: version,
@@ -757,13 +845,45 @@ function showAboutDialog() {
     app.showAboutPanel();
     return;
   }
-  dialog.showMessageBox(BrowserWindow.getFocusedWindow() || mainWindow, {
-    type: 'info',
+
+  if (aboutWindow && !aboutWindow.isDestroyed()) {
+    aboutWindow.show();
+    aboutWindow.focus();
+    return;
+  }
+
+  const parent = BrowserWindow.getFocusedWindow() || mainWindow || null;
+  const fontSize = configuredUiFontSize();
+  const backgroundColor = currentWindowBackgroundColor();
+  aboutWindow = new BrowserWindow({
+    width: Math.max(380, Math.round(fontSize * 26)),
+    height: Math.max(248, Math.round(fontSize * 16)),
+    useContentSize: true,
+    parent,
+    modal: !!parent,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    show: false,
     title: 'About MathTerm',
-    message: 'MathTerm',
-    detail: `Version ${version}\n\n${copyright}`,
-    icon: iconPath
+    backgroundColor,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
   });
+  aboutWindow.setMenuBarVisibility(false);
+  aboutWindow.on('closed', () => {
+    aboutWindow = null;
+  });
+  aboutWindow.once('ready-to-show', () => {
+    if (aboutWindow && !aboutWindow.isDestroyed()) aboutWindow.show();
+  });
+  const iconUrl = imageDataUrl(iconPath);
+  const html = aboutDialogHtml({ version, iconUrl, copyright, fontSize, backgroundColor });
+  aboutWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
 function buildMenu(autoRender) {
