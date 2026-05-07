@@ -137,6 +137,33 @@ function testComputeDisplayMathSpansRespectsBoundaries() {
   );
 }
 
+function testComputeDisplayMathSpansToleratesFalsePromptRowsInsideMath() {
+  const buf = makeBuf({
+    0: { text: 'The manuscript sets the 3D initial gas density as' },
+    1: { text: '$$' },
+    2: { text: '\\rho_{\\rm g,init,3D}(R,z) =' },
+    3: { text: '\\rho_0 \\left(\\frac{R}{R_{\\rm p}}\\right)^{-9/4}' },
+    4: { text: '\\exp\\left[' },
+    5: { text: '\\frac{GM}{c_{s,\\rm init}^2}' },
+    6: { text: '\\left(\\frac{1}{\\sqrt{R^2+z^2}}-\\frac{1}{R}\\right)' },
+    7: { text: '\\right],' },
+    8: { text: '$$' },
+    9: { text: 'with' },
+    10: { text: '$$' },
+    11: { text: 'c_{s,\\rm init}^2(R) = c_{s,0}^2' },
+    12: { text: '\\left(\\frac{R}{R_{\\rm p}}\\right)^{-1/2}.' },
+    13: { text: '$$' }
+  });
+  const falsePromptRows = new Set([1, 2, 8]);
+  assert.deepStrictEqual(
+    computeDisplayMathSpans(buf, 0, 13, (text, y) => falsePromptRows.has(y)),
+    [
+      { startY: 1, endY: 8 },
+      { startY: 10, endY: 13 }
+    ]
+  );
+}
+
 function testComputeDisplayMathSpansIgnoresFencedRows() {
   const buf = makeBuf({
     0: { text: '```' },
@@ -434,6 +461,7 @@ function run() {
   testCoerceRenderToken();
   testComputeDisplayMathSpans();
   testComputeDisplayMathSpansRespectsBoundaries();
+  testComputeDisplayMathSpansToleratesFalsePromptRowsInsideMath();
   testComputeDisplayMathSpansIgnoresFencedRows();
   testComputeDisplayMathSpansSkipsOrphanCloserAtStart();
   testComputeDisplayMathSpansAfterInlineMathProse();

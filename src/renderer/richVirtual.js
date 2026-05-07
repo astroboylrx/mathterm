@@ -117,8 +117,9 @@ function hasLikelyDisplayMathCloseAhead(buf, openerY, sourceEndY, isBoundaryLine
     const info = lineInfo(buf, y);
     if (!info) continue;
     if (isIgnoredLine && isIgnoredLine(y)) return false;
-    if (isBoundaryLine && isBoundaryLine(info.text, y)) return false;
     if (info.trimmed === '$$') return sawBody;
+    if (isBoundaryLine && isBoundaryLine(info.text, y)
+        && !isLikelyDisplayMathBodyText(info.text)) return false;
     if (isLikelyDisplayMathBodyText(info.text)) sawBody = true;
   }
   return false;
@@ -164,20 +165,25 @@ function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine, 
       openY = null;
       continue;
     }
-    if (openY != null && isBoundaryLine && isBoundaryLine(info.text, y)) {
-      openY = null;
+    if (openY != null) {
+      if (info.trimmed === '$$') {
+        spans.push({ startY: openY, endY: y });
+        openY = null;
+        continue;
+      }
+      if (isBoundaryLine && isBoundaryLine(info.text, y)
+          && !isLikelyDisplayMathBodyText(info.text)) {
+        openY = null;
+      }
+      continue;
     }
-    if (info.trimmed !== '$$') continue;
-    if (openY == null) {
+    if (info.trimmed === '$$') {
       const prev = previousMeaningfulLineInfo(buf, y - 1, sourceStartY);
       if (prev && isLikelyDisplayMathBodyText(prev.text)
           && !hasLikelyDisplayMathCloseAhead(buf, y, sourceEndY, isBoundaryLine, isIgnoredLine)) {
         continue;
       }
       openY = y;
-    } else {
-      spans.push({ startY: openY, endY: y });
-      openY = null;
     }
   }
   return spans;

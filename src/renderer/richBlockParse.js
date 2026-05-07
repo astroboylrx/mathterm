@@ -22,11 +22,12 @@ function hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineCh
   for (let i = startIdx + 1; i < textLines.length; i++) {
     const item = textLines[i];
     const text = typeof item === 'string' ? item : (item.text || '');
+    if (text.trim() === '$$') return sawBody;
     if (typeof item === 'object' && item.y !== undefined
-        && pane && promptLineChecker && promptLineChecker(pane, text, item.y)) {
+        && pane && promptLineChecker && promptLineChecker(pane, text, item.y)
+        && !isLikelyDisplayMathBodyText(text)) {
       return false;
     }
-    if (text.trim() === '$$') return sawBody;
     if (isLikelyDisplayMathBodyText(text)) sawBody = true;
   }
   return false;
@@ -53,12 +54,9 @@ function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker)
     const item = textLines[j];
     const t = typeof item === 'string' ? item : (item.text || '');
     // An unclosed $$ shouldn't swallow shell prompts or command output.
-    // A prompt line is a hard command boundary, so bail and let the $$
-    // render as literal text.
-    if (typeof item === 'object' && item.y !== undefined
-        && pane && promptLineChecker && promptLineChecker(pane, t, item.y)) {
-      return null;
-    }
+    // A real prompt line is a hard command boundary, so bail and let the $$
+    // render as literal text. If prompt tracking falsely tags a math body row,
+    // keep parsing so a valid display block still renders.
     if (t.trim() === '$$') {
       const latex = mathLines.join('\n');
       const el = document.createElement('div');
@@ -73,6 +71,11 @@ function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker)
       }
       queueKatex(latex, el, true, opts);
       return { element: el, endIdx: j + 1 };
+    }
+    if (typeof item === 'object' && item.y !== undefined
+        && pane && promptLineChecker && promptLineChecker(pane, t, item.y)
+        && !isLikelyDisplayMathBodyText(t)) {
+      return null;
     }
     mathLines.push(t.trimEnd());
     j++;
