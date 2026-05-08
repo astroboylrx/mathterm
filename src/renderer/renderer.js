@@ -1,4 +1,4 @@
-const { state, getActivePane } = require('./state');
+const { state, getActivePane, isRemotePane } = require('./state');
 const { settings, isMac, applySettings, requestMenuRebuild } = require('./settings');
 const { loadUserThemes } = require('./themes');
 const {
@@ -27,22 +27,101 @@ const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom, isZoomShortcut } = r
 
 state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
+state.statusBar = document.getElementById('status-bar');
 state.autoIndicator = document.getElementById('auto-indicator');
 state.mathBtn = document.getElementById('math-btn');
 state.renderInd = document.getElementById('render-ind');
 state.zoomInd = document.getElementById('zoom-ind');
 state.cwdLink = document.getElementById('cwd-link');
+state.cwdContextMenu = document.getElementById('cwd-context-menu');
 state.gitSep = document.getElementById('git-sep');
 state.gitBranch = document.getElementById('git-branch');
-state.renderInd.addEventListener('click', () => resetActiveRenderer());
-state.renderInd.addEventListener('keydown', e => {
-  if (e.key !== 'Enter' && e.key !== ' ') return;
+function focusActivePaneSurface() {
+  const pane = getActivePane();
+  if (!pane) return;
+  requestAnimationFrame(() => {
+    if (pane.richVisible) pane.richView?.focus();
+    else pane.term?.focus();
+  });
+}
+
+function preventMouseFocus(el) {
+  el?.addEventListener('mousedown', e => e.preventDefault());
+}
+
+function hideCwdContextMenu() {
+  state.cwdContextMenu?.classList.remove('open');
+}
+
+function showCwdContextMenu(x, y) {
+  const menu = state.cwdContextMenu;
+  const cwd = state.cwdLink.dataset.cwd;
+  if (!menu || !cwd) return;
+  menu.dataset.cwd = cwd;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+  menu.classList.add('open');
+  const rect = menu.getBoundingClientRect();
+  const margin = 4;
+  let left = x;
+  let top = y;
+  if (left + rect.width + margin > window.innerWidth) {
+    left = Math.max(margin, window.innerWidth - rect.width - margin);
+  }
+  if (top + rect.height + margin > window.innerHeight) {
+    top = Math.max(margin, y - rect.height);
+  }
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+}
+
+function isStatusBarButtonTarget(target) {
+  return !!target?.closest?.('button, #render-ind, #cwd-context-menu, .menu-item');
+}
+
+preventMouseFocus(document.getElementById('new-tab-btn'));
+preventMouseFocus(state.autoIndicator);
+preventMouseFocus(state.mathBtn);
+preventMouseFocus(state.cwdLink);
+preventMouseFocus(state.statusBar);
+preventMouseFocus(state.cwdContextMenu);
+
+state.statusBar.addEventListener('mouseup', () => focusActivePaneSurface());
+state.statusBar.addEventListener('contextmenu', e => {
   e.preventDefault();
+  if (!isStatusBarButtonTarget(e.target)) showCwdContextMenu(e.clientX, e.clientY);
+  focusActivePaneSurface();
+});
+
+state.renderInd.addEventListener('click', () => {
   resetActiveRenderer();
+  focusActivePaneSurface();
 });
 state.cwdLink.addEventListener('click', () => {
+  if (state.cwdLink.dataset.openable === 'false' || isRemotePane(getActivePane())) {
+    focusActivePaneSurface();
+    return;
+  }
   const cwd = state.cwdLink.dataset.cwd;
   if (cwd) window.mathterm.shell.openPath(cwd);
+  focusActivePaneSurface();
+});
+state.cwdLink.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  showCwdContextMenu(e.clientX, e.clientY);
+  focusActivePaneSurface();
+});
+document.getElementById('cwd-copy')?.addEventListener('click', () => {
+  const cwd = state.cwdContextMenu?.dataset.cwd || state.cwdLink.dataset.cwd || '';
+  if (cwd) window.mathterm.clipboard.writeText(cwd);
+  hideCwdContextMenu();
+  focusActivePaneSurface();
+});
+document.addEventListener('click', e => {
+  if (!state.cwdContextMenu?.contains(e.target)) hideCwdContextMenu();
+});
+document.addEventListener('contextmenu', e => {
+  if (!state.cwdContextMenu?.contains(e.target) && !state.statusBar.contains(e.target)) hideCwdContextMenu();
 });
 state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
@@ -52,14 +131,21 @@ state.contextMenu = document.getElementById('context-menu');
 loadUserThemes();
 applySettings();
 
-window.createTab = createTab;
+window.createTab = function(...args) {
+  const workspace = createTab(...args);
+  focusActivePaneSurface();
+  return workspace;
+};
 window.splitPaneRight = require('./tabs').splitPaneRight;
 window.splitPaneLeft = require('./tabs').splitPaneLeft;
 window.splitPaneDown = require('./tabs').splitPaneDown;
 window.splitPaneUp = require('./tabs').splitPaneUp;
 window.closeActivePane = require('./tabs').closeActivePane;
 window.togglePaneMaximize = require('./tabs').togglePaneMaximize;
-window.toggleMathMode = toggleMathMode;
+window.toggleMathMode = function() {
+  toggleMathMode();
+  focusActivePaneSurface();
+};
 window.toggleAutoRender = function() {
   const tab = getActivePane();
   if (!tab) return;
@@ -67,6 +153,7 @@ window.toggleAutoRender = function() {
   state.autoIndicator.textContent = 'AUTO';
   state.autoIndicator.className = tab.autoRender ? '' : 'off';
   requestMenuRebuild(tab.autoRender);
+  focusActivePaneSurface();
 };
 window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;

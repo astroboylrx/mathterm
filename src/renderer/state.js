@@ -21,9 +21,11 @@ const state = {
   termContainer: null,
   autoIndicator: null,
   mathBtn: null,
+  statusBar: null,
   renderInd: null,
   zoomInd: null,
   cwdLink: null,
+  cwdContextMenu: null,
   gitSep: null,
   gitBranch: null,
   searchBar: null,
@@ -68,6 +70,13 @@ function formatCwdDisplay(cwd) {
   if (cwd === home) return '~';
   if (cwd.startsWith(home + '/')) return '~' + cwd.slice(home.length);
   return cwd;
+}
+
+function isRemotePane(pane) {
+  const host = String(pane?.displayHost || '').trim();
+  if (!host) return false;
+  const localHost = String(state._hostname || '').trim();
+  return host !== localHost && host !== 'localhost' && host !== '127.0.0.1' && host !== '::1';
 }
 
 function getActiveWorkspace() {
@@ -128,9 +137,20 @@ let _cwdSeq = 0;
 async function updateStatusBarCwd(tab) {
   if (!state.cwdLink || !tab) return;
   const cwd = tab.cwd || '';
+  const remote = isRemotePane(tab);
   state.cwdLink.textContent = formatCwdDisplay(cwd);
   state.cwdLink.dataset.cwd = cwd;
+  state.cwdLink.dataset.openable = remote ? 'false' : 'true';
+  state.cwdLink.classList.toggle('remote-cwd', remote);
+  state.cwdLink.title = remote
+    ? 'Remote SSH path; local file manager is disabled'
+    : 'Open in file manager';
   const seq = ++_cwdSeq;
+  if (remote) {
+    state.gitBranch.classList.add('hidden');
+    state.gitSep.classList.add('hidden');
+    return;
+  }
   const branch = await findGitBranch(cwd);
   if (seq !== _cwdSeq || tab.id !== getActivePane()?.id) return;
   if (branch) {
@@ -153,6 +173,7 @@ module.exports = {
   getPaneWorkspace,
   getPaneById,
   isActivePane,
+  isRemotePane,
   forEachPane,
   updateStatusBar,
   updateStatusBarCwd

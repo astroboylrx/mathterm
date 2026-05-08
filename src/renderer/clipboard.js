@@ -67,6 +67,15 @@ function hideContextMenu() {
   state.contextMenu.classList.remove('open');
 }
 
+function focusActivePaneSurface() {
+  const tab = getActivePane();
+  if (!tab) return;
+  requestAnimationFrame(() => {
+    if (tab.richVisible) tab.richView?.focus();
+    else tab.term?.focus();
+  });
+}
+
 function setContextShortcutLabel(id, shortcut) {
   const el = document.querySelector(`#${id} .shortcut`);
   if (!el) return;
@@ -83,9 +92,9 @@ function updateContextShortcutLabels() {
 function initClipboardListeners() {
   const state = require('./state').state;
   updateContextShortcutLabels();
-  document.getElementById('ctx-copy').addEventListener('click', () => { doCopy(); hideContextMenu(); });
-  document.getElementById('ctx-paste').addEventListener('click', () => { doPaste(); hideContextMenu(); });
-  document.getElementById('ctx-selectall').addEventListener('click', () => { doSelectAll(); hideContextMenu(); });
+  document.getElementById('ctx-copy').addEventListener('click', () => { doCopy(); hideContextMenu(); focusActivePaneSurface(); });
+  document.getElementById('ctx-paste').addEventListener('click', () => { doPaste(); hideContextMenu(); focusActivePaneSurface(); });
+  document.getElementById('ctx-selectall').addEventListener('click', () => { doSelectAll(); hideContextMenu(); focusActivePaneSurface(); });
   document.getElementById('ctx-search').addEventListener('click', () => {
     const { openSearch } = require('./search');
     openSearch(); hideContextMenu();

@@ -624,7 +624,8 @@
     }
     #search-bar button:hover { color: var(--accent); border-color: var(--border); }
 
-    #context-menu {
+    #context-menu,
+    #cwd-context-menu {
       position: fixed;
       z-index: 100;
       background: var(--bg-alt);
@@ -636,8 +637,10 @@
       display: none;
       font-size: var(--ui-font-size);
     }
-    #context-menu.open { display: block; }
-    #context-menu .menu-item {
+    #context-menu.open,
+    #cwd-context-menu.open { display: block; }
+    #context-menu .menu-item,
+    #cwd-context-menu .menu-item {
       padding: 6px 16px;
       cursor: pointer;
       color: var(--fg-muted);
@@ -645,10 +648,15 @@
       justify-content: space-between;
       gap: 20px;
     }
-    #context-menu .menu-item:hover { background: var(--bg); color: var(--accent); }
+    #context-menu .menu-item:hover,
+    #cwd-context-menu .menu-item:hover { background: var(--bg); color: var(--accent); }
     #context-menu .menu-item .shortcut { color: var(--fg-dim); font-size: 13px; }
     #context-menu .menu-item.disabled { color: var(--fg-dim); pointer-events: none; }
     #context-menu .menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
+    #cwd-context-menu {
+      z-index: 102;
+      min-width: 140px;
+    }
 
     #tab-context-menu {
       position: fixed;
@@ -713,6 +721,12 @@
       min-width: 0;
     }
     #cwd-link:hover { color: var(--fg); text-decoration: underline; }
+    #cwd-link.remote-cwd,
+    #cwd-link.remote-cwd:hover {
+      color: var(--fg-dim);
+      cursor: default;
+      text-decoration: none;
+    }
     #git-sep { color: var(--fg-dim); }
     #git-branch { color: var(--fg-muted); flex-shrink: 0; }
     .hidden { display: none !important; }
@@ -771,7 +785,7 @@
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
-      #tab-bar, #status-bar, #search-bar, #context-menu, #tab-context-menu,
+      #tab-bar, #status-bar, #search-bar, #context-menu, #tab-context-menu, #cwd-context-menu,
       dialog, .xterm-holder, .rich-hint { display: none !important; }
       #terminal-container {
         position: static !important;
@@ -818,7 +832,7 @@
 </head>
 <body>
   <div id="tab-bar">
-    <button id="new-tab-btn" onclick="createTab()">+</button>
+    <button id="new-tab-btn" tabindex="-1" onclick="createTab()">+</button>
   </div>
   <div id="terminal-container">
     <div id="search-bar">
@@ -847,18 +861,21 @@
     <div class="menu-sep"></div>
     <div class="menu-item" id="tctx-close">Close Tab</div>
   </div>
+  <div id="cwd-context-menu">
+    <div class="menu-item" id="cwd-copy">Copy Path</div>
+  </div>
   <div id="status-bar">
     <div class="left">
-      <span id="render-ind" class="render-ind" role="button" tabindex="0" title="xterm.js renderer: GL=WebGL, CV=Canvas, DOM=default. Click to reset renderer."></span>
+      <span id="render-ind" class="render-ind" role="button" title="xterm.js renderer: GL=WebGL, CV=Canvas, DOM=default. Click to reset renderer."></span>
       <span id="zoom-ind" class="render-ind hidden"></span>
       <span id="render-sep"> | </span>
-      <a id="cwd-link" title="Open in file manager"></a>
+      <a id="cwd-link" tabindex="-1" title="Open in file manager"></a>
       <span id="git-sep" class="hidden"> | </span>
       <span id="git-branch" class="hidden"></span>
     </div>
     <div class="right">
-      <button id="auto-indicator" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
-      <button id="math-btn" title="Toggle Math mode (Ctrl+Shift+M)" onclick="toggleMathMode()">&#x2211; Math</button>
+      <button id="auto-indicator" tabindex="-1" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
+      <button id="math-btn" tabindex="-1" title="Toggle Math mode (Ctrl+Shift+M)" onclick="toggleMathMode()">&#x2211; Math</button>
     </div>
   </div>
 <script src="renderer.js"></script>
