@@ -1122,15 +1122,7 @@ function buildMenu(autoRender) {
       label: '&Window',
       submenu: isMac ? [
         { role: 'minimize' },
-        {
-          label: 'Maximize',
-          click: () => {
-            const win = BrowserWindow.getFocusedWindow();
-            if (!win) return;
-            if (win.isMaximized()) win.unmaximize();
-            else win.maximize();
-          }
-        },
+        { role: 'zoom' },
         { type: 'separator' },
         { role: 'front' }
       ] : [

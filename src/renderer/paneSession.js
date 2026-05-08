@@ -10,6 +10,7 @@ class PaneSession {
     this.workspace = workspace;
     this.title = state._hostname + ': ~';
     this.cwd = window.mathterm.os.env.HOME;
+    this.displayHost = null;
     this.ptyProc = null;
     this._closing = false;
     this.term = null;

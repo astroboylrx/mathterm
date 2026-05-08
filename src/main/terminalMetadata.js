@@ -13,12 +13,19 @@ function cwdFromFileUri(uriPath) {
   return cwd;
 }
 
+function shortHost(host) {
+  const value = String(host || '').trim();
+  if (!value) return null;
+  return value.includes(':') ? value : value.split('.')[0];
+}
+
 class TerminalMetadataTracker {
   constructor({ cwd = null, home = null, user = process.env.USER || '', now = Date.now } = {}) {
     this.cwd = cwd;
     this.home = home || cwd || null;
     this.user = user;
     this.title = null;
+    this.displayHost = null;
     this.promptPrefix = null;
     this.command = {
       running: false,
@@ -76,6 +83,7 @@ class TerminalMetadataTracker {
     return {
       cwd: this.cwd,
       title: this.title,
+      displayHost: this.displayHost,
       promptPrefix: this.promptPrefix,
       command: { ...this.command }
     };
@@ -112,10 +120,29 @@ class TerminalMetadataTracker {
     if (slash === -1) return null;
     const host = rest.slice(0, slash);
     const cwd = cwdFromFileUri(rest.slice(slash));
-    if (!this.promptPrefix && host) this.promptPrefix = `${this.user}@${host}`;
-    if (this.cwd === cwd) return null;
-    this.cwd = cwd;
-    return { type: 'cwd', cwd };
+    let changed = false;
+    const out = { type: 'cwd' };
+    const displayHost = shortHost(host);
+    if (displayHost && this.displayHost !== displayHost) {
+      this.displayHost = displayHost;
+      out.displayHost = displayHost;
+      changed = true;
+    }
+    if (host && this.user) {
+      const promptPrefix = `${this.user}@${host}`;
+      if (this.promptPrefix !== promptPrefix) {
+        this.promptPrefix = promptPrefix;
+        out.promptPrefix = promptPrefix;
+        changed = true;
+      }
+    }
+    if (this.cwd !== cwd) {
+      this.cwd = cwd;
+      out.cwd = cwd;
+      changed = true;
+    }
+    if (!changed) return null;
+    return out;
   }
 
   _handleTitle(rawTitle) {
@@ -129,7 +156,17 @@ class TerminalMetadataTracker {
     }
     const match = rawTitle.match(/^([^@]+@[^:]+):(.+)$/);
     if (match) {
-      if (!this.promptPrefix) this.promptPrefix = match[1];
+      if (this.promptPrefix !== match[1]) {
+        this.promptPrefix = match[1];
+        out.promptPrefix = match[1];
+        changed = true;
+      }
+      const host = shortHost(match[1].split('@').slice(1).join('@'));
+      if (host && this.displayHost !== host) {
+        this.displayHost = host;
+        out.displayHost = host;
+        changed = true;
+      }
       const cwd = resolveTildePath(match[2].trim(), this.home || '');
       if (cwd && this.cwd !== cwd) {
         this.cwd = cwd;

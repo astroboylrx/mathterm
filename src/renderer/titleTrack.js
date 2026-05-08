@@ -14,8 +14,14 @@ function resolveTildePath(p) {
   return p;
 }
 
+function shortHost(host) {
+  const value = String(host || '').trim();
+  if (!value) return null;
+  return value.includes(':') ? value : value.split('.')[0];
+}
+
 function computePaneTitle(pane) {
-  return state._hostname + ': ' + formatTabCwd(pane.cwd);
+  return (pane.displayHost || state._hostname) + ': ' + formatTabCwd(pane.cwd);
 }
 
 function computeTabTitle(workspace) {
@@ -71,15 +77,28 @@ function tabTrackTitle(tab, data) {
     if (osc7Re.lastIndex > consumeUpto) consumeUpto = osc7Re.lastIndex;
   }
   if (lastM7) {
-    if (!tab._promptPrefix) {
-      tab._promptPrefix = (mt.os.env.USER || mt.os.userInfo().username) + '@' + lastM7[1];
+    const host = lastM7[1];
+    const displayHost = shortHost(host);
+    if (displayHost && tab.displayHost !== displayHost) {
+      tab.displayHost = displayHost;
+      changed = true;
+    }
+    const user = mt.os.env.USER || mt.os.userInfo().username;
+    if (host && user) {
+      const promptPrefix = user + '@' + host;
+      if (tab._promptPrefix !== promptPrefix) {
+        tab._promptPrefix = promptPrefix;
+        changed = true;
+      }
     }
     const raw = lastM7[2] || '';
     let cwd = decodeURIComponent(raw);
     cwd = cwd.replace(/^(\/\/[^/]+)?\/+/, '/').replace(/^\/\//, '/');
     if (!mt.path.isAbsolute(cwd)) cwd = '/' + cwd;
-    tab.cwd = cwd;
-    changed = true;
+    if (tab.cwd !== cwd) {
+      tab.cwd = cwd;
+      changed = true;
+    }
   }
 
   // OSC 0/1/2 (icon name / window title), same dual terminator support
@@ -94,9 +113,20 @@ function tabTrackTitle(tab, data) {
     if (rawTitle) {
       const tm = rawTitle.match(/^([^@]+@[^:]+):(.+)$/);
       if (tm) {
-        if (!tab._promptPrefix) tab._promptPrefix = tm[1];
-        tab.cwd = resolveTildePath(tm[2].trim());
-        changed = true;
+        if (tab._promptPrefix !== tm[1]) {
+          tab._promptPrefix = tm[1];
+          changed = true;
+        }
+        const displayHost = shortHost(tm[1].split('@').slice(1).join('@'));
+        if (displayHost && tab.displayHost !== displayHost) {
+          tab.displayHost = displayHost;
+          changed = true;
+        }
+        const cwd = resolveTildePath(tm[2].trim());
+        if (tab.cwd !== cwd) {
+          tab.cwd = cwd;
+          changed = true;
+        }
       }
     }
   }

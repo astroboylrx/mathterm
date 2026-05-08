@@ -707,25 +707,32 @@ function showManualRichView(pane) {
   tabShowRichView(pane, false);
 
   requestAnimationFrame(() => {
+    const renderToken = pane._richRenderToken;
     const v = pane.richVirtual;
     if (!v || !v.active) return;
     const target = findElementForY(windowEl, targetY)
       || findNearestElementForY(windowEl, targetY, atLiveEdge ? 'before' : 'after');
-    if (target) {
-      if (atLiveEdge) {
-        pane.richView.scrollTop = Math.max(0,
-          target.offsetTop + target.offsetHeight - pane.richView.clientHeight);
-      } else {
+    if (atLiveEdge) {
+      pane.richView.scrollTop = pane.richView.scrollHeight;
+    } else if (target) {
         pane.richView.scrollTop = target.offsetTop;
-      }
     } else {
       const estimatedTop = Math.max(0,
         (targetY - v.sourceStartY) * v.averageRowHeight);
-      pane.richView.scrollTop = atLiveEdge
-        ? pane.richView.scrollHeight : estimatedTop;
+      pane.richView.scrollTop = estimatedTop;
     }
     prioritizeKatexQueue(pane.richView);
-    attachRichScrollListener(pane);
+    if (!atLiveEdge) {
+      attachRichScrollListener(pane);
+      return;
+    }
+    drainKatexQueue().then(() => {
+      requestAnimationFrame(() => {
+        if (!pane.richVisible || pane._richRenderToken !== renderToken) return;
+        pane.richView.scrollTop = pane.richView.scrollHeight;
+        attachRichScrollListener(pane);
+      });
+    });
   });
 }
 

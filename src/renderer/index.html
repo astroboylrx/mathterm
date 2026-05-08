@@ -29,6 +29,9 @@
     }
     :root {
       --ui-font-size: 12px;
+      --tab-bar-height: max(36px, calc(var(--ui-font-size) + 20px));
+      --tab-close-size: max(22px, calc(var(--ui-font-size) + 12px));
+      --tab-icon-size: max(28px, calc(var(--ui-font-size) + 12px));
       --bg: #1a1a2e;
       --bg-alt: #16213e;
       --bg-dark: #0f0f23;
@@ -94,17 +97,19 @@
       background: var(--bg-dark);
       border-bottom: 1px solid var(--border);
       padding: 0 8px;
-      height: 36px;
+      height: var(--tab-bar-height);
       gap: 2px;
       overflow-x: auto;
+      overflow-y: hidden;
       flex-shrink: 0;
     }
-    #tab-bar::-webkit-scrollbar { height: 0; }
+    #tab-bar::-webkit-scrollbar { width: 0; height: 0; }
 
     .tab-item {
       display: flex;
       align-items: center;
-      padding: 4px 12px;
+      height: calc(var(--tab-bar-height) - 4px);
+      padding: 0 8px 0 12px;
       background: transparent;
       border: none;
       color: var(--fg-dim);
@@ -170,12 +175,17 @@
       cursor: text;
     }
     .tab-close {
+      width: var(--tab-close-size);
+      height: var(--tab-close-size);
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 var(--tab-close-size);
       color: var(--fg-dim);
       cursor: pointer;
-      font-size: 14px;
+      font-size: var(--tab-close-size);
       line-height: 1;
-      padding: 0 2px;
-      border-radius: 2px;
+      padding: 0;
+      border-radius: 4px;
     }
     .tab-close:hover { color: var(--red); background: var(--border); }
     .tab-item:not(:hover) .tab-close { opacity: 0; }
@@ -184,9 +194,14 @@
       background: transparent;
       border: none;
       color: var(--fg-dim);
-      font-size: 18px;
+      width: var(--tab-icon-size);
+      height: var(--tab-icon-size);
+      display: inline-grid;
+      place-items: center;
+      font-size: var(--tab-icon-size);
+      line-height: 1;
       cursor: pointer;
-      padding: 4px 10px;
+      padding: 0;
       border-radius: 4px;
       font-family: inherit;
       flex-shrink: 0;

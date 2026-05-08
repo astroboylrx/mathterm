@@ -816,6 +816,10 @@ function applyMainPaneMetadata(pane, metadata = {}, opts = {}) {
     pane._mainTitle = metadata.title;
     changed = true;
   }
+  if (metadata.displayHost && metadata.displayHost !== pane.displayHost) {
+    pane.displayHost = metadata.displayHost;
+    changed = true;
+  }
   if (metadata.promptPrefix && metadata.promptPrefix !== pane._promptPrefix) {
     pane._promptPrefix = metadata.promptPrefix;
     changed = true;
