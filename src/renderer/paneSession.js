@@ -45,6 +45,8 @@ class PaneSession {
     this._promptPrefix = null;
     this._promptYSet = new Set();
     this._promptStartYSet = new Set();
+    this._promptMarkerEntries = [];
+    this._activePromptMarkerEntry = null;
     this._commandRunning = false;
     this._commandStartY = undefined;
     this._commandEndY = undefined;
@@ -55,6 +57,7 @@ class PaneSession {
     this._promptJumpFlash = null;
     this._promptJumpFlashTimer = null;
     this._promptJumpAnchorY = null;
+    this._promptResizeRebuildRaf = 0;
     this._lastExitCode = '';
     this._macImePunctuationPending = null;
     this._macImePunctuationHandled = null;

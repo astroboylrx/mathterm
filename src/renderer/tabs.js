@@ -89,6 +89,94 @@ function prunePromptTracking(pane, minY) {
   while (pane._promptStartYSet.size > 500) {
     pane._promptStartYSet.delete(Math.min(...pane._promptStartYSet));
   }
+  const markerLimit = Math.max(1024, Math.min(8192, Math.floor(settings.scrollback / 2)));
+  while (pane._promptMarkerEntries && pane._promptMarkerEntries.length > markerLimit) {
+    disposePromptMarkerEntry(pane, pane._promptMarkerEntries[0]);
+  }
+}
+
+function markerLine(marker) {
+  if (!marker || marker.isDisposed || marker.line == null || marker.line < 0) return null;
+  return marker.line;
+}
+
+function removePromptMarkerEntry(pane, entry) {
+  if (!pane || !entry) return;
+  const entries = pane._promptMarkerEntries || [];
+  const idx = entries.indexOf(entry);
+  if (idx !== -1) entries.splice(idx, 1);
+  if (pane._activePromptMarkerEntry === entry) pane._activePromptMarkerEntry = null;
+}
+
+function disposePromptMarkerEntry(pane, entry) {
+  if (!entry || entry.disposed) return;
+  entry.disposed = true;
+  removePromptMarkerEntry(pane, entry);
+  try { entry.start?.dispose?.(); } catch {}
+  try { entry.end?.dispose?.(); } catch {}
+}
+
+function registerPromptMarker(pane) {
+  try {
+    return typeof pane.term?.registerMarker === 'function' ? pane.term.registerMarker(0) : null;
+  } catch {
+    return null;
+  }
+}
+
+function addPromptStartMarker(pane) {
+  const marker = registerPromptMarker(pane);
+  if (!marker) {
+    pane._activePromptMarkerEntry = null;
+    return null;
+  }
+  const entry = { start: marker, end: null };
+  pane._promptMarkerEntries.push(entry);
+  pane._activePromptMarkerEntry = entry;
+  marker.onDispose(() => disposePromptMarkerEntry(pane, entry));
+  prunePromptTracking(pane, Math.max(0, pane.term?.buffer?.active?.baseY - settings.scrollback));
+  return entry;
+}
+
+function addPromptEndMarker(pane) {
+  const entry = pane._activePromptMarkerEntry;
+  if (!entry || entry.end) return null;
+  const marker = registerPromptMarker(pane);
+  if (!marker) return null;
+  entry.end = marker;
+  marker.onDispose(() => {
+    if (entry.end === marker) entry.end = null;
+  });
+  return marker;
+}
+
+function disposePromptMarkers(pane) {
+  const entries = Array.isArray(pane?._promptMarkerEntries) ? pane._promptMarkerEntries.splice(0) : [];
+  pane._activePromptMarkerEntry = null;
+  for (const entry of entries) disposePromptMarkerEntry(pane, entry);
+}
+
+function rebuildPromptTrackingFromMarkers(pane, buf, startY, endY) {
+  const entries = Array.isArray(pane._promptMarkerEntries) ? pane._promptMarkerEntries : [];
+  let count = 0;
+  for (const entry of entries) {
+    const start = markerLine(entry.start);
+    if (start == null || start < startY || start > endY) continue;
+    let end = markerLine(entry.end);
+    if (end == null || end < start) {
+      try {
+        const range = buf.getWrappedRangeForLine(start);
+        end = range && Number.isInteger(range.last) ? range.last : start;
+      } catch {
+        end = start;
+      }
+    }
+    end = Math.min(end, endY);
+    pane._promptStartYSet.add(start);
+    for (let y = start; y <= end; y++) pane._promptYSet.add(y);
+    count++;
+  }
+  return count;
 }
 
 function trimInlineImages(arr) {
@@ -545,9 +633,11 @@ function attachTerminalEventHandlers(pane, term) {
   term.onResize(({ cols, rows }) => {
     if (!pane.ptyProc) return;
     if (pane._ptyCols === cols && pane._ptyRows === rows) return;
+    const colsChanged = pane._ptyCols !== undefined && pane._ptyCols !== cols;
     pane._ptyCols = cols;
     pane._ptyRows = rows;
     try { pane.ptyProc.resize(cols, rows); } catch {}
+    if (colsChanged) schedulePromptTrackingRebuild(pane);
   });
 
   term.onSelectionChange(() => {
@@ -566,6 +656,7 @@ function attachOsc133Tracking(pane, term) {
       pane._promptJumpAnchorY = null;
       pane._promptYSet.add(pane._promptStartY);
       pane._promptStartYSet.add(pane._promptStartY);
+      addPromptStartMarker(pane);
       if (pane._promptYSet.size > 500 || pane._promptStartYSet.size > 500) {
         const minY = buf.baseY - settings.scrollback;
         prunePromptTracking(pane, minY);
@@ -574,6 +665,7 @@ function attachOsc133Tracking(pane, term) {
       if (pane._promptStartY !== undefined && !pane._promptBHandled) {
         const endY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
         for (let y = pane._promptStartY; y <= endY; y++) pane._promptYSet.add(y);
+        addPromptEndMarker(pane);
         pane._promptBHandled = true;
       }
     } else if (data.startsWith('C')) {
@@ -650,23 +742,41 @@ function attachPtyDataPipeline(pane, term) {
 }
 
 function rebuildPromptTrackingFromBuffer(pane) {
-  if (!pane?._promptPrefix || !pane.term?.buffer?.active) return;
+  if (!pane?.term?.buffer?.active) return;
+  const entries = Array.isArray(pane._promptMarkerEntries) ? pane._promptMarkerEntries : [];
+  const prefix = pane._promptPrefix;
+  if (!entries.length && !prefix) return;
+
   const buf = pane.term.buffer.active;
   const startY = Math.max(0, buf.baseY - settings.scrollback);
   const endY = buf.baseY + buf.length - 1;
-  const prefix = pane._promptPrefix;
   pane._promptYSet.clear();
   pane._promptStartYSet.clear();
-  for (let y = startY; y <= endY; y++) {
-    let line;
-    try { line = buf.getLine(y); } catch { line = null; }
-    if (!line || line.isWrapped) continue;
-    const text = line.translateToString(true).trimStart();
-    if (!text.startsWith(prefix)) continue;
-    pane._promptYSet.add(y);
-    pane._promptStartYSet.add(y);
+
+  const rebuiltFromMarkers = rebuildPromptTrackingFromMarkers(pane, buf, startY, endY);
+  if (prefix) {
+    for (let y = startY; y <= endY; y++) {
+      let line;
+      try { line = buf.getLine(y); } catch { line = null; }
+      if (!line || line.isWrapped) continue;
+      const text = line.translateToString(true).trimStart();
+      if (!text.startsWith(prefix)) continue;
+      pane._promptYSet.add(y);
+      pane._promptStartYSet.add(y);
+    }
   }
   prunePromptTracking(pane, startY);
+  if (rebuiltFromMarkers || prefix) pane._promptJumpAnchorY = null;
+}
+
+function schedulePromptTrackingRebuild(pane) {
+  if (!pane || pane._promptResizeRebuildRaf) return;
+  pane._promptResizeRebuildRaf = requestAnimationFrame(() => {
+    pane._promptResizeRebuildRaf = 0;
+    rebuildPromptTrackingFromBuffer(pane);
+    scheduleTerminalRefresh(pane);
+    if (pane.richVisible) refreshRichViewAfterLayout(pane, { force: true });
+  });
 }
 
 function handleBackgroundCommandEnded(pane, command = {}) {
@@ -1059,6 +1169,11 @@ function disposePane(pane, opts = {}) {
   pane._closing = true;
   clearTimeout(pane.sectionTimer);
   clearTimeout(pane._promptJumpFlashTimer);
+  if (pane._promptResizeRebuildRaf) {
+    cancelAnimationFrame(pane._promptResizeRebuildRaf);
+    pane._promptResizeRebuildRaf = 0;
+  }
+  disposePromptMarkers(pane);
   try {
     if (pane.ptyProc) {
       if (opts.killBackend === false && pane.ptyProc.detach) pane.ptyProc.detach();

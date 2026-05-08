@@ -391,7 +391,7 @@ function onRichVirtualScroll(pane) {
   applyCurrentRichSearchHighlights(pane, pane.richVirtual && pane.richVirtual.renderToken);
 }
 
-function refreshRichViewAfterLayout(pane) {
+function refreshRichViewAfterLayout(pane, opts = {}) {
   if (!pane || !pane.richVisible) return;
   const v = pane.richVirtual;
   if (!v || !v.active) {
@@ -405,15 +405,15 @@ function refreshRichViewAfterLayout(pane) {
     const current = pane.richVirtual;
     if (!pane.richVisible || !current || !current.active) return;
     const anchor = findFirstVisibleAnchor(pane);
-    if (anchor) {
+    if (anchor && !opts.force) {
       prioritizeKatexQueue(pane.richView);
       applyCurrentRichSearchHighlights(pane, current.renderToken);
       return;
     }
-    const targetY = scrollTopToRow(
+    const targetY = anchor ? anchor.y : scrollTopToRow(
       pane.richView.scrollTop, current.sourceStartY, current.averageRowHeight
     );
-    renderRichVirtualWindow(pane, targetY, null);
+    renderRichVirtualWindow(pane, targetY, anchor || null);
     prioritizeKatexQueue(pane.richView);
     applyCurrentRichSearchHighlights(pane, current.renderToken);
   });
