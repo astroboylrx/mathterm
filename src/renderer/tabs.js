@@ -35,6 +35,7 @@ const {
 } = require('./richView');
 const { tabTrackTitle, updateTabBar, refreshTabTitle } = require('./titleTrack');
 const { attachBareUrlHoverProvider, attachUrlClickHandler } = require('./urlHit');
+const { attachShiftMouseSelection } = require('./shiftSelection');
 const {
   macOptionMetaBinding,
   markMacOptionMetaPending,
@@ -483,6 +484,7 @@ function createPaneTerminal(pane, opts = {}) {
   term.loadAddon(searchAddon);
   try { term.loadAddon(new (require('@xterm/addon-unicode11').Unicode11Addon)()); term.unicode.activeVersion = '6'; } catch {}
   term.open(pane.xtermHolder);
+  attachShiftMouseSelection(pane, term);
   pane.xtermHolder.appendChild(pane.searchHighlightLayer);
   return { term, fitAddon, searchAddon };
 }
@@ -612,11 +614,19 @@ function spawnPaneShell(pane, term, opts = {}) {
   return ptyProc;
 }
 
+function isPaneWorkspaceActive(pane) {
+  return !!pane?.workspace && pane.workspace.id === state.activeWorkspaceId;
+}
+
 function attachTerminalEventHandlers(pane, term) {
-  pane.xtermHolder.addEventListener('focusin', () => focusPane(pane.id, { focusTerm: false }));
+  pane.xtermHolder.addEventListener('focusin', () => {
+    if (!isPaneWorkspaceActive(pane)) return;
+    focusPane(pane.id, { focusTerm: false });
+  });
 
   term.onData(data => {
     if (shouldSuppressMacFallbackData(pane, data)) return;
+    if (!isPaneWorkspaceActive(pane)) return;
     focusPane(pane.id, { focusTerm: false });
     if (pane.richVisible) {
       const { tabHideRichView } = require('./richView');
