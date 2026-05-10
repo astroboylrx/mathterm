@@ -42,7 +42,11 @@ const SETTINGS_PATH = path.join(
   'mathterm.json'
 );
 const SESSION_PATH = path.join(path.dirname(SETTINGS_PATH), 'session.json');
+const LOG_DIR = path.join(path.dirname(SETTINGS_PATH), 'logs');
+const DIAGNOSTIC_LOG_PATH = path.join(LOG_DIR, 'diagnostics.log');
 const sessionCwdAdapter = makeCwdAdapter({ fs, path, os, fallbackCwd: APP_ROOT });
+let APP_VERSION = 'unknown';
+try { APP_VERSION = require('../../package.json').version || APP_VERSION; } catch {}
 const BUILTIN_THEME_BACKGROUNDS = {
   dark: '#1a1a2e',
   'vscode-dark': '#1e1e1e',
@@ -120,6 +124,44 @@ function safeReadJsonFile(filePath) {
     return null;
   }
 }
+
+function appendDiagnosticLog(event, details = {}) {
+  const entry = {
+    time: new Date().toISOString(),
+    event,
+    appVersion: APP_VERSION,
+    platform: process.platform,
+    arch: process.arch,
+    pid: process.pid,
+    details
+  };
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    fs.appendFileSync(DIAGNOSTIC_LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
+  } catch {}
+  try {
+    console.error(`[mathterm diagnostics] ${event}`, JSON.stringify(details));
+  } catch {
+    console.error(`[mathterm diagnostics] ${event}`, details);
+  }
+}
+
+function errorDetails(err) {
+  if (!err) return null;
+  return {
+    name: err.name || null,
+    message: err.message || String(err),
+    stack: err.stack || null
+  };
+}
+
+process.on('uncaughtException', err => {
+  appendDiagnosticLog('main-uncaught-exception', errorDetails(err));
+});
+
+process.on('unhandledRejection', reason => {
+  appendDiagnosticLog('main-unhandled-rejection', errorDetails(reason));
+});
 
 function isHexColor(value) {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value.trim());
@@ -612,6 +654,7 @@ function createPreferencesWindow(tab = 'appearance') {
     backgroundColor: currentWindowBackgroundColor(),
     webPreferences: preferencesWebPrefs
   });
+  attachWindowDiagnostics(preferencesWindow, 'preferences');
   preferencesWindow.setMenuBarVisibility(false);
   preferencesWindow.on('closed', () => {
     preferencesWindow = null;
@@ -628,6 +671,37 @@ function isToggleDevToolsInput(input) {
   }
   return (input.control && input.shift && !input.alt && !input.meta && String(input.key).toLowerCase() === 'i')
     || input.key === 'F12';
+}
+
+function attachWindowDiagnostics(win, role) {
+  const detailsForWindow = () => ({
+    role,
+    webContentsId: win.webContents.id,
+    url: win.webContents.getURL(),
+    bounds: win.isDestroyed() ? null : win.getBounds()
+  });
+  win.webContents.on('render-process-gone', (event, details) => {
+    appendDiagnosticLog('window-render-process-gone', {
+      ...detailsForWindow(),
+      reason: details?.reason || null,
+      exitCode: details?.exitCode ?? null
+    });
+  });
+  win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    appendDiagnosticLog('window-did-fail-load', {
+      ...detailsForWindow(),
+      errorCode,
+      errorDescription,
+      validatedURL,
+      isMainFrame
+    });
+  });
+  win.on('unresponsive', () => {
+    appendDiagnosticLog('window-unresponsive', detailsForWindow());
+  });
+  win.on('responsive', () => {
+    appendDiagnosticLog('window-responsive', detailsForWindow());
+  });
 }
 
 function createWindow(opts = {}) {
@@ -651,6 +725,7 @@ function createWindow(opts = {}) {
   const win = new BrowserWindow({
     ...windowOptions
   });
+  attachWindowDiagnostics(win, 'terminal');
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
       event.preventDefault();
@@ -874,6 +949,7 @@ function showAboutDialog() {
       sandbox: true
     }
   });
+  attachWindowDiagnostics(aboutWindow, 'about');
   aboutWindow.setMenuBarVisibility(false);
   aboutWindow.on('closed', () => {
     aboutWindow = null;
@@ -1196,8 +1272,25 @@ app.on('activate', () => {
   }
 });
 
+app.on('child-process-gone', (event, details) => {
+  appendDiagnosticLog('child-process-gone', {
+    type: details?.type || null,
+    reason: details?.reason || null,
+    exitCode: details?.exitCode ?? null,
+    serviceName: details?.serviceName || null,
+    name: details?.name || null
+  });
+});
+
 ipcMain.on('rebuild-menu', (event, autoRender) => {
   setApplicationMenuForAutoRender(!!autoRender);
+});
+
+ipcMain.on('diagnostic-log', (event, payload = {}) => {
+  appendDiagnosticLog('renderer-diagnostic', {
+    webContentsId: event.sender.id,
+    payload
+  });
 });
 
 ipcMain.on('preferences-saved', (event, settings) => {

@@ -18,6 +18,7 @@ const DEFAULTS = {
   theme: 'dark',
   cursorStyle: 'block',
   inheritCwd: false,
+  splitPaneInheritsCwd: true,
   restoreLastSession: false,
   copyOnSelect: true,
   backgroundCommandMarker: true,

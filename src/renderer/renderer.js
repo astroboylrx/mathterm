@@ -25,6 +25,41 @@ const { initSearchListeners } = require('./search');
 const { initTabContextListeners } = require('./tabs');
 const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom, isZoomShortcut } = require('./zoom');
 
+function diagnosticErrorDetails(err) {
+  if (!err) return null;
+  return {
+    name: err.name || null,
+    message: err.message || String(err),
+    stack: err.stack || null
+  };
+}
+
+function sendRendererDiagnostic(type, details = {}) {
+  try {
+    mt.ipc.send('diagnostic-log', {
+      type,
+      url: window.location.href,
+      details
+    });
+  } catch {}
+}
+
+window.addEventListener('error', event => {
+  sendRendererDiagnostic('renderer-error', {
+    message: event.message || null,
+    filename: event.filename || null,
+    lineno: event.lineno || null,
+    colno: event.colno || null,
+    error: diagnosticErrorDetails(event.error)
+  });
+});
+
+window.addEventListener('unhandledrejection', event => {
+  sendRendererDiagnostic('renderer-unhandled-rejection', {
+    reason: diagnosticErrorDetails(event.reason)
+  });
+});
+
 state.tabBar = document.getElementById('tab-bar');
 state.termContainer = document.getElementById('terminal-container');
 state.statusBar = document.getElementById('status-bar');

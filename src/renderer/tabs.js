@@ -516,6 +516,17 @@ function attachTerminalRenderer(pane, term) {
   try {
     const webgl = new WebglAddon();
     webgl.onContextLoss(() => {
+      try {
+        mt.ipc.send('diagnostic-log', {
+          type: 'xterm-webgl-context-loss',
+          details: {
+            paneId: pane.id,
+            paneBackendId: pane.paneBackendId,
+            workspaceId: pane.workspace?.id ?? null,
+            renderer: pane._renderer || null
+          }
+        });
+      } catch {}
       webgl.dispose();
       if (pane._rendererAddon === webgl) pane._rendererAddon = null;
       pane._renderer = 'canvas';
@@ -1370,7 +1381,7 @@ function splitActivePane(direction, placement = 'after') {
   requestAnimationFrame(() => {
     const newPane = createPaneSession({
       id: newPaneId,
-      cwd: pane.cwd || mt.os.env.HOME,
+      cwd: settings.splitPaneInheritsCwd ? (pane.cwd || mt.os.env.HOME) : mt.os.env.HOME,
       leafEl: newLeaf,
       workspace
     });
