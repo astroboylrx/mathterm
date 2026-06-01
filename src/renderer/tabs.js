@@ -24,6 +24,7 @@ const { settings, isMac, requestMenuRebuild } = require('./settings');
 const { parseShortcut, matchShortcut } = require('./keybindings');
 const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 const { escapeHtml } = require('./ansi');
+const { bufferLineToSemanticText } = require('./bufferText');
 const { PaneSession } = require('./paneSession');
 const { TabWorkspace } = require('./workspace');
 const {
@@ -780,7 +781,7 @@ function rebuildPromptTrackingFromBuffer(pane) {
       let line;
       try { line = buf.getLine(y); } catch { line = null; }
       if (!line || line.isWrapped) continue;
-      const text = line.translateToString(true).trimStart();
+      const text = bufferLineToSemanticText(line).trimStart();
       if (!text.startsWith(prefix)) continue;
       pane._promptYSet.add(y);
       pane._promptStartYSet.add(y);

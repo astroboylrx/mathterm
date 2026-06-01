@@ -3,6 +3,7 @@ const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
 const { hasLatex } = require('./latex');
 const { stripAnsi } = require('./ansi');
+const { bufferLineToSemanticText } = require('./bufferText');
 const { isPromptLine } = require('./promptTrack');
 const { refreshTabTitle } = require('./titleTrack');
 const { isTableBorder, tryParseTableBlock, tryParseMarkdownTable } = require('./tableRender');
@@ -38,7 +39,7 @@ function collectBufferLines(buf, startY, endY) {
     let line;
     try { line = buf.getLine(y); } catch { continue; }
     if (!line) continue;
-    raw.push({ text: line.translateToString(true), _line: line, y, wrapped: !!line.isWrapped });
+    raw.push({ text: bufferLineToSemanticText(line), _line: line, y, wrapped: !!line.isWrapped });
   }
   const textLines = [];
   for (const item of raw) {
@@ -559,7 +560,7 @@ function tabFlushSection(tab) {
     let line;
     try { line = buf.getLine(y); } catch { break; }
     if (!line) break;
-    const text = line.translateToString(true);
+    const text = bufferLineToSemanticText(line);
     if (!text.trim()) continue;
     if (isPromptLine(tab, text, y)) { startY = y; break; }
     break;

@@ -1,9 +1,10 @@
 const { hasLatex, splitLatexSmart } = require('./latex');
 const { lineToColoredSpans } = require('./ansi');
+const { bufferLineToSemanticText } = require('./bufferText');
 const { queueKatex } = require('./richKatexQueue');
 
 function renderLineFromBuffer(line) {
-  const text = line.translateToString(true);
+  const text = bufferLineToSemanticText(line);
   if (!text.trim()) return null;
   const el = document.createElement('div');
   el.className = 'rline';

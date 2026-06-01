@@ -1,6 +1,7 @@
 const { state, getActivePane, isActivePane } = require('./state');
 const { settings } = require('./settings');
 const { collectRichSearchMatches } = require('./mathSearch');
+const { bufferLineToSemanticText } = require('./bufferText');
 
 const TERMINAL_SEARCH_PLACEHOLDER = 'Search terminal...';
 const RICH_SEARCH_PLACEHOLDER = 'Search math view...';
@@ -315,7 +316,7 @@ function collectRichLines(tab) {
     let line;
     try { line = buf.getLine(y); } catch { line = null; }
     if (!line) continue;
-    lines.push({ y, text: line.translateToString(true) });
+    lines.push({ y, text: bufferLineToSemanticText(line) });
   }
   return lines;
 }
@@ -479,7 +480,7 @@ function sourceLineText(tab, y) {
   }
   try {
     const line = tab.term.buffer.active.getLine(y);
-    return line ? line.translateToString(true) : '';
+    return line ? bufferLineToSemanticText(line) : '';
   } catch {
     return '';
   }

@@ -133,6 +133,7 @@ function lineToColoredSpans(line) {
   for (let x = 0; x < cols; x++) {
     cellRef = line.getCell(x, cellRef);
     if (!cellRef) break;
+    if (typeof cellRef.getWidth === 'function' && cellRef.getWidth() === 0) continue;
     const ch = cellRef.getChars();
     if (!ch || (ch.length === 1 && ch.charCodeAt(0) === 0)) {
       buf += ' ';

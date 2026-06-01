@@ -1,6 +1,7 @@
 // Pure helpers used by the rich-view virtualization code in richView.js.
 // Kept DOM-free so they can be unit-tested directly under node.
 const { splitLatexSmart } = require('./latex');
+const { bufferLineToSemanticText } = require('./bufferText');
 
 const RICH_VIRTUAL_OVERSCAN_ROWS = 80;
 const RICH_VIRTUAL_MAX_RENDERED_ROWS = 320;
@@ -50,7 +51,7 @@ function lineInfo(buf, y) {
   let line;
   try { line = buf.getLine(y); } catch { return null; }
   if (!line) return null;
-  const text = line.translateToString(true);
+  const text = bufferLineToSemanticText(line);
   return { y, isWrapped: !!line.isWrapped, text, trimmed: text.trim() };
 }
 
