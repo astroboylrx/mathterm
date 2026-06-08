@@ -7,7 +7,6 @@ const { FitAddon } = require('@xterm/addon-fit');
 const { SearchAddon } = require('@xterm/addon-search');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { WebglAddon } = require('@xterm/addon-webgl');
-const { CanvasAddon } = require('@xterm/addon-canvas');
 
 const {
   state,
@@ -63,7 +62,7 @@ const LIVE_TAB_TRANSFER_MIME = 'application/x-mathterm-live-tab';
 function updateRendererIndicator(pane) {
   const el = state.renderInd;
   if (!el || !pane || !isActivePane(pane)) return;
-  el.textContent = pane._renderer === 'webgl' ? 'GL' : pane._renderer === 'canvas' ? 'CV' : 'DOM';
+  el.textContent = pane._renderer === 'webgl' ? 'GL' : 'DOM';
 }
 
 function tabCycleDirectionForEvent(e) {
@@ -530,27 +529,15 @@ function attachTerminalRenderer(pane, term) {
       } catch {}
       webgl.dispose();
       if (pane._rendererAddon === webgl) pane._rendererAddon = null;
-      pane._renderer = 'canvas';
-      try {
-        const canvas = new CanvasAddon();
-        term.loadAddon(canvas);
-        pane._rendererAddon = canvas;
-      } catch {}
+      pane._renderer = 'dom';
       updateRendererIndicator(pane);
     });
     term.loadAddon(webgl);
     pane._rendererAddon = webgl;
     pane._renderer = 'webgl';
   } catch {
-    try {
-      const canvas = new CanvasAddon();
-      term.loadAddon(canvas);
-      pane._rendererAddon = canvas;
-      pane._renderer = 'canvas';
-    } catch {
-      pane._rendererAddon = null;
-      pane._renderer = 'dom';
-    }
+    pane._rendererAddon = null;
+    pane._renderer = 'dom';
   }
   scheduleTerminalRefresh(pane);
 }
