@@ -401,7 +401,7 @@
       padding: 4px 10px;
       vertical-align: top;
     }
-    table.box-table tr:first-child td,
+    table.box-table > tbody:first-child > tr:first-child td,
     table.box-table th {
       background: var(--accent-subtle);
       font-weight: bold;
@@ -866,7 +866,7 @@
   </div>
   <div id="status-bar">
     <div class="left">
-      <span id="render-ind" class="render-ind" role="button" title="xterm.js renderer: GL=WebGL, CV=Canvas, DOM=default. Click to reset renderer."></span>
+      <span id="render-ind" class="render-ind" role="button" title="xterm.js renderer: GL=WebGL, DOM=default fallback. Click to reset renderer."></span>
       <span id="zoom-ind" class="render-ind hidden"></span>
       <span id="render-sep"> | </span>
       <a id="cwd-link" tabindex="-1" title="Open in file manager"></a>

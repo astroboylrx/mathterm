@@ -611,6 +611,6 @@ const liveWorkspaceToken = new URLSearchParams(window.location.search).get('live
     state.autoIndicator.textContent = 'AUTO';
     state.autoIndicator.className = firstTab.autoRender ? '' : 'off';
     const ri = state.renderInd;
-    if (ri) ri.textContent = firstTab._renderer === 'webgl' ? 'GL' : firstTab._renderer === 'canvas' ? 'CV' : 'DOM';
+    if (ri) ri.textContent = firstTab._renderer === 'webgl' ? 'GL' : 'DOM';
   }
 })();
