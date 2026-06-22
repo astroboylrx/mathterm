@@ -1333,7 +1333,13 @@ ipcMain.on('clear-session', () => {
 });
 
 ipcMain.on('notify-command-finished', (event, payload = {}) => {
-  if (!Notification.isSupported()) return;
+  const webContentsId = event.sender.id;
+  if (!Notification.isSupported()) {
+    appendDiagnosticLog('notification-unsupported', {
+      webContentsId
+    });
+    return;
+  }
   const win = BrowserWindow.fromWebContents(event.sender);
   const title = String(payload.title || 'Command finished').slice(0, 80);
   const body = String(payload.body || '').slice(0, 240);
@@ -1341,6 +1347,14 @@ ipcMain.on('notify-command-finished', (event, payload = {}) => {
     title,
     body,
     silent: false
+  });
+  notification.on('failed', (_event, error) => {
+    appendDiagnosticLog('notification-failed', {
+      webContentsId,
+      titleLength: title.length,
+      bodyLength: body.length,
+      error: errorDetails(error)
+    });
   });
   notification.on('click', () => {
     if (!win || win.isDestroyed()) return;
