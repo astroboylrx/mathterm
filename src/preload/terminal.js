@@ -135,7 +135,7 @@ contextBridge.exposeInMainWorld('mathterm', {
         'export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace',
         'open-live-tab-transfer-window', 'accept-live-tab-drag',
         'complete-live-tab-drag', 'complete-live-workspace',
-        'get-active-live-tab-drag'
+        'get-active-live-tab-drag', 'get-live-tab-transfer-state'
       ];
       if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
       return Promise.reject(new Error('Channel not allowed: ' + channel));

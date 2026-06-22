@@ -1571,6 +1571,24 @@ function shouldDetachDraggedTab(e) {
     || e.clientY > tabBarRect.bottom + margin;
 }
 
+async function liveTabTransferStillUnclaimed(token) {
+  if (!token) return true;
+  try {
+    const result = await mt.ipc.invoke('get-live-tab-transfer-state', token);
+    return !!(result?.ok && result.exists && !result.claimed);
+  } catch {
+    return true;
+  }
+}
+
+function detachDraggedTabIfUnclaimed(id, opts = {}) {
+  setTimeout(async () => {
+    if (!state.workspaces.some(w => w.id === id)) return;
+    if (!(await liveTabTransferStillUnclaimed(opts.token))) return;
+    detachTab(id, opts);
+  }, 120);
+}
+
 function makeLiveTabTransferToken(id) {
   const rand = Math.random().toString(36).slice(2);
   return `live-tab:${Date.now()}:${id}:${rand}`;
@@ -1688,7 +1706,7 @@ function attachTabElementListeners(workspace, tabEl) {
       el.classList.remove('drag-over-left', 'drag-over-right');
     });
     if (shouldDetach && state.workspaces.some(w => w.id === id)) {
-      detachTab(id, {
+      detachDraggedTabIfUnclaimed(id, {
         token: detachToken,
         dropClientX: e.clientX,
         dropClientY: e.clientY,

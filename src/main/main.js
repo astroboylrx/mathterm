@@ -1524,6 +1524,19 @@ ipcMain.handle('get-active-live-tab-drag', async () => {
   return { ok: true, token: activeLiveTabDragToken };
 });
 
+ipcMain.handle('get-live-tab-transfer-state', async (_event, token) => {
+  sweepLiveWorkspaceTransfers();
+  const key = String(token || '');
+  const transfer = liveWorkspaceTransfers.get(key);
+  return {
+    ok: true,
+    exists: !!transfer,
+    claimed: !!transfer?.claimed,
+    sourceWebContentsId: transfer?.sourceWebContentsId ?? null,
+    claimedByWebContentsId: transfer?.claimedByWebContentsId ?? null
+  };
+});
+
 ipcMain.on('clear-live-tab-drag', (event, payload = {}) => {
   const token = String(payload.token || '');
   if (!token || token !== activeLiveTabDragToken) return;
