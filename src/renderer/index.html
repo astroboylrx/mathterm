@@ -707,9 +707,68 @@
       cursor: pointer;
       user-select: none;
     }
-    #render-ind:hover {
+    #render-ind:hover,
+    #zoom-ind:hover {
       border-color: var(--accent);
       color: var(--accent);
+    }
+    #zoom-ind {
+      cursor: pointer;
+      user-select: none;
+    }
+    #zoom-popover {
+      position: fixed;
+      z-index: 104;
+      display: none;
+      background: var(--bg-alt);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+      padding: 8px;
+      min-width: 214px;
+      font-size: var(--ui-font-size);
+      color: var(--fg-muted);
+    }
+    #zoom-popover.open { display: block; }
+    #zoom-popover .zoom-options {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    #zoom-popover button {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--fg-muted);
+      cursor: pointer;
+      font: inherit;
+      padding: 5px 8px;
+      min-height: 30px;
+    }
+    #zoom-popover button:hover,
+    #zoom-popover button.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    #zoom-popover .zoom-custom {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    #zoom-custom-input {
+      width: 72px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--fg);
+      font: inherit;
+      padding: 4px 6px;
+    }
+    #zoom-custom-input:focus {
+      border-color: var(--accent);
+      outline: none;
     }
     #cwd-link {
       color: var(--fg-muted);
@@ -785,7 +844,7 @@
         -webkit-print-color-adjust: exact !important;
         print-color-adjust: exact !important;
       }
-      #tab-bar, #status-bar, #search-bar, #context-menu, #tab-context-menu, #cwd-context-menu,
+      #tab-bar, #status-bar, #search-bar, #context-menu, #tab-context-menu, #cwd-context-menu, #zoom-popover,
       dialog, .xterm-holder, .rich-hint { display: none !important; }
       #terminal-container {
         position: static !important;
@@ -863,6 +922,20 @@
   </div>
   <div id="cwd-context-menu">
     <div class="menu-item" id="cwd-copy">Copy Path</div>
+  </div>
+  <div id="zoom-popover" aria-hidden="true">
+    <div class="zoom-options">
+      <button type="button" tabindex="-1" data-zoom="0.75">75%</button>
+      <button type="button" tabindex="-1" data-zoom="1">100%</button>
+      <button type="button" tabindex="-1" data-zoom="1.25">125%</button>
+      <button type="button" tabindex="-1" data-zoom="1.5">150%</button>
+      <button type="button" tabindex="-1" data-zoom="2">200%</button>
+    </div>
+    <label class="zoom-custom">
+      <span>Custom</span>
+      <input id="zoom-custom-input" type="number" min="50" max="300" step="1">
+      <span>%</span>
+    </label>
   </div>
   <div id="status-bar">
     <div class="left">

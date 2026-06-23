@@ -23,7 +23,7 @@ const { initIpc } = require('./ipc');
 const { initClipboardListeners } = require('./clipboard');
 const { initSearchListeners } = require('./search');
 const { initTabContextListeners } = require('./tabs');
-const { zoomInActiveTab, zoomOutActiveTab, resetActiveZoom, isZoomShortcut } = require('./zoom');
+const { setActiveZoom, zoomInActiveTab, zoomOutActiveTab, resetActiveZoom, isZoomShortcut } = require('./zoom');
 
 function diagnosticErrorDetails(err) {
   if (!err) return null;
@@ -88,6 +88,67 @@ function hideCwdContextMenu() {
   state.cwdContextMenu?.classList.remove('open');
 }
 
+const zoomPopover = document.getElementById('zoom-popover');
+const zoomCustomInput = document.getElementById('zoom-custom-input');
+
+function currentZoomPercent() {
+  const pane = getActivePane();
+  return Math.round((pane?.zoomFactor || 1) * 100);
+}
+
+function positionZoomPopover() {
+  if (!zoomPopover || !state.zoomInd) return;
+  const anchor = state.zoomInd.getBoundingClientRect();
+  const rect = zoomPopover.getBoundingClientRect();
+  const margin = 6;
+  let left = anchor.left + (anchor.width - rect.width) / 2;
+  let top = anchor.top - rect.height - margin;
+  left = Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin));
+  if (top < margin) top = Math.min(window.innerHeight - rect.height - margin, anchor.bottom + margin);
+  zoomPopover.style.left = left + 'px';
+  zoomPopover.style.top = top + 'px';
+}
+
+function refreshZoomPopover() {
+  if (!zoomPopover || !zoomCustomInput) return;
+  const pct = currentZoomPercent();
+  zoomCustomInput.value = String(pct);
+  for (const btn of zoomPopover.querySelectorAll('[data-zoom]')) {
+    const btnPct = Math.round(Number(btn.dataset.zoom) * 100);
+    btn.classList.toggle('active', btnPct === pct);
+  }
+}
+
+function showZoomPopover() {
+  if (!zoomPopover || !state.zoomInd?.textContent) return;
+  hideCwdContextMenu();
+  refreshZoomPopover();
+  zoomPopover.classList.add('open');
+  zoomPopover.setAttribute('aria-hidden', 'false');
+  positionZoomPopover();
+  requestAnimationFrame(() => {
+    zoomCustomInput?.focus();
+    zoomCustomInput?.select();
+  });
+}
+
+function hideZoomPopover({ focusPane = false } = {}) {
+  if (!zoomPopover?.classList.contains('open')) return;
+  zoomPopover.classList.remove('open');
+  zoomPopover.setAttribute('aria-hidden', 'true');
+  if (focusPane) focusActivePaneSurface();
+}
+
+function applyZoomPercent(pct) {
+  const raw = String(pct).trim();
+  if (!raw) return false;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return false;
+  setActiveZoom(value / 100);
+  refreshZoomPopover();
+  return true;
+}
+
 function showCwdContextMenu(x, y) {
   const menu = state.cwdContextMenu;
   const cwd = state.cwdLink.dataset.cwd;
@@ -111,7 +172,7 @@ function showCwdContextMenu(x, y) {
 }
 
 function isStatusBarButtonTarget(target) {
-  return !!target?.closest?.('button, #render-ind, #cwd-context-menu, .menu-item');
+  return !!target?.closest?.('button, #render-ind, #zoom-ind, #cwd-context-menu, #zoom-popover, .menu-item');
 }
 
 preventMouseFocus(document.getElementById('new-tab-btn'));
@@ -131,6 +192,32 @@ state.statusBar.addEventListener('contextmenu', e => {
 state.renderInd.addEventListener('click', () => {
   resetActiveRenderer();
   focusActivePaneSurface();
+});
+state.zoomInd.addEventListener('click', e => {
+  e.stopPropagation();
+  if (zoomPopover?.classList.contains('open')) hideZoomPopover({ focusPane: true });
+  else showZoomPopover();
+});
+zoomPopover?.addEventListener('mousedown', e => {
+  if (e.target !== zoomCustomInput) e.preventDefault();
+});
+zoomPopover?.addEventListener('click', e => {
+  e.stopPropagation();
+  const btn = e.target.closest?.('[data-zoom]');
+  if (!btn) return;
+  applyZoomPercent(Number(btn.dataset.zoom) * 100);
+  hideZoomPopover({ focusPane: true });
+});
+zoomCustomInput?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    e.stopPropagation();
+    if (applyZoomPercent(zoomCustomInput.value)) hideZoomPopover({ focusPane: true });
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    hideZoomPopover({ focusPane: true });
+  }
 });
 state.cwdLink.addEventListener('click', () => {
   if (state.cwdLink.dataset.openable === 'false' || isRemotePane(getActivePane())) {
@@ -154,9 +241,11 @@ document.getElementById('cwd-copy')?.addEventListener('click', () => {
 });
 document.addEventListener('click', e => {
   if (!state.cwdContextMenu?.contains(e.target)) hideCwdContextMenu();
+  if (!zoomPopover?.contains(e.target) && e.target !== state.zoomInd) hideZoomPopover();
 });
 document.addEventListener('contextmenu', e => {
   if (!state.cwdContextMenu?.contains(e.target) && !state.statusBar.contains(e.target)) hideCwdContextMenu();
+  if (!zoomPopover?.contains(e.target)) hideZoomPopover();
 });
 state.searchBar = document.getElementById('search-bar');
 state.searchInput = document.getElementById('search-input');
@@ -330,6 +419,7 @@ function _dispatchShortcut(name) {
 // textarea, so modified navigation keys never get written to the PTY.
 document.addEventListener('keydown', e => {
   if (document.activeElement === state.searchInput
+      || document.activeElement === zoomCustomInput
       || state.searchBar?.classList.contains('open')) return;
 
   const tab = getActivePane();

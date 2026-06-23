@@ -6,7 +6,7 @@ const MAX_ZOOM = 3;
 const ZOOM_STEP = 0.1;
 
 function _clampZoom(value) {
-  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value * 10) / 10));
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(value * 100) / 100));
 }
 
 function zoomFontSize(tab) {
@@ -40,6 +40,10 @@ function resetActiveZoom() {
   setZoom(getActivePane(), 1);
 }
 
+function setActiveZoom(value) {
+  setZoom(getActivePane(), value);
+}
+
 function zoomInActiveTab() {
   zoomActive(ZOOM_STEP);
 }
@@ -57,6 +61,7 @@ function isZoomShortcut(e, isMac) {
 
 module.exports = {
   applyZoomToTab,
+  setActiveZoom,
   zoomInActiveTab,
   zoomOutActiveTab,
   resetActiveZoom,
