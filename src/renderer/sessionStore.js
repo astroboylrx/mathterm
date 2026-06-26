@@ -44,6 +44,7 @@ function captureSession() {
       panes: workspace.panes.map(pane => ({
         id: pane.id,
         cwd: validCwd(pane.cwd, cwdAdapter),
+        localCwd: validCwd(pane.localCwd || pane.cwd, cwdAdapter),
         autoRender: !!pane.autoRender,
         zoomFactor: pane.zoomFactor ?? 1
       }))

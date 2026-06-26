@@ -1,6 +1,19 @@
 const mt = window.mathterm;
 const { state, getActivePane, updateStatusBarCwd } = require('./state');
 const { markSessionChanged } = require('./sessionEvents');
+const { makeCwdAdapter } = require('../shared/sessionFormat');
+const { isRemoteDisplayHost, isValidLocalCwd } = require('../shared/spawnCwd');
+
+const cwdAdapter = makeCwdAdapter({
+  fs: mt.fs,
+  path: mt.path,
+  os: {
+    homedir: mt.os.homedir,
+    tmpdir: mt.os.tmpdir,
+    env: mt.os.env
+  },
+  fallbackCwd: mt.os.env.HOME
+});
 
 function formatTabCwd(cwd) {
   const home = mt.os.homedir();
@@ -99,6 +112,9 @@ function tabTrackTitle(tab, data) {
       tab.cwd = cwd;
       changed = true;
     }
+    if (!isRemoteDisplayHost(displayHost, state._hostname) && isValidLocalCwd(cwd, cwdAdapter)) {
+      tab.localCwd = cwd;
+    }
   }
 
   // OSC 0/1/2 (icon name / window title), same dual terminator support
@@ -126,6 +142,9 @@ function tabTrackTitle(tab, data) {
         if (tab.cwd !== cwd) {
           tab.cwd = cwd;
           changed = true;
+        }
+        if (!isRemoteDisplayHost(displayHost, state._hostname) && isValidLocalCwd(cwd, cwdAdapter)) {
+          tab.localCwd = cwd;
         }
       }
     }

@@ -133,8 +133,8 @@ function testSanitizeWindow() {
         children: [{ type: 'pane', paneId: 10 }, { type: 'pane', paneId: 11 }]
       },
       panes: [
-        { id: 10, cwd: regularFile, zoomFactor: 10, autoRender: true },
-        { id: 11, cwd: tmpRoot, zoomFactor: 0.1 }
+        { id: 10, cwd: regularFile, localCwd: tmpRoot, zoomFactor: 10, autoRender: true },
+        { id: 11, cwd: tmpRoot, localCwd: regularFile, zoomFactor: 0.1 }
       ]
     }]
   }, counts, adapter, 'fallback');
@@ -147,6 +147,7 @@ function testSanitizeWindow() {
   assert.strictEqual(win.workspaces[0].maximizedPaneId, null);
   assert.strictEqual(win.workspaces[0].customTitle, 'useful title');
   assert.deepStrictEqual(win.workspaces[0].panes.map(pane => pane.cwd), [tmpFallback, tmpRoot]);
+  assert.deepStrictEqual(win.workspaces[0].panes.map(pane => pane.localCwd), [tmpRoot, tmpFallback]);
   assert.deepStrictEqual(win.workspaces[0].panes.map(pane => pane.zoomFactor), [3, 0.4]);
 }
 

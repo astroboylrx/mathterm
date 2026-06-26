@@ -121,6 +121,7 @@ function sanitizeWorkspace(raw, counts, adapter) {
     return {
       id,
       cwd: validCwd(pane.cwd, adapter),
+      localCwd: validCwd(pane.localCwd || pane.cwd, adapter),
       autoRender: !!pane.autoRender,
       zoomFactor: Number.isFinite(Number(pane.zoomFactor))
         ? Math.max(0.4, Math.min(3, Number(pane.zoomFactor)))
@@ -200,6 +201,7 @@ function windowToRendererSession(rawWindow, adapter, opts = {}) {
     if (workspace.id === win.activeWorkspaceId) activeIndex = index;
     const panesById = new Map(workspace.panes.map(pane => [pane.id, {
       cwd: opts.sanitized ? pane.cwd : validCwd(pane.cwd, adapter),
+      localCwd: opts.sanitized ? pane.localCwd : validCwd(pane.localCwd || pane.cwd, adapter),
       autoRender: !!pane.autoRender,
       zoomFactor: opts.sanitized
         ? pane.zoomFactor
