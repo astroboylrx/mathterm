@@ -1,3 +1,4 @@
+const mt = window.mathterm;
 const { state, getActivePane, isRemotePane } = require('./state');
 const { settings, isMac, applySettings, requestMenuRebuild } = require('./settings');
 const { loadUserThemes } = require('./themes');
