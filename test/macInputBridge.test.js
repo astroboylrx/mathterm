@@ -1,16 +1,12 @@
 const assert = require('assert');
+const { Terminal } = require('@xterm/xterm');
 const settingsPath = require.resolve('../src/renderer/settings');
 require.cache[settingsPath] = {
   exports: {
-    isMac: true,
-    settings: { macOptionAsMeta: true }
+    isMac: true
   }
 };
-const {
-  controlKeyBinding,
-  macOptionMetaBinding
-} = require('../src/renderer/macInputBridge');
-const { settings } = require('../src/renderer/settings');
+const { controlKeyBinding } = require('../src/renderer/macInputBridge');
 
 assert.strictEqual(controlKeyBinding({
   ctrlKey: true,
@@ -30,32 +26,10 @@ assert.strictEqual(controlKeyBinding({
   key: '?'
 }), null);
 
-assert.deepStrictEqual(macOptionMetaBinding({
-  altKey: true,
-  ctrlKey: false,
-  metaKey: false,
-  shiftKey: false,
-  code: 'KeyV',
-  key: '\u221a'
-}), { sequence: '\x1bv', text: '\u221a' });
-
-assert.deepStrictEqual(macOptionMetaBinding({
-  altKey: true,
-  ctrlKey: false,
-  metaKey: false,
-  shiftKey: true,
-  code: 'KeyV',
-  key: '\u221a'
-}), { sequence: '\x1bV', text: '\u221a' });
-
-settings.macOptionAsMeta = false;
-assert.strictEqual(macOptionMetaBinding({
-  altKey: true,
-  ctrlKey: false,
-  metaKey: false,
-  shiftKey: false,
-  code: 'KeyV',
-  key: '\u221a'
-}), null);
+const term = new Terminal({ macOptionIsMeta: true });
+assert.strictEqual(term.options.macOptionIsMeta, true);
+term.options.macOptionIsMeta = false;
+assert.strictEqual(term.options.macOptionIsMeta, false);
+term.dispose();
 
 console.log('mac input bridge tests passed');

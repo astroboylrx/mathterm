@@ -38,8 +38,6 @@ const { attachBareUrlHoverProvider, attachUrlClickHandler } = require('./urlHit'
 const { attachShiftMouseSelection } = require('./shiftSelection');
 const {
   controlKeyBinding,
-  macOptionMetaBinding,
-  markMacOptionMetaPending,
   attachMacImePunctuationBridge,
   shouldSuppressMacFallbackData
 } = require('./macInputBridge');
@@ -502,6 +500,7 @@ function createPaneTerminal(pane, opts = {}) {
     },
     cursorBlink: true,
     cursorStyle: settings.cursorStyle,
+    macOptionIsMeta: isMac && settings.macOptionAsMeta !== false,
     scrollback: settings.scrollback
   });
   const fitAddon = new FitAddon();
@@ -517,22 +516,16 @@ function createPaneTerminal(pane, opts = {}) {
 
 function attachPaneKeyHandler(pane, term) {
   term.attachCustomKeyEventHandler(e => {
-    if (e.type !== 'keydown') return true;
     const controlBinding = controlKeyBinding(e);
     if (controlBinding) {
       e.preventDefault();
       e.stopPropagation();
-      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(controlBinding);
+      if (e.type === 'keydown' && !pane.richVisible && pane.ptyProc) {
+        pane.ptyProc.write(controlBinding);
+      }
       return false;
     }
-    const optionMeta = macOptionMetaBinding(e);
-    if (optionMeta) {
-      e.preventDefault();
-      e.stopPropagation();
-      markMacOptionMetaPending(pane, optionMeta);
-      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(optionMeta.sequence);
-      return false;
-    }
+    if (e.type !== 'keydown') return true;
     if (isTabCycleShortcut(e)) return false;
     if (isZoomShortcut(e, isMac)) return false;
     if (isPaneShortcut(e)) return false;

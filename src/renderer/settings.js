@@ -39,6 +39,7 @@ function applySettings() {
       selectionBackground: selectionBgFor(c)
     };
     pane.term.options.cursorStyle = settings.cursorStyle;
+    pane.term.options.macOptionIsMeta = isMac && settings.macOptionAsMeta !== false;
     applyZoomToTab(pane);
   });
   const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);

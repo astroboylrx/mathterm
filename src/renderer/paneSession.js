@@ -63,8 +63,6 @@ class PaneSession {
     this._lastExitCode = '';
     this._macImePunctuationPending = null;
     this._macImePunctuationHandled = null;
-    this._macOptionMetaPending = null;
-    this._macOptionMetaHandled = null;
     this.autoRender = false;
     this.zoomFactor = 1;
     this.osc1337Parser = new Osc1337Parser();
