@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('mathterm', {
         'close-pane', 'toggle-pane-maximize',
         'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
         'focus-next-pane', 'focus-prev-pane',
+        'terminal-undo',
         'settings-updated', 'live-tab-transfer-complete',
         'live-tab-drag-started', 'live-tab-drag-ended'
       ];

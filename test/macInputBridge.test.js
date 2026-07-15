@@ -26,6 +26,15 @@ assert.strictEqual(controlKeyBinding({
   key: '?'
 }), null);
 
+assert.strictEqual(controlKeyBinding({
+  control: true,
+  shift: false,
+  alt: false,
+  meta: false,
+  code: 'Slash',
+  key: '/'
+}), '\x1f');
+
 const term = new Terminal({ macOptionIsMeta: true });
 assert.strictEqual(term.options.macOptionIsMeta, true);
 term.options.macOptionIsMeta = false;

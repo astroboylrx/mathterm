@@ -24,6 +24,12 @@ function initIpc() {
     if (tab.richVisible) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
   });
+  mt.ipc.on('terminal-undo', () => {
+    const pane = getActivePane();
+    if (!pane || pane.richVisible || !pane.ptyProc) return;
+    pane.ptyProc.write('\x1f');
+    pane.term?.focus();
+  });
   mt.ipc.on('open-file', (filePath) => {
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     mt.fs.statAsync(filePath).then(stat => {
