@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/backendLifecycle.test.js && node test/outputTransport.test.js && node test/headlessWriteBatcher.test.js && node test/headlessTerminalState.test.js && node test/headlessTerminalBudget.test.js && node test/runtimeIds.test.js && node test/shellShim.test.js && node test/terminalMetadata.test.js && node test/spawnCwd.test.js && node test/ptyManager.test.js && node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/bufferText.test.js && node test/ansi.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/shiftSelection.test.js && node test/sessionFormat.test.js && node test/session.test.js",
+    "test": "node test/backendLifecycle.test.js && node test/outputTransport.test.js && node test/headlessWriteBatcher.test.js && node test/headlessTerminalState.test.js && node test/headlessTerminalBudget.test.js && node test/runtimeIds.test.js && node test/shellShim.test.js && node test/terminalMetadata.test.js && node test/spawnCwd.test.js && node test/macInputBridge.test.js && node test/ptyManager.test.js && node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/bufferText.test.js && node test/ansi.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/shiftSelection.test.js && node test/sessionFormat.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "dev:linux": "npm run build && electron . --no-sandbox",
     "rebuild": "electron-builder install-app-deps",

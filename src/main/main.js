@@ -12,6 +12,7 @@ const { sweepStaleShellShims } = require('./shellShim');
 const { PtyManager } = require('./ptyManager');
 
 let mainWindow;
+let lastFocusedTerminalWindow;
 let preferencesWindow;
 let aboutWindow;
 let nextSessionWindowId = 1;
@@ -631,6 +632,35 @@ function sendFocused(channel, ...args) {
   wc.send(channel, ...args);
 }
 
+function getLastTerminalWindow() {
+  const focused = BrowserWindow.getFocusedWindow();
+  const candidates = [focused, lastFocusedTerminalWindow, mainWindow];
+  for (const win of candidates) {
+    if (!win || win === preferencesWindow || win === aboutWindow || win.isDestroyed()) continue;
+    return win;
+  }
+  return BrowserWindow.getAllWindows().find(win => (
+    win !== preferencesWindow && win !== aboutWindow && !win.isDestroyed()
+  )) || null;
+}
+
+function openNewWindow() {
+  mainWindow = createWindow({ focusInitially: true });
+}
+
+function openNewTab() {
+  const win = getLastTerminalWindow();
+  if (!win) {
+    openNewWindow();
+    return;
+  }
+  mainWindow = win;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+  win.webContents.send('new-tab');
+}
+
 function normalizePreferencesTab(tab) {
   if (tab === 'settings') return 'appearance';
   return ['appearance', 'behavior', 'shortcuts'].includes(tab) ? tab : 'appearance';
@@ -739,13 +769,18 @@ function createWindow(opts = {}) {
   if (opts.forceRestoreSession) params.set('forceRestoreSession', '1');
   if (opts.liveWorkspaceToken) params.set('liveWorkspaceToken', opts.liveWorkspaceToken);
   params.set('sessionWindowId', sessionWindowId);
-  win.on('focus', () => markActiveSessionWindow(sessionWindowId));
+  win.on('focus', () => {
+    mainWindow = win;
+    lastFocusedTerminalWindow = win;
+    markActiveSessionWindow(sessionWindowId);
+  });
   win.on('close', () => {
     const windows = BrowserWindow.getAllWindows().filter(w => !w.isDestroyed());
     const quitsWhenLastAppWindowCloses = process.platform !== 'darwin' || loadQuitWhenLastTabClosed();
     preserveSessionOnClose = appIsQuitting || (quitsWhenLastAppWindowCloses && windows.length <= 1);
   });
   win.on('closed', () => {
+    if (lastFocusedTerminalWindow === win) lastFocusedTerminalWindow = null;
     if (mainWindow === win) {
       mainWindow = BrowserWindow.getAllWindows().find(w => w !== preferencesWindow && !w.isDestroyed()) || null;
     }
@@ -993,12 +1028,12 @@ function buildMenu(autoRender) {
         {
           label: 'New Window',
           accelerator: isMac ? 'CmdOrCtrl+N' : 'CmdOrCtrl+Shift+N',
-          click: () => { mainWindow = createWindow(); }
+          click: openNewWindow
         },
         {
           label: 'New Tab',
           accelerator: isMac ? 'CmdOrCtrl+T' : 'CmdOrCtrl+Shift+T',
-          click: () => sendFocused('new-tab')
+          click: openNewTab
         },
         { type: 'separator' },
         {
@@ -1228,11 +1263,20 @@ function setApplicationMenuForAutoRender(autoRender, opts = {}) {
   appliedMenuAutoRender = active;
 }
 
+function setMacDockMenu() {
+  if (!isMac || !app.dock) return;
+  app.dock.setMenu(Menu.buildFromTemplate([
+    { label: 'New Window', click: openNewWindow },
+    { label: 'New Tab', click: openNewTab }
+  ]));
+}
+
 app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
   importCliSessionFile();
   createStartupWindows();
   setApplicationMenuForAutoRender(true, { force: true });
+  setMacDockMenu();
 });
 
 app.on('before-quit', () => {

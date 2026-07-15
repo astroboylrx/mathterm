@@ -37,6 +37,7 @@ const { tabTrackTitle, updateTabBar, refreshTabTitle } = require('./titleTrack')
 const { attachBareUrlHoverProvider, attachUrlClickHandler } = require('./urlHit');
 const { attachShiftMouseSelection } = require('./shiftSelection');
 const {
+  controlKeyBinding,
   macOptionMetaBinding,
   markMacOptionMetaPending,
   attachMacImePunctuationBridge,
@@ -517,6 +518,13 @@ function createPaneTerminal(pane, opts = {}) {
 function attachPaneKeyHandler(pane, term) {
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
+    const controlBinding = controlKeyBinding(e);
+    if (controlBinding) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!pane.richVisible && pane.ptyProc) pane.ptyProc.write(controlBinding);
+      return false;
+    }
     const optionMeta = macOptionMetaBinding(e);
     if (optionMeta) {
       e.preventDefault();

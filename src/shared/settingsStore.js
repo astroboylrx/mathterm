@@ -19,6 +19,7 @@ const DEFAULTS = {
   cursorStyle: 'block',
   inheritCwd: false,
   splitPaneInheritsCwd: true,
+  macOptionAsMeta: true,
   restoreLastSession: false,
   copyOnSelect: true,
   backgroundCommandMarker: true,

@@ -1,10 +1,18 @@
-const { isMac } = require('./settings');
+const { settings, isMac } = require('./settings');
+
+function controlKeyBinding(e) {
+  if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return null;
+  if (e.code === 'Slash' || e.key === '/') return '\x1f';
+  return null;
+}
 
 function macOptionMetaBinding(e) {
-  if (!isMac || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return null;
-  if (e.code === 'KeyF') return { sequence: '\x1bf', text: '\u0192' };
-  if (e.code === 'KeyB') return { sequence: '\x1bb', text: '\u222b' };
-  if (e.code === 'KeyD') return { sequence: '\x1bd', text: '\u2202' };
+  if (!isMac || settings.macOptionAsMeta === false || !e.altKey || e.ctrlKey || e.metaKey) return null;
+  if (e.code && /^Key[A-Z]$/.test(e.code)) {
+    const letter = e.code.slice(3).toLowerCase();
+    return { sequence: '\x1b' + (e.shiftKey ? letter.toUpperCase() : letter), text: e.key?.length === 1 ? e.key : null };
+  }
+  if (e.shiftKey) return null;
   if (e.key === 'Backspace') return { sequence: '\x1b\x7f', text: null };
   return null;
 }
@@ -108,6 +116,7 @@ function shouldSuppressMacFallbackData(pane, data) {
 }
 
 module.exports = {
+  controlKeyBinding,
   macOptionMetaBinding,
   markMacOptionMetaPending,
   attachMacImePunctuationBridge,
