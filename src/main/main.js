@@ -6,7 +6,6 @@ const nodePty = require('node-pty');
 const { execFileSync } = require('child_process');
 const { createDefaultShortcuts, LEGACY_MAC_SHORTCUTS } = require('../shared/shortcutDefaults');
 const { parseCliOptions, cliUsage } = require('../shared/cliOptions');
-const { controlKeyBinding } = require('../shared/inputBindings');
 const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } = require('../shared/sessionFormat');
 const { clampRestoredBounds } = require('../shared/windowBounds');
 const { sweepStaleShellShims } = require('./shellShim');
@@ -758,11 +757,6 @@ function createWindow(opts = {}) {
   });
   attachWindowDiagnostics(win, 'terminal');
   win.webContents.on('before-input-event', (event, input) => {
-    if (isMac && controlKeyBinding(input)) {
-      event.preventDefault();
-      if (input.type === 'keyDown') win.webContents.send('terminal-undo');
-      return;
-    }
     if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
       event.preventDefault();
       win.webContents.toggleDevTools();
@@ -1077,6 +1071,13 @@ function buildMenu(autoRender) {
     {
       label: '&Edit',
       submenu: [
+        ...(isMac ? [{
+          label: 'Terminal Undo',
+          visible: false,
+          accelerator: 'Ctrl+/',
+          acceleratorWorksWhenHidden: true,
+          click: () => sendFocused('terminal-undo')
+        }] : []),
         {
           label: 'Copy',
           accelerator: sc.copy,
