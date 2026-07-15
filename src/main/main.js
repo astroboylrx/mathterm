@@ -469,6 +469,14 @@ function sendNextPaneOutput(paneBackendId, viewId) {
   let batch;
   try { batch = ptyManager.flushOutput(paneBackendId, viewId); } catch { return; }
   if (!batch) return;
+  if (DEBUG_TERMINAL_KEYS && batch.data.includes('\x07')) {
+    debugTerminalKey('pane-output-bell', {
+      webContentsId: wc.id,
+      paneBackendId,
+      bellCount: batch.data.split('\x07').length - 1,
+      byteLength: Buffer.byteLength(batch.data)
+    });
+  }
   wc.send('pane-output', {
     paneBackendId,
     viewId,
