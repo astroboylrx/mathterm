@@ -108,7 +108,7 @@ contextBridge.exposeInMainWorld('mathterm', {
       const allowed = [
         'close-window', 'rebuild-menu', 'notify-command-finished',
         'save-window-session', 'clear-session', 'prepare-live-tab-drag',
-        'clear-live-tab-drag', 'diagnostic-log'
+        'clear-live-tab-drag', 'diagnostic-log', 'debug-key-event'
       ];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
     },

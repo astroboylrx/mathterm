@@ -28,6 +28,7 @@ const ptyManager = new PtyManager({ ptyAdapter: nodePty, fs, path, os, env: proc
 const paneViews = new Map();
 const liveWorkspaceTransfers = new Map();
 const DEBUG_LIVE_TAB_DRAG = process.env.MATHTERM_DEBUG_DRAG === '1';
+const DEBUG_TERMINAL_KEYS = process.env.MATHTERM_DEBUG_KEYS === '1';
 if (cliOptions.help) {
   console.log(cliUsage(path.basename(process.argv[0] || 'mathterm')));
   process.exit(0);
@@ -632,6 +633,31 @@ function sendFocused(channel, ...args) {
   wc.send(channel, ...args);
 }
 
+function debugTerminalKey(stage, details = {}) {
+  if (!DEBUG_TERMINAL_KEYS) return;
+  try {
+    console.error(`[mathterm key] ${stage} ${JSON.stringify(details)}`);
+  } catch {
+    console.error(`[mathterm key] ${stage}`);
+  }
+}
+
+function debugKeyLabel(value) {
+  if (value === '\x1f') return 'unit-separator';
+  if (value === '/') return 'slash';
+  if (value === '?') return 'question-mark';
+  return value == null || value === '' ? null : 'other';
+}
+
+function sendTerminalUndo() {
+  const wc = getFocusedWebContents();
+  debugTerminalKey('menu-terminal-undo', {
+    webContentsId: wc && !wc.isDestroyed() ? wc.id : null
+  });
+  if (!wc || wc.isDestroyed()) return;
+  wc.send('terminal-undo');
+}
+
 function getLastTerminalWindow() {
   const focused = BrowserWindow.getFocusedWindow();
   const candidates = [focused, lastFocusedTerminalWindow, mainWindow];
@@ -757,6 +783,20 @@ function createWindow(opts = {}) {
   });
   attachWindowDiagnostics(win, 'terminal');
   win.webContents.on('before-input-event', (event, input) => {
+    if (DEBUG_TERMINAL_KEYS
+        && (input.code === 'Slash' || input.key === '/' || input.key === '?' || input.key === '\x1f')) {
+      debugTerminalKey('before-input-event', {
+        webContentsId: win.webContents.id,
+        type: input.type || null,
+        key: debugKeyLabel(input.key),
+        code: input.code || null,
+        control: !!input.control,
+        shift: !!input.shift,
+        alt: !!input.alt,
+        meta: !!input.meta,
+        isAutoRepeat: !!input.isAutoRepeat
+      });
+    }
     if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
       event.preventDefault();
       win.webContents.toggleDevTools();
@@ -1076,7 +1116,7 @@ function buildMenu(autoRender) {
           visible: false,
           accelerator: 'Ctrl+/',
           acceleratorWorksWhenHidden: true,
-          click: () => sendFocused('terminal-undo')
+          click: () => sendTerminalUndo()
         }] : []),
         {
           label: 'Copy',
@@ -1341,6 +1381,26 @@ ipcMain.on('diagnostic-log', (event, payload = {}) => {
   appendDiagnosticLog('renderer-diagnostic', {
     webContentsId: event.sender.id,
     payload
+  });
+});
+
+ipcMain.on('debug-key-event', (event, payload = {}) => {
+  if (!DEBUG_TERMINAL_KEYS) return;
+  debugTerminalKey('renderer-event', {
+    webContentsId: event.sender.id,
+    stage: String(payload.stage || '').slice(0, 48),
+    eventType: String(payload.eventType || '').slice(0, 24),
+    key: debugKeyLabel(payload.key),
+    code: String(payload.code || '').slice(0, 32) || null,
+    inputType: String(payload.inputType || '').slice(0, 48) || null,
+    control: !!payload.control,
+    shift: !!payload.shift,
+    alt: !!payload.alt,
+    meta: !!payload.meta,
+    defaultPrevented: !!payload.defaultPrevented,
+    hasPane: payload.hasPane == null ? null : !!payload.hasPane,
+    richVisible: payload.richVisible == null ? null : !!payload.richVisible,
+    hasPty: payload.hasPty == null ? null : !!payload.hasPty
   });
 });
 
@@ -1675,7 +1735,17 @@ ipcMain.handle('pane-snapshot', async (event, opts = {}) => {
 });
 
 ipcMain.on('pane-input', (event, opts = {}) => {
-  try { ptyManager.writePane(String(opts.paneBackendId || ''), String(opts.data || '')); } catch {}
+  const paneBackendId = String(opts.paneBackendId || '');
+  const data = String(opts.data || '');
+  if (DEBUG_TERMINAL_KEYS && data.includes('\x1f')) {
+    debugTerminalKey('pane-input', {
+      webContentsId: event.sender.id,
+      paneBackendId,
+      unitSeparatorCount: data.split('\x1f').length - 1,
+      byteLength: Buffer.byteLength(data)
+    });
+  }
+  try { ptyManager.writePane(paneBackendId, data); } catch {}
 });
 
 ipcMain.on('pane-resize', (event, opts = {}) => {
