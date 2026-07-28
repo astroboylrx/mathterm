@@ -518,22 +518,6 @@ function attachPaneKeyHandler(pane, term) {
   term.attachCustomKeyEventHandler(e => {
     const controlBinding = controlKeyBinding(e);
     if (controlBinding) {
-      if (mt.os.env.MATHTERM_DEBUG_KEYS === '1') {
-        mt.ipc.send('debug-key-event', {
-          stage: 'xterm-custom-key-handler',
-          eventType: e.type,
-          key: e.key,
-          code: e.code,
-          control: !!e.ctrlKey,
-          shift: !!e.shiftKey,
-          alt: !!e.altKey,
-          meta: !!e.metaKey,
-          defaultPrevented: !!e.defaultPrevented,
-          hasPane: true,
-          richVisible: !!pane.richVisible,
-          hasPty: !!pane.ptyProc
-        });
-      }
       e.preventDefault();
       e.stopPropagation();
       if (e.type === 'keydown' && !pane.richVisible && pane.ptyProc) {

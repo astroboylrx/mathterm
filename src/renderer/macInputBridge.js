@@ -1,5 +1,10 @@
 const { isMac } = require('./settings');
-const { controlKeyBinding } = require('../shared/inputBindings');
+
+function controlKeyBinding(e) {
+  if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return null;
+  if (e.code === 'Slash' || e.key === '/') return '\x1f';
+  return null;
+}
 
 function isMacImePunctuationKey(e) {
   if (!isMac || e.ctrlKey || e.altKey || e.metaKey) return false;

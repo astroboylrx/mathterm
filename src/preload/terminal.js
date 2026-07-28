@@ -108,7 +108,7 @@ contextBridge.exposeInMainWorld('mathterm', {
       const allowed = [
         'close-window', 'rebuild-menu', 'notify-command-finished',
         'save-window-session', 'clear-session', 'prepare-live-tab-drag',
-        'clear-live-tab-drag', 'diagnostic-log', 'debug-key-event'
+        'clear-live-tab-drag', 'diagnostic-log'
       ];
       if (allowed.includes(channel)) ipcRenderer.send(channel, ...args);
     },
@@ -123,7 +123,6 @@ contextBridge.exposeInMainWorld('mathterm', {
         'close-pane', 'toggle-pane-maximize',
         'focus-pane-left', 'focus-pane-right', 'focus-pane-up', 'focus-pane-down',
         'focus-next-pane', 'focus-prev-pane',
-        'terminal-undo',
         'settings-updated', 'live-tab-transfer-complete',
         'live-tab-drag-started', 'live-tab-drag-ended'
       ];

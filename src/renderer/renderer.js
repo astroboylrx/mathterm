@@ -45,45 +45,6 @@ function sendRendererDiagnostic(type, details = {}) {
   } catch {}
 }
 
-function isDebugControlSlashEvent(event) {
-  return event.code === 'Slash'
-    || event.key === '/'
-    || event.key === '?'
-    || event.key === '\x1f';
-}
-
-function sendKeyEventDiagnostic(stage, event) {
-  if (mt.os.env.MATHTERM_DEBUG_KEYS !== '1') return;
-  mt.ipc.send('debug-key-event', {
-    stage,
-    eventType: event.type,
-    key: event.key,
-    code: event.code,
-    inputType: event.inputType,
-    control: !!event.ctrlKey,
-    shift: !!event.shiftKey,
-    alt: !!event.altKey,
-    meta: !!event.metaKey,
-    defaultPrevented: !!event.defaultPrevented
-  });
-}
-
-if (mt.os.env.MATHTERM_DEBUG_KEYS === '1') {
-  for (const eventType of ['keydown', 'keypress', 'keyup']) {
-    window.addEventListener(eventType, event => {
-      if (isDebugControlSlashEvent(event)) sendKeyEventDiagnostic('dom-key-event', event);
-    }, true);
-  }
-  for (const eventType of ['beforeinput', 'input']) {
-    window.addEventListener(eventType, event => {
-      const inputType = String(event.inputType || '').toLowerCase();
-      if (inputType.includes('undo') || isDebugControlSlashEvent(event)) {
-        sendKeyEventDiagnostic('dom-input-event', event);
-      }
-    }, true);
-  }
-}
-
 window.addEventListener('error', event => {
   sendRendererDiagnostic('renderer-error', {
     message: event.message || null,

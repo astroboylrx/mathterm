@@ -24,20 +24,6 @@ function initIpc() {
     if (tab.richVisible) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
   });
-  mt.ipc.on('terminal-undo', () => {
-    const pane = getActivePane();
-    if (mt.os.env.MATHTERM_DEBUG_KEYS === '1') {
-      mt.ipc.send('debug-key-event', {
-        stage: 'terminal-undo-received',
-        hasPane: !!pane,
-        richVisible: pane ? !!pane.richVisible : null,
-        hasPty: pane ? !!pane.ptyProc : null
-      });
-    }
-    if (!pane || pane.richVisible || !pane.ptyProc) return;
-    pane.ptyProc.write('\x1f');
-    pane.term?.focus();
-  });
   mt.ipc.on('open-file', (filePath) => {
     const MAX_FILE_SIZE = 10 * 1024 * 1024;
     mt.fs.statAsync(filePath).then(stat => {
