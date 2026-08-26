@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           pty_module="$(find dist-electron -path '*/app.asar.unpacked/node_modules/node-pty/build/Release/pty.node' -print -quit)"
-          app_binary="$(find dist-electron -path '*/linux-*-unpacked/mathterm' -print -quit)"
+          app_binary="$(find dist-electron -path '*/linux*-unpacked/mathterm' -print -quit)"
           test -n "$pty_module"
           test -n "$app_binary"
 
