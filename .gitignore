@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 .mathterm.json
 dist/
 dist-electron/

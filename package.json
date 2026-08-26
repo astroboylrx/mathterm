@@ -1,6 +1,6 @@
 {
   "name": "mathterm",
-  "version": "0.10.2",
+  "version": "0.11.0",
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
@@ -63,13 +63,13 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
-    "katex": "^0.17.0",
-    "marked": "^18.0.5",
+    "katex": "^0.18.4",
+    "marked": "^18.0.11",
     "node-pty": "^1.0.0"
   },
   "devDependencies": {
-    "electron": "^42.4.1",
+    "electron": "^42.10.1",
     "electron-builder": "^26.15.3",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.2"
   }
 }
