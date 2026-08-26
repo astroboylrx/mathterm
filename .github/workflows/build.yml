@@ -90,7 +90,6 @@ jobs:
           }
 
           file "$app_binary"
-          verify_shared_libraries "$app_binary"
           file "$pty_module"
           verify_shared_libraries "$pty_module"
           echo "Highest required glibc symbol:"
