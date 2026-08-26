@@ -30,6 +30,8 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       DEBIAN_FRONTEND: noninteractive
+      CC: gcc-11
+      CXX: g++-11
 
     steps:
       - name: Install system build tools
@@ -46,7 +48,11 @@ jobs:
             libarchive-tools \
             python3 \
             rpm \
+            software-properties-common \
             xz-utils
+          add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          apt-get update
+          apt-get install -y --no-install-recommends g++-11
 
       - uses: actions/checkout@v7
 
