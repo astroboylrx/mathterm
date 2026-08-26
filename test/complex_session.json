@@ -118,7 +118,7 @@
           "panes": [
             {
               "id": 1010,
-              "cwd": "/workspace/mathterm",
+              "cwd": "/tmp",
               "autoRender": true,
               "zoomFactor": 1
             }
@@ -295,7 +295,7 @@
             },
             {
               "id": 2004,
-              "cwd": "/workspace/mathterm",
+              "cwd": "/tmp",
               "autoRender": false,
               "zoomFactor": 1
             },
@@ -340,7 +340,7 @@
             },
             {
               "id": 2011,
-              "cwd": "/workspace/mathterm",
+              "cwd": "/tmp",
               "autoRender": false,
               "zoomFactor": 1.3
             }
@@ -493,7 +493,7 @@
             },
             {
               "id": 3012,
-              "cwd": "/workspace/mathterm",
+              "cwd": "/tmp",
               "autoRender": true,
               "zoomFactor": 1.2
             }

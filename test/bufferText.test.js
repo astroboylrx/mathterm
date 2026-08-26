@@ -1,7 +1,8 @@
 const assert = require('assert');
 const {
   bufferLineToLayoutText,
-  bufferLineToSemanticText
+  bufferLineToSemanticText,
+  bufferLineToSemanticTextPreserveSpaces
 } = require('../src/renderer/bufferText');
 
 function cell(chars, width = 1) {
@@ -65,6 +66,11 @@ function testLayoutTextKeepsTranslateToStringBehavior() {
   assert.strictEqual(bufferLineToLayoutText(l), '中 文 ');
 }
 
+function testSnapshotTextPreservesExplicitTrailingSpacesOnly() {
+  const l = line([cell('A'), cell(' '), cell(''), cell('')]);
+  assert.strictEqual(bufferLineToSemanticTextPreserveSpaces(l), 'A ');
+}
+
 testWideCjkHasNoInsertedSpaces();
 testMixedAsciiAndCjk();
 testRealAsciiSpacesArePreserved();
@@ -73,5 +79,6 @@ testFullWidthSpaceIsOneSemanticCharacter();
 testEmojiWideContinuationIsSkipped();
 testRightPaddingIsTrimmed();
 testLayoutTextKeepsTranslateToStringBehavior();
+testSnapshotTextPreservesExplicitTrailingSpacesOnly();
 
 console.log('bufferText tests passed');

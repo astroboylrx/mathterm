@@ -24,6 +24,11 @@ const { parseShortcut, matchShortcut } = require('./keybindings');
 const { applyZoomToTab, isZoomShortcut } = require('./zoom');
 const { escapeHtml } = require('./ansi');
 const { bufferLineToSemanticText } = require('./bufferText');
+const {
+  markerLine,
+  capturePromptMarkerSnapshot,
+  promptMarkerSnapshotMatches
+} = require('./promptTrack');
 const { PaneSession } = require('./paneSession');
 const { TabWorkspace } = require('./workspace');
 const {
@@ -119,11 +124,6 @@ function prunePromptTracking(pane, minY) {
   }
 }
 
-function markerLine(marker) {
-  if (!marker || marker.isDisposed || marker.line == null || marker.line < 0) return null;
-  return marker.line;
-}
-
 function removePromptMarkerEntry(pane, entry) {
   if (!pane || !entry) return;
   const entries = pane._promptMarkerEntries || [];
@@ -157,7 +157,11 @@ function addPromptStartMarker(pane) {
   const entry = { start: marker, end: null };
   pane._promptMarkerEntries.push(entry);
   pane._activePromptMarkerEntry = entry;
-  marker.onDispose(() => disposePromptMarkerEntry(pane, entry));
+  marker.onDispose(() => {
+    const externallyDisposed = !entry.disposed;
+    disposePromptMarkerEntry(pane, entry);
+    if (externallyDisposed) schedulePromptTrackingRebuild(pane);
+  });
   prunePromptTracking(pane, Math.max(0, pane.term?.buffer?.active?.baseY - settings.scrollback));
   return entry;
 }
@@ -169,7 +173,11 @@ function addPromptEndMarker(pane) {
   if (!marker) return null;
   entry.end = marker;
   marker.onDispose(() => {
-    if (entry.end === marker) entry.end = null;
+    if (entry.end !== marker) return;
+    entry.end = null;
+    if (entry.disposed) return;
+    if (typeof entry.snapshotText === 'string') disposePromptMarkerEntry(pane, entry);
+    schedulePromptTrackingRebuild(pane);
   });
   return marker;
 }
@@ -181,9 +189,13 @@ function disposePromptMarkers(pane) {
 }
 
 function rebuildPromptTrackingFromMarkers(pane, buf, startY, endY) {
-  const entries = Array.isArray(pane._promptMarkerEntries) ? pane._promptMarkerEntries : [];
+  const entries = Array.isArray(pane._promptMarkerEntries) ? [...pane._promptMarkerEntries] : [];
   let count = 0;
   for (const entry of entries) {
+    if (!promptMarkerSnapshotMatches(buf, entry)) {
+      disposePromptMarkerEntry(pane, entry);
+      continue;
+    }
     const start = markerLine(entry.start);
     if (start == null || start < startY || start > endY) continue;
     let end = markerLine(entry.end);
@@ -201,6 +213,33 @@ function rebuildPromptTrackingFromMarkers(pane, buf, startY, endY) {
     count++;
   }
   return count;
+}
+
+function invalidateChangedPromptMarkers(pane) {
+  const buf = pane?.term?.buffer?.active;
+  if (!buf || buf === pane.term.buffer.alternate) return false;
+  const entries = Array.isArray(pane._promptMarkerEntries) ? [...pane._promptMarkerEntries] : [];
+  const screenStart = buf.baseY;
+  const screenEnd = screenStart + Math.max(0, pane.term.rows - 1);
+  let changed = false;
+
+  // Entries follow terminal history order, so walking backward stops once the
+  // remaining markers are above the mutable screen.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    const start = markerLine(entry.start);
+    const end = markerLine(entry.end);
+    if (start == null || end == null) continue;
+    if (end < screenStart) break;
+    if (start > screenEnd) continue;
+    if (typeof entry.snapshotText !== 'string') continue;
+    if (promptMarkerSnapshotMatches(buf, entry)) continue;
+    disposePromptMarkerEntry(pane, entry);
+    changed = true;
+  }
+
+  if (changed) rebuildPromptTrackingFromBuffer(pane);
+  return changed;
 }
 
 function trimInlineImages(arr) {
@@ -706,6 +745,7 @@ function attachOsc133Tracking(pane, term) {
         pane._promptBHandled = true;
       }
     } else if (data.startsWith('C')) {
+      capturePromptMarkerSnapshot(pane.term.buffer.active, pane._activePromptMarkerEntry);
       pane._commandRunning = true;
       pane._commandStartY = pane.term.buffer.active.baseY + pane.term.buffer.active.cursorY;
       pane._commandStartTime = Date.now();
@@ -761,7 +801,11 @@ function attachPtyDataPipeline(pane, term) {
     };
     if (cleanData) {
       term.write(cleanData, () => {
+        const promptTrackingChanged = invalidateChangedPromptMarkers(pane);
         scheduleTerminalRefresh(pane);
+        if (promptTrackingChanged && pane.richVisible) {
+          refreshRichViewAfterLayout(pane, { force: true });
+        }
         ackOutput();
       });
     } else {
@@ -807,7 +851,7 @@ function rebuildPromptTrackingFromBuffer(pane) {
 }
 
 function schedulePromptTrackingRebuild(pane) {
-  if (!pane || pane._promptResizeRebuildRaf) return;
+  if (!pane || pane._closing || pane._promptResizeRebuildRaf) return;
   pane._promptResizeRebuildRaf = requestAnimationFrame(() => {
     pane._promptResizeRebuildRaf = 0;
     rebuildPromptTrackingFromBuffer(pane);

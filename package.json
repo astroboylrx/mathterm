@@ -1,22 +1,28 @@
 {
   "name": "mathterm",
   "version": "0.11.0",
+  "desktopName": "mathterm",
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
   "homepage": "https://github.com/astroboylrx/mathterm",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/astroboylrx/mathterm.git"
+  },
   "main": "src/main/main.js",
   "bin": {
     "mathterm": "bin/mathterm.js"
   },
   "scripts": {
     "build": "node build.js",
-    "test": "node test/backendLifecycle.test.js && node test/outputTransport.test.js && node test/headlessWriteBatcher.test.js && node test/headlessTerminalState.test.js && node test/headlessTerminalBudget.test.js && node test/runtimeIds.test.js && node test/shellShim.test.js && node test/terminalMetadata.test.js && node test/spawnCwd.test.js && node test/macInputBridge.test.js && node test/ptyManager.test.js && node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/bufferText.test.js && node test/ansi.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/shiftSelection.test.js && node test/sessionFormat.test.js && node test/session.test.js",
+    "test": "node test/backendLifecycle.test.js && node test/outputTransport.test.js && node test/headlessWriteBatcher.test.js && node test/headlessTerminalState.test.js && node test/headlessTerminalBudget.test.js && node test/runtimeIds.test.js && node test/shellShim.test.js && node test/terminalMetadata.test.js && node test/spawnCwd.test.js && node test/macInputBridge.test.js && node test/ptyManager.test.js && node test/cliOptions.test.js && node test/windowBounds.test.js && node test/layoutTree.test.js && node test/bufferText.test.js && node test/promptTrack.test.js && node test/ansi.test.js && node test/latex.test.js && node test/latexMacros.test.js && node test/richVirtual.test.js && node test/mathSearch.test.js && node test/shiftSelection.test.js && node test/sessionFormat.test.js && node test/session.test.js",
     "start": "npm run build && electron .",
     "dev:linux": "npm run build && electron . --no-sandbox",
     "rebuild": "electron-builder install-app-deps",
     "dist": "npm run dist:linux",
     "dist:linux": "npm run build && node scripts/electron-builder.js --linux AppImage deb rpm",
     "dist:linux:packages": "npm run build && node scripts/electron-builder.js --linux deb rpm",
+    "dist:win": "npm run build && node scripts/electron-builder.js --win nsis zip",
     "dist:mac": "npm run build && node scripts/electron-builder.js --mac dmg zip",
     "dist:mac:dir": "npm run build && node scripts/electron-builder.js --mac dir"
   },
@@ -40,6 +46,7 @@
       "!**/*.map"
     ],
     "linux": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
       "target": [
         "AppImage",
         "deb",
@@ -47,7 +54,16 @@
       ],
       "category": "Utility",
       "icon": "assets/icons/png",
-      "maintainer": "Rixin Li <astroboylrx@gmail.com>"
+      "maintainer": "Rixin Li <astroboylrx@gmail.com>",
+      "syncDesktopName": true
+    },
+    "win": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "icon": "assets/icons/png/256x256.png",
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "mac": {
       "artifactName": "${productName}-${version}-${arch}.${ext}",
