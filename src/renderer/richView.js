@@ -3,7 +3,7 @@ const { settings, isMac } = require('./settings');
 const { parseShortcut, formatShortcut } = require('./keybindings');
 const { hasLatex } = require('./latex');
 const { stripAnsi } = require('./ansi');
-const { bufferLineToSemanticText } = require('./bufferText');
+const { bufferLineToSemanticText, collectLogicalBufferLines } = require('./bufferText');
 const { isPromptLine } = require('./promptTrack');
 const { refreshTabTitle } = require('./titleTrack');
 const { isTableBorder, tryParseTableBlock, tryParseMarkdownTable } = require('./tableRender');
@@ -25,7 +25,8 @@ const {
   computeDisplayMathSpans,
   computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
-  expandStartForStructure
+  expandStartForStructure,
+  expandEndForWrappedLine
 } = require('./richVirtual');
 const { tryParseDisplayMath, tryParseFencedCodeBlock, tagSpan } = require('./richBlockParse');
 
@@ -34,25 +35,7 @@ const SECTION_ELAPSED_MAX = 30000;
 const SECTION_LATEX_SCAN_OVERLAP = 32;
 
 function collectBufferLines(buf, startY, endY) {
-  const raw = [];
-  for (let y = startY; y <= endY; y++) {
-    let line;
-    try { line = buf.getLine(y); } catch { continue; }
-    if (!line) continue;
-    raw.push({ text: bufferLineToSemanticText(line), _line: line, y, wrapped: !!line.isWrapped });
-  }
-  const textLines = [];
-  for (const item of raw) {
-    if (item.wrapped && textLines.length > 0) {
-      const prev = textLines[textLines.length - 1];
-      prev.text += item.text;
-      prev.joined = true;
-      prev.yEnd = item.y;
-    } else {
-      textLines.push({ text: item.text, _line: item._line, y: item.y, yEnd: item.y });
-    }
-  }
-  return textLines;
+  return collectLogicalBufferLines(buf, startY, endY);
 }
 
 function renderLinesToContainer(textLines, container, promptLineChecker, tab, opts) {
@@ -245,7 +228,9 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
     displayMathRange.startY,
     expandStartForStructure(buf, startY, v.sourceStartY, v.structureBackscanRows)
   );
-  const expandedEndY = displayMathRange.endY;
+  const expandedEndY = expandEndForWrappedLine(
+    buf, displayMathRange.endY, v.sourceEndY, v.structureBackscanRows
+  );
 
   pane._richRenderToken = (pane._richRenderToken | 0) + 1;
   const renderToken = pane._richRenderToken;

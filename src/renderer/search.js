@@ -1,7 +1,7 @@
 const { state, getActivePane, isActivePane } = require('./state');
 const { settings } = require('./settings');
 const { collectRichSearchMatches } = require('./mathSearch');
-const { bufferLineToSemanticText } = require('./bufferText');
+const { bufferLineToSemanticText, collectLogicalBufferLines } = require('./bufferText');
 
 const TERMINAL_SEARCH_PLACEHOLDER = 'Search terminal...';
 const RICH_SEARCH_PLACEHOLDER = 'Search math view...';
@@ -311,14 +311,7 @@ function collectRichLines(tab) {
   const startY = v && v.active ? v.sourceStartY : source && source.sourceStartY;
   const endY = v && v.active ? v.sourceEndY : source && source.sourceEndY;
   if (!buf || startY == null || endY == null) return [];
-  const lines = [];
-  for (let y = startY; y <= endY; y++) {
-    let line;
-    try { line = buf.getLine(y); } catch { line = null; }
-    if (!line) continue;
-    lines.push({ y, text: bufferLineToSemanticText(line) });
-  }
-  return lines;
+  return collectLogicalBufferLines(buf, startY, endY);
 }
 
 function runRichSearch(tab, direction, options = {}) {

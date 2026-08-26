@@ -287,6 +287,17 @@ function expandStartForStructure(buf, startY, sourceStartY, maxBackscan) {
   return expanded;
 }
 
+function expandEndForWrappedLine(buf, endY, sourceEndY, maxForwardScan) {
+  let expanded = endY;
+  const stopY = Math.min(sourceEndY, endY + Math.max(0, maxForwardScan));
+  while (expanded < stopY) {
+    const next = lineInfo(buf, expanded + 1);
+    if (!next || !next.isWrapped) break;
+    expanded++;
+  }
+  return expanded;
+}
+
 module.exports = {
   RICH_VIRTUAL_OVERSCAN_ROWS,
   RICH_VIRTUAL_MAX_RENDERED_ROWS,
@@ -306,5 +317,6 @@ module.exports = {
   isLikelyCodeFenceBodyText,
   parseFenceLine,
   isClosingFenceLine,
-  expandStartForStructure
+  expandStartForStructure,
+  expandEndForWrappedLine
 };

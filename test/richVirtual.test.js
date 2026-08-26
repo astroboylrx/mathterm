@@ -11,6 +11,7 @@ const {
   isLikelyDisplayMathBodyText,
   isLikelyCodeFenceBodyText,
   expandStartForStructure,
+  expandEndForWrappedLine,
   RICH_VIRTUAL_DEFAULT_LINE_HEIGHT
 } = require('../src/renderer/richVirtual');
 
@@ -356,6 +357,26 @@ function testBackscanHandlesStartInsideWrapped() {
   assert.strictEqual(expandStartForStructure(buf, 99, 0, 50), 97);
 }
 
+function testForwardScanCompletesWrappedLogicalLine() {
+  const buf = makeBuf({
+    100: { text: '$x_{\\rm ' },
+    101: { text: 'g}$', wrapped: true },
+    102: { text: 'next logical line' }
+  });
+  assert.strictEqual(expandEndForWrappedLine(buf, 100, 102, 50), 101);
+  assert.strictEqual(expandEndForWrappedLine(buf, 101, 102, 50), 101);
+}
+
+function testForwardScanRespectsBounds() {
+  const buf = makeBuf({
+    100: { text: 'start' },
+    101: { text: 'continued', wrapped: true },
+    102: { text: 'continued again', wrapped: true }
+  });
+  assert.strictEqual(expandEndForWrappedLine(buf, 100, 102, 1), 101);
+  assert.strictEqual(expandEndForWrappedLine(buf, 100, 100, 50), 100);
+}
+
 function testBackscanFindsDisplayMathOpener() {
   // startY=4 sits just below the closing $$ of a 3-row math block.
   // Walking back: 3='$$' (enters block), 2='+ c^2' (math body),
@@ -477,6 +498,8 @@ function run() {
   testBackscanNoStructureReturnsStart();
   testBackscanWalksThroughWrapped();
   testBackscanHandlesStartInsideWrapped();
+  testForwardScanCompletesWrappedLogicalLine();
+  testForwardScanRespectsBounds();
   testBackscanFindsDisplayMathOpener();
   testBackscanFindsDisplayMathOpenerFromBody();
   testBackscanStopsAtBlankAboveStructure();

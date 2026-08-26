@@ -1,5 +1,6 @@
 const mt = window.mathterm;
 const { isMac } = require('./settings');
+const { wrappedRangeForLine } = require('./promptTrack');
 
 // Match gnome-terminal / iTerm: Ctrl-click (Cmd on mac) on a URL opens it in
 // the default browser. We hit-test against the xterm buffer ourselves rather
@@ -28,20 +29,9 @@ function isOpenableUrl(url) {
 
 function urlAtBufferPosition(term, col, row) {
   const buf = term.buffer.active;
-  let startRow = row;
-  while (startRow > 0) {
-    const prev = buf.getLine(startRow - 1);
-    if (!prev || !prev.isWrapped) break;
-    startRow--;
-    if (row - startRow > 8) break;
-  }
-  let endRow = row;
-  while (true) {
-    const next = buf.getLine(endRow + 1);
-    if (!next || !next.isWrapped) break;
-    endRow++;
-    if (endRow - row > 8) break;
-  }
+  const wrappedRange = wrappedRangeForLine(buf, row);
+  const startRow = wrappedRange ? Math.max(wrappedRange.first, row - 8) : row;
+  const endRow = wrappedRange ? Math.min(wrappedRange.last, row + 8) : row;
   let text = '';
   let cursorIdx = -1;
   for (let y = startRow; y <= endRow; y++) {

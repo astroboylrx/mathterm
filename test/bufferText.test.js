@@ -2,7 +2,8 @@ const assert = require('assert');
 const {
   bufferLineToLayoutText,
   bufferLineToSemanticText,
-  bufferLineToSemanticTextPreserveSpaces
+  bufferLineToSemanticTextPreserveSpaces,
+  collectLogicalBufferLines
 } = require('../src/renderer/bufferText');
 
 function cell(chars, width = 1) {
@@ -71,6 +72,29 @@ function testSnapshotTextPreservesExplicitTrailingSpacesOnly() {
   assert.strictEqual(bufferLineToSemanticTextPreserveSpaces(l), 'A ');
 }
 
+function asciiLine(text, isWrapped = false, padding = 0) {
+  const result = line([
+    ...Array.from(text, ch => cell(ch)),
+    ...Array.from({ length: padding }, () => cell(''))
+  ]);
+  result.isWrapped = isWrapped;
+  return result;
+}
+
+function testWrappedLatexControlWordSeparatorsArePreserved() {
+  const lines = [
+    asciiLine('$2\\Omega \\eta ', false),
+    asciiLine('v_{\\rm ', true),
+    asciiLine('g}$', true, 4)
+  ];
+  const logical = collectLogicalBufferLines({ getLine: y => lines[y] }, 0, 2);
+  assert.strictEqual(logical.length, 1);
+  assert.strictEqual(logical[0].text, '$2\\Omega \\eta v_{\\rm g}$');
+  assert.strictEqual(logical[0].y, 0);
+  assert.strictEqual(logical[0].yEnd, 2);
+  assert.strictEqual(logical[0].joined, true);
+}
+
 testWideCjkHasNoInsertedSpaces();
 testMixedAsciiAndCjk();
 testRealAsciiSpacesArePreserved();
@@ -80,5 +104,6 @@ testEmojiWideContinuationIsSkipped();
 testRightPaddingIsTrimmed();
 testLayoutTextKeepsTranslateToStringBehavior();
 testSnapshotTextPreservesExplicitTrailingSpacesOnly();
+testWrappedLatexControlWordSeparatorsArePreserved();
 
 console.log('bufferText tests passed');
