@@ -21,6 +21,9 @@ function applyZoomToTab(tab) {
   if (tab.fitAddon && isActivePane(tab)) {
     requestAnimationFrame(() => tab.fitAddon.fit());
   }
+  if (tab.richVisible) {
+    require('./richView').refreshRichViewAfterLayout(tab);
+  }
   if (isActivePane(tab)) updateStatusBar(tab);
 }
 

@@ -306,7 +306,7 @@ function runSearch(tab, direction, options = {}) {
 function collectRichLines(tab) {
   const v = tab && tab.richVirtual;
   const source = tab && tab.richSearchSource;
-  const buf = tab && tab.term && tab.term.buffer && tab.term.buffer.active;
+  const buf = v?.sourceBuffer || (tab && tab.term && tab.term.buffer && tab.term.buffer.active);
   if (source && (source.type === 'file' || source.type === 'snapshot')) return source.lines || [];
   const startY = v && v.active ? v.sourceStartY : source && source.sourceStartY;
   const endY = v && v.active ? v.sourceEndY : source && source.sourceEndY;
@@ -472,7 +472,8 @@ function sourceLineText(tab, y) {
     return line ? line.text : '';
   }
   try {
-    const line = tab.term.buffer.active.getLine(y);
+    const buf = tab?.richVirtual?.sourceBuffer || tab?.term?.buffer?.active;
+    const line = buf?.getLine(y);
     return line ? bufferLineToSemanticText(line) : '';
   } catch {
     return '';

@@ -24,12 +24,14 @@ function doPaste() {
   const text = mt.clipboard.readText();
   const search = require('./search');
   if (search.isSearchBarOpen() && search.insertTextIntoSearchInput(text)) return;
+  if (tab.richVisible || tab._richSnapshotPending) return;
   if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
 }
 
 function doSelectAll() {
   const tab = getActivePane();
   if (!tab) return;
+  if (tab._richSnapshotPending) return;
   if (tab.richVisible) {
     const range = document.createRange();
     range.selectNodeContents(tab.richContent);

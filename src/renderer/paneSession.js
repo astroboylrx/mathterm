@@ -17,6 +17,7 @@ class PaneSession {
     this.term = null;
     this.fitAddon = null;
     this.searchAddon = null;
+    this.serializeAddon = null;
     this.searchOpen = false;
     this.searchQuery = '';
     this.searchCountText = '';
@@ -68,6 +69,10 @@ class PaneSession {
     this.osc1337Parser = new Osc1337Parser();
     this.inlineImages = [];
     this.richVirtual = null;
+    this.richSnapshot = null;
+    this._richSnapshotGeneration = 0;
+    this._richSnapshotPending = false;
+    this._richSnapshotPromise = null;
     this._richRenderToken = 0;
     this._richScrollRaf = 0;
     this._richScrollListener = null;

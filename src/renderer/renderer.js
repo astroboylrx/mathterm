@@ -384,16 +384,16 @@ function _dispatchShortcut(name) {
       if (tab) require('./clipboard').doSelectAll();
       break;
     case 'prevPrompt':
-      if (tab && !tab.richVisible) jumpToPrevPrompt(tab);
+      if (tab && !tab.richVisible && !tab._richSnapshotPending) jumpToPrevPrompt(tab);
       break;
     case 'nextPrompt':
-      if (tab && !tab.richVisible) jumpToNextPrompt(tab);
+      if (tab && !tab.richVisible && !tab._richSnapshotPending) jumpToNextPrompt(tab);
       break;
     case 'selectLastCommand':
-      if (tab && !tab.richVisible) selectLastCommandOutput(tab);
+      if (tab && !tab.richVisible && !tab._richSnapshotPending) selectLastCommandOutput(tab);
       break;
     case 'scrollToCursor':
-      if (tab && !tab.richVisible) scrollToCursor(tab);
+      if (tab && !tab.richVisible && !tab._richSnapshotPending) scrollToCursor(tab);
       break;
     case 'splitPaneRight':
       require('./tabs').splitPaneRight();

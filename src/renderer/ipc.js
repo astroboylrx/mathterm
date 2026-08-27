@@ -21,7 +21,7 @@ function initIpc() {
   mt.ipc.on('clear-terminal', () => {
     const tab = getActivePane();
     if (!tab) return;
-    if (tab.richVisible) tabHideRichView(tab);
+    if (tab.richVisible || tab._richSnapshotPending) tabHideRichView(tab);
     tab.ptyProc.write('\x0c');
   });
   mt.ipc.on('open-file', (filePath) => {

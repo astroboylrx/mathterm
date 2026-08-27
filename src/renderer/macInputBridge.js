@@ -16,7 +16,7 @@ function attachMacImePunctuationBridge(pane) {
   if (!isMac || !pane.xtermHolder) return;
 
   function write(data) {
-    if (!data || pane.richVisible || !pane.ptyProc) return;
+    if (!data || pane.richVisible || pane._richSnapshotPending || !pane.ptyProc) return;
     pane.ptyProc.write(data);
   }
 

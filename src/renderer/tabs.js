@@ -5,6 +5,7 @@ const mt = window.mathterm;
 const { Terminal } = require('@xterm/xterm');
 const { FitAddon } = require('@xterm/addon-fit');
 const { SearchAddon } = require('@xterm/addon-search');
+const { SerializeAddon } = require('@xterm/addon-serialize');
 const { WebLinksAddon } = require('@xterm/addon-web-links');
 const { WebglAddon } = require('@xterm/addon-webgl');
 
@@ -544,13 +545,15 @@ function createPaneTerminal(pane, opts = {}) {
   });
   const fitAddon = new FitAddon();
   const searchAddon = new SearchAddon();
+  const serializeAddon = new SerializeAddon();
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
+  term.loadAddon(serializeAddon);
   try { term.loadAddon(new (require('@xterm/addon-unicode11').Unicode11Addon)()); term.unicode.activeVersion = '6'; } catch {}
   term.open(pane.xtermHolder);
   attachShiftMouseSelection(pane, term);
   pane.xtermHolder.appendChild(pane.searchHighlightLayer);
-  return { term, fitAddon, searchAddon };
+  return { term, fitAddon, searchAddon, serializeAddon };
 }
 
 function attachPaneKeyHandler(pane, term) {
@@ -559,7 +562,7 @@ function attachPaneKeyHandler(pane, term) {
     if (controlBinding) {
       e.preventDefault();
       e.stopPropagation();
-      if (e.type === 'keydown' && !pane.richVisible && pane.ptyProc) {
+      if (e.type === 'keydown' && !pane.richVisible && !pane._richSnapshotPending && pane.ptyProc) {
         pane.ptyProc.write(controlBinding);
       }
       return false;
@@ -637,10 +640,11 @@ function attachPaneLinkHandlers(pane, term) {
   attachUrlClickHandler(pane, term, pane.xtermHolder);
 }
 
-function finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace) {
+function finalizePaneTerminal(pane, term, fitAddon, searchAddon, serializeAddon, workspace) {
   pane.term = term;
   pane.fitAddon = fitAddon;
   pane.searchAddon = searchAddon;
+  pane.serializeAddon = serializeAddon;
   workspace.panes.push(pane);
   require('./search').attachSearchResultListener(pane);
   fitPane(pane);
@@ -694,8 +698,12 @@ function attachTerminalEventHandlers(pane, term) {
     if (shouldSuppressMacFallbackData(pane, data)) return;
     if (!isPaneWorkspaceActive(pane)) return;
     focusPane(pane.id, { focusTerm: false });
-    if (pane.richVisible) {
+    if (pane.richVisible || pane._richSnapshotPending) {
       const { tabHideRichView } = require('./richView');
+      if (pane._richSnapshotPending && (data === 'q' || data === '\x1b')) {
+        tabHideRichView(pane);
+        return;
+      }
       if (pane.richAutoTriggered && (data === 'q' || data === '\x1b')) {
         tabHideRichView(pane);
       } else if (!pane.richAutoTriggered && data === '\x1b') {
@@ -932,7 +940,7 @@ function createPaneSession({ id, cwd, localCwd, leafEl, workspace, paneBackendId
   const pane = new PaneSession(id, workspace, { paneBackendId });
   initPaneSessionState(pane, cwd, localCwd);
   buildPaneSessionDom(pane, leafEl);
-  const { term, fitAddon, searchAddon } = createPaneTerminal(pane, {
+  const { term, fitAddon, searchAddon, serializeAddon } = createPaneTerminal(pane, {
     cols: snapshot?.cols,
     rows: snapshot?.rows
   });
@@ -940,7 +948,7 @@ function createPaneSession({ id, cwd, localCwd, leafEl, workspace, paneBackendId
   attachPaneKeyHandler(pane, term);
   attachTerminalRenderer(pane, term);
   attachPaneLinkHandlers(pane, term);
-  finalizePaneTerminal(pane, term, fitAddon, searchAddon, workspace);
+  finalizePaneTerminal(pane, term, fitAddon, searchAddon, serializeAddon, workspace);
   spawnPaneShell(pane, term, {
     attachExisting,
     afterSeq: snapshot?.snapshotSeq || 0
@@ -1171,8 +1179,9 @@ async function createLiveWorkspace(snapshot, opts = {}) {
       snapshot: paneSnapshot,
       onSnapshotReady: pane => {
         if (paneData.richVisible) {
-          showManualRichView(pane);
-          restoreRichViewLayoutState(pane, paneData.richViewState);
+          showManualRichView(pane).then(shown => {
+            if (shown) restoreRichViewLayoutState(pane, paneData.richViewState);
+          }).catch(err => console.error('Failed to restore Math Mode:', err));
         }
       }
     });
@@ -1260,6 +1269,7 @@ function switchTab(id, opts = {}) {
 
 function disposePane(pane, opts = {}) {
   pane._closing = true;
+  try { require('./richView').disposeRichSnapshotSource(pane); } catch {}
   clearTimeout(pane.sectionTimer);
   clearTimeout(pane._promptJumpFlashTimer);
   if (pane._promptResizeRebuildRaf) {
@@ -1388,8 +1398,12 @@ function focusPane(paneId, opts = {}) {
   markSessionChanged();
   if (opts.focusTerm !== false) {
     requestAnimationFrame(() => {
-      if (pane.richVisible) pane.richView?.focus();
-      else pane.term?.focus();
+      if (pane.richVisible) {
+        pane.richView?.focus();
+        refreshRichViewAfterLayout(pane);
+      } else {
+        pane.term?.focus();
+      }
     });
   }
 }
@@ -1917,7 +1931,7 @@ function captureLiveWorkspace(workspace) {
       localCwd: pane.localCwd || pane.cwd || workspace.cwd || mt.os.env.HOME,
       autoRender: !!pane.autoRender,
       zoomFactor: pane.zoomFactor ?? 1,
-      richVisible: !!pane.richVisible,
+      richVisible: !!(pane.richVisible || pane._richSnapshotPending),
       richViewState: captureRichViewLayoutState(pane)
     }))
   };

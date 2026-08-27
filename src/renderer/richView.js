@@ -11,6 +11,10 @@ const { renderMarkdownBlock, renderMarkdownFile } = require('./markdown');
 const { prioritizeKatexQueue, drainKatexQueue } = require('./richKatexQueue');
 const { renderRichLine, isBoxRule } = require('./richLineRender');
 const {
+  createRichTerminalSnapshot,
+  disposeRichTerminalSnapshot
+} = require('./richSnapshot');
+const {
   RICH_VIRTUAL_OVERSCAN_ROWS,
   RICH_VIRTUAL_MAX_RENDERED_ROWS,
   RICH_VIRTUAL_STRUCTURE_BACKSCAN_ROWS,
@@ -36,6 +40,26 @@ const SECTION_LATEX_SCAN_OVERLAP = 32;
 
 function collectBufferLines(buf, startY, endY) {
   return collectLogicalBufferLines(buf, startY, endY);
+}
+
+function richSourceBuffer(pane) {
+  return pane?.richVirtual?.sourceBuffer || pane?.term?.buffer?.active || null;
+}
+
+function richPromptLineChecker(pane) {
+  const promptYSet = pane?.richVirtual?.promptYSet;
+  return promptYSet instanceof Set
+    ? (_tab, _text, y) => promptYSet.has(y)
+    : isPromptLine;
+}
+
+function disposeRichSnapshotSource(pane) {
+  if (!pane) return;
+  pane._richSnapshotGeneration = (pane._richSnapshotGeneration | 0) + 1;
+  pane._richSnapshotPending = false;
+  pane._richSnapshotPromise = null;
+  if (pane.richSnapshot) disposeRichTerminalSnapshot(pane.richSnapshot);
+  pane.richSnapshot = null;
 }
 
 function renderLinesToContainer(textLines, container, promptLineChecker, tab, opts) {
@@ -101,8 +125,9 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab, op
 }
 
 function insertImagesIntoContainer(container, tab, startY, endY) {
-  if (!tab || !tab.inlineImages || tab.inlineImages.length === 0) return;
-  const relevant = tab.inlineImages
+  const images = tab?.richVirtual?.sourceImages || tab?.inlineImages;
+  if (!images || images.length === 0) return;
+  const relevant = images
     .map((img, index) => ({ img, index }))
     .filter(item => item.img.lineY >= startY && item.img.lineY <= endY)
     .sort((a, b) => a.img.lineY - b.img.lineY || a.index - b.index);
@@ -116,6 +141,9 @@ function insertImagesIntoContainer(container, tab, startY, endY) {
     wrap.dataset.y = img.lineY;
     wrap.dataset.yEnd = img.lineY;
     const imgTag = document.createElement('img');
+    imgTag.addEventListener('load', () => {
+      requestAnimationFrame(() => refreshRichViewAfterLayout(tab));
+    }, { once: true });
     imgTag.src = img.dataUrl;
     imgTag.alt = img.params.name || 'image';
     if (img.params.width) imgTag.style.width = img.params.width;
@@ -214,7 +242,8 @@ function resetRichSearchSnapshotState(pane, { close = false, preserveSearch = fa
 function renderRichVirtualWindow(pane, targetY, anchor) {
   const v = pane.richVirtual;
   if (!v || !v.active) return;
-  const buf = pane.term.buffer.active;
+  const buf = richSourceBuffer(pane);
+  if (!buf) return;
 
   const range = clampRowRange(
     targetY, v.sourceStartY, v.sourceEndY, v.overscanRows, v.maxRenderedRows
@@ -255,7 +284,7 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
   }
 
   const textLines = collectBufferLines(buf, expandedStartY, expandedEndY);
-  renderLinesToContainer(textLines, v.windowEl, isPromptLine, pane, opts);
+  renderLinesToContainer(textLines, v.windowEl, richPromptLineChecker(pane), pane, opts);
   insertImagesIntoContainer(v.windowEl, pane, expandedStartY, expandedEndY);
 
   v.renderedStartY = startY;
@@ -377,6 +406,37 @@ function onRichVirtualScroll(pane) {
   applyCurrentRichSearchHighlights(pane, pane.richVirtual && pane.richVirtual.renderToken);
 }
 
+function remeasureRichVirtualWindow(pane, anchor) {
+  const v = pane.richVirtual;
+  if (!v?.active || !v.windowEl) return;
+  const renderedRowCount = Number.isInteger(v.expandedStartY) && Number.isInteger(v.expandedEndY)
+    ? Math.max(0, v.expandedEndY - v.expandedStartY + 1)
+    : 0;
+  const measuredHeight = v.windowEl.offsetHeight;
+  if (renderedRowCount > 0 && measuredHeight > 0) {
+    v.averageRowHeight = applyHeightSmoothing(
+      v.averageRowHeight,
+      measuredHeight / renderedRowCount,
+      RICH_VIRTUAL_HEIGHT_SMOOTHING
+    );
+  }
+  if (Number.isInteger(v.renderedStartY) && Number.isInteger(v.renderedEndY)) {
+    const spacers = computeSpacerHeights(
+      v.sourceStartY,
+      v.sourceEndY,
+      v.renderedStartY,
+      v.renderedEndY,
+      v.averageRowHeight
+    );
+    if (v.topSpacerEl) v.topSpacerEl.style.height = spacers.top + 'px';
+    if (v.bottomSpacerEl) v.bottomSpacerEl.style.height = spacers.bottom + 'px';
+  }
+  if (anchor) {
+    const el = findElementForY(v.windowEl, anchor.y);
+    if (el) pane.richView.scrollTop = Math.max(0, el.offsetTop - anchor.offsetWithinViewport);
+  }
+}
+
 function refreshRichViewAfterLayout(pane, opts = {}) {
   if (!pane || !pane.richVisible) return;
   const v = pane.richVirtual;
@@ -391,6 +451,11 @@ function refreshRichViewAfterLayout(pane, opts = {}) {
     const current = pane.richVirtual;
     if (!pane.richVisible || !current || !current.active) return;
     const anchor = findFirstVisibleAnchor(pane);
+    if (current.sourceBuffer) {
+      remeasureRichVirtualWindow(pane, anchor);
+      prioritizeKatexQueue(pane.richView);
+      return;
+    }
     if (anchor && !opts.force) {
       prioritizeKatexQueue(pane.richView);
       applyCurrentRichSearchHighlights(pane, current.renderToken);
@@ -407,9 +472,36 @@ function refreshRichViewAfterLayout(pane, opts = {}) {
 
 function captureRichViewLayoutState(pane) {
   if (!pane || !pane.richVisible || !pane.richView) return null;
+  const v = pane.richVirtual;
+  const anchor = v?.active ? findFirstVisibleAnchor(pane) : null;
+  const sourceSpan = v?.active ? Math.max(0, v.sourceEndY - v.sourceStartY) : 0;
   return {
     scrollTop: pane.richView.scrollTop,
-    anchor: pane.richVirtual && pane.richVirtual.active ? findFirstVisibleAnchor(pane) : null
+    anchor,
+    atBottom: pane.richView.scrollTop + pane.richView.clientHeight >= pane.richView.scrollHeight - 2,
+    sourceCols: v?.sourceCols || null,
+    sourceStartY: v?.active ? v.sourceStartY : null,
+    sourceEndY: v?.active ? v.sourceEndY : null,
+    sourceProgress: anchor && sourceSpan > 0
+      ? (anchor.y - v.sourceStartY) / sourceSpan
+      : null
+  };
+}
+
+function restoredRichAnchor(v, saved) {
+  if (!saved?.anchor || !v?.active) return saved?.anchor || null;
+  const sourceShapeChanged = Number.isFinite(saved.sourceCols)
+    && Number.isFinite(v.sourceCols)
+    && (saved.sourceCols !== v.sourceCols
+      || saved.sourceStartY !== v.sourceStartY
+      || saved.sourceEndY !== v.sourceEndY);
+  if (!Number.isFinite(saved.sourceProgress) || !sourceShapeChanged) {
+    return saved.anchor;
+  }
+  const span = Math.max(0, v.sourceEndY - v.sourceStartY);
+  return {
+    ...saved.anchor,
+    y: v.sourceStartY + Math.round(Math.max(0, Math.min(1, saved.sourceProgress)) * span)
   };
 }
 
@@ -419,14 +511,20 @@ function restoreRichViewLayoutState(pane, saved) {
   const restore = () => {
     if (!pane.richVisible || !pane.richView) return;
     const v = pane.richVirtual;
-    if (v && v.active && saved.anchor) {
-      const el = findElementForY(v.windowEl, saved.anchor.y);
+    if (saved.atBottom) {
+      pane.richView.scrollTop = pane.richView.scrollHeight;
+      prioritizeKatexQueue(pane.richView);
+      return;
+    }
+    const savedAnchor = restoredRichAnchor(v, saved);
+    if (v && v.active && savedAnchor) {
+      const el = findElementForY(v.windowEl, savedAnchor.y);
       if (el) {
-        pane.richView.scrollTop = Math.max(0, el.offsetTop - saved.anchor.offsetWithinViewport);
+        pane.richView.scrollTop = Math.max(0, el.offsetTop - savedAnchor.offsetWithinViewport);
         prioritizeKatexQueue(pane.richView);
         applyCurrentRichSearchHighlights(pane, v.renderToken);
       } else {
-        renderRichVirtualWindow(pane, saved.anchor.y, saved.anchor);
+        renderRichVirtualWindow(pane, savedAnchor.y, savedAnchor);
       }
       return;
     }
@@ -463,8 +561,10 @@ function tabShowRichView(tab, auto) {
   tab.richVisible = true;
   tab.richAutoTriggered = !!auto;
   tab.richView.classList.add('visible');
-  tab.richView.focus();
-  tab.term.blur();
+  if (isActivePane(tab)) {
+    tab.richView.focus();
+    tab.term.blur();
+  }
   const isVirtual = !!(tab.richVirtual && tab.richVirtual.active);
   requestAnimationFrame(() => {
     if (!isVirtual) {
@@ -486,7 +586,9 @@ function tabShowRichView(tab, auto) {
 }
 
 function tabHideRichView(tab) {
-  if (!tab.richVisible) return;
+  const wasVisible = !!tab.richVisible;
+  disposeRichSnapshotSource(tab);
+  if (!wasVisible) return;
   tab.richVisible = false;
   tab.richAutoTriggered = false;
   tab.richView.classList.remove('visible');
@@ -500,15 +602,15 @@ function tabHideRichView(tab) {
   if (tab.richContent) tab.richContent.replaceChildren();
   if (isActivePane(tab)) {
     updateStatusBar(tab);
+    tab.term.focus();
   }
-  tab.term.focus();
 }
 
 function toggleMathMode() {
   const tab = getActivePane();
   if (!tab) return;
-  if (tab.richVisible) tabHideRichView(tab);
-  else showManualRichView(tab);
+  if (tab.richVisible || tab._richSnapshotPending) tabHideRichView(tab);
+  else void showManualRichView(tab);
 }
 
 function tabResetSection(tab) {
@@ -523,6 +625,10 @@ function tabResetSection(tab) {
 
 function tabFlushSection(tab) {
   if (tab._sectionAltScreen) { tabResetSection(tab); return; }
+  if (tab._richSnapshotPending || (tab.richVisible && !tab.richAutoTriggered)) {
+    tabResetSection(tab);
+    return;
+  }
   // Flush only if this section actually accumulated something — new LaTeX
   // text or a new image. Old images carrying over from earlier sections
   // shouldn't trigger a re-render (which would clobber the rich view).
@@ -531,6 +637,7 @@ function tabFlushSection(tab) {
   const buf = tab.term.buffer.active;
   const endY = buf.baseY + buf.cursorY;
   const searchWasOpen = !!tab.richSearchOpen;
+  disposeRichSnapshotSource(tab);
   detachRichScrollListener(tab);
   tab._richRenderToken = (tab._richRenderToken | 0) + 1;
   resetRichSearchSnapshotState(tab, { close: !searchWasOpen, preserveSearch: searchWasOpen });
@@ -616,13 +723,81 @@ function tabFeedSection(tab, data) {
 }
 
 function showManualRichView(pane) {
-  const buf = pane.term.buffer.active;
+  if (!pane?.term || !pane.serializeAddon || pane._closing) return Promise.resolve(false);
+  if (pane.richVisible) return Promise.resolve(true);
+  if (pane._richSnapshotPromise) return pane._richSnapshotPromise;
+
+  disposeRichSnapshotSource(pane);
+  const generation = pane._richSnapshotGeneration;
+  pane._richSnapshotPending = true;
+  const liveBuffer = pane.term.buffer.active;
+  const capturedViewportTopY = liveBuffer.viewportY;
+  const capturedSourceEndY = liveBuffer.baseY + liveBuffer.cursorY;
+  const capturedRows = pane.term.rows;
+  const promptYSet = new Set(pane._promptYSet || []);
+  const sourceImages = Array.isArray(pane.inlineImages) ? pane.inlineImages.slice() : [];
+
+  const snapshotPromise = createRichTerminalSnapshot({
+    liveTerm: pane.term,
+    serializeAddon: pane.serializeAddon,
+    scrollback: settings.scrollback
+  }).then(snapshot => {
+    if (pane._closing || pane._richSnapshotGeneration !== generation) {
+      disposeRichTerminalSnapshot(snapshot);
+      return false;
+    }
+    pane.richSnapshot = snapshot;
+    pane._richSnapshotPending = false;
+    return showManualRichViewFromSnapshot(pane, {
+      snapshot,
+      promptYSet,
+      sourceImages,
+      capturedViewportTopY,
+      capturedSourceEndY,
+      capturedRows
+    });
+  }).catch(err => {
+    if (pane._richSnapshotGeneration === generation) {
+      console.error('Failed to create Math Mode snapshot:', err);
+      if (pane.richVisible) {
+        tabHideRichView(pane);
+      } else {
+        if (pane.richVirtual) {
+          pane.richVirtual.active = false;
+          pane.richVirtual = null;
+        }
+        if (pane.richContent) pane.richContent.replaceChildren();
+        disposeRichSnapshotSource(pane);
+      }
+    }
+    return false;
+  }).finally(() => {
+    if (pane._richSnapshotPromise === snapshotPromise) pane._richSnapshotPromise = null;
+  });
+
+  pane._richSnapshotPromise = snapshotPromise;
+  return snapshotPromise;
+}
+
+function showManualRichViewFromSnapshot(pane, captured) {
+  const {
+    snapshot,
+    promptYSet,
+    sourceImages,
+    capturedViewportTopY,
+    capturedSourceEndY,
+    capturedRows
+  } = captured;
+  const buf = snapshot.buffer;
   const sourceStartY = 0;
-  const sourceEndY = buf.baseY + buf.cursorY;
-  const viewportTopY = buf.viewportY;
+  const snapshotEndY = buf.baseY + buf.cursorY;
+  const sourceEndY = Math.min(capturedSourceEndY, snapshotEndY);
+  const viewportTopY = Math.max(sourceStartY, Math.min(capturedViewportTopY, sourceEndY));
   const cursorY = sourceEndY;
-  const atLiveEdge = sourceEndY >= viewportTopY && sourceEndY <= viewportTopY + pane.term.rows - 1;
+  const atLiveEdge = sourceEndY >= viewportTopY
+    && sourceEndY <= viewportTopY + capturedRows - 1;
   const targetY = atLiveEdge ? cursorY : viewportTopY;
+  const promptChecker = (_tab, _text, y) => promptYSet.has(y);
 
   detachRichScrollListener(pane);
   pane._richRenderToken = (pane._richRenderToken | 0) + 1;
@@ -644,15 +819,19 @@ function showManualRichView(pane) {
   const lineHeight = getRichEstimatedLineHeight(pane);
   const fencedCodeSpans = computeFencedCodeSpans(
     buf, sourceStartY, sourceEndY,
-    (text, y) => isPromptLine(pane, text, y)
+    (text, y) => promptChecker(pane, text, y)
   );
   const displayMathSpans = computeDisplayMathSpans(
     buf, sourceStartY, sourceEndY,
-    (text, y) => isPromptLine(pane, text, y),
+    (text, y) => promptChecker(pane, text, y),
     y => fencedCodeSpans.some(span => span.startY <= y && y <= span.endY)
   );
   pane.richVirtual = {
     active: true,
+    sourceBuffer: buf,
+    sourceCols: snapshot.cols,
+    promptYSet,
+    sourceImages,
     sourceStartY,
     sourceEndY,
     cursorY,
@@ -681,13 +860,14 @@ function showManualRichView(pane) {
 
   renderRichVirtualWindow(pane, targetY, null);
 
-  const hasImages = pane.inlineImages && pane.inlineImages.length > 0;
+  const hasImages = sourceImages.length > 0;
   const hasRendered = windowEl.children.length > 0;
   if (!hasRendered && !hasImages) {
     pane.richVirtual.active = false;
     pane.richVirtual = null;
     pane.richContent.replaceChildren();
-    return;
+    disposeRichSnapshotSource(pane);
+    return false;
   }
 
   tabShowRichView(pane, false);
@@ -720,11 +900,13 @@ function showManualRichView(pane) {
       });
     });
   });
+  return true;
 }
 
 function materializeFullRichView(pane) {
-  const buf = pane.term.buffer.active;
   const v = pane.richVirtual;
+  const buf = richSourceBuffer(pane);
+  if (!buf) throw new Error('Math view source is unavailable');
   const sourceStartY = v ? v.sourceStartY : 0;
   const sourceEndY = v ? v.sourceEndY : buf.baseY + buf.cursorY;
   const rowCount = Math.max(0, sourceEndY - sourceStartY + 1);
@@ -758,7 +940,7 @@ function materializeFullRichView(pane) {
   if (rowCount > 0) {
     const textLines = collectBufferLines(buf, sourceStartY, sourceEndY);
     renderLinesToContainer(
-      textLines, content, isPromptLine, pane, displayMathRenderOptsForPane(pane)
+      textLines, content, richPromptLineChecker(pane), pane, displayMathRenderOptsForPane(pane)
     );
     insertImagesIntoContainer(content, pane, sourceStartY, sourceEndY);
   }
@@ -767,6 +949,7 @@ function materializeFullRichView(pane) {
 }
 
 function renderFileContent(tab, content, filePath) {
+  disposeRichSnapshotSource(tab);
   detachRichScrollListener(tab);
   tab._richRenderToken = (tab._richRenderToken | 0) + 1;
   resetRichSearchSnapshotState(tab, { close: true });
@@ -830,6 +1013,7 @@ module.exports = {
   refreshRichViewAfterLayout,
   captureRichViewLayoutState, restoreRichViewLayoutState,
   materializeFullRichView, drainKatexQueue,
+  disposeRichSnapshotSource,
   SECTION_BUFFER_MAX, SECTION_ELAPSED_MAX,
   // Helpers exported for unit tests
   clampRowRange, scrollTopToRow, computeSpacerHeights,
