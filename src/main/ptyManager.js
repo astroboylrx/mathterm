@@ -38,26 +38,34 @@ class PtyManager {
 
   createPane({
     paneBackendId = this.idFactory.nextPaneBackendId(),
-    shellCmd = this.env.SHELL || '/bin/bash',
+    shellCmd = this.os.platform() === 'win32'
+      ? (this.env.SHELL || 'powershell.exe')
+      : (this.env.SHELL || '/bin/bash'),
+    shellArgs = [],
+    useShim = true,
     cwd = this.env.HOME || this.os.homedir(),
     cols = 80,
     rows = 24,
     scrollback = 1000
   } = {}) {
     if (this.panes.has(paneBackendId)) throw new Error(`pane backend already exists: ${paneBackendId}`);
-    const shim = createShellShim({
-      fs: this.fs,
-      path: this.path,
-      os: this.os,
-      shellCmd,
-      env: this.env
-    });
+    // The bash/zsh shim (OSC 133 marks, imgcat) only makes sense for POSIX
+    // shells; PowerShell/cmd/wsl.exe panes spawn with useShim: false.
+    const shim = useShim === false
+      ? { shimDir: null, shellArgs: Array.isArray(shellArgs) ? shellArgs : [], shellEnv: this.env }
+      : createShellShim({
+        fs: this.fs,
+        path: this.path,
+        os: this.os,
+        shellCmd,
+        env: this.env
+      });
     const terminalState = createHeadlessTerminalState({ cols, rows, scrollback });
     const headlessWrites = new HeadlessWriteBatcher({ terminalState });
     const metadata = createTerminalMetadataTracker({
       cwd,
       home: this.env.HOME || this.os.homedir(),
-      user: this.env.USER || ''
+      user: this.env.USER || this.env.USERNAME || ''
     });
     const pty = this.ptyAdapter.spawn(shellCmd, shim.shellArgs, {
       name: 'xterm-256color',

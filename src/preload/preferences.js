@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('mathterm', {
       if (allowed.includes(channel)) {
         ipcRenderer.on(channel, (event, ...args) => callback(...args));
       }
+    },
+    invoke: (channel, ...args) => {
+      const allowed = ['list-shell-profiles'];
+      if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
+      return Promise.reject(new Error('Channel not allowed: ' + channel));
     }
   },
 

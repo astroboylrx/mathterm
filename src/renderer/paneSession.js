@@ -9,8 +9,9 @@ class PaneSession {
     this.paneBackendId = opts.paneBackendId || nextPaneBackendId();
     this.workspace = workspace;
     this.title = state._hostname + ': ~';
-    this.cwd = window.mathterm.os.env.HOME;
-    this.localCwd = window.mathterm.os.env.HOME;
+    this.profileId = null;
+    this.cwd = window.mathterm.os.homedir();
+    this.localCwd = window.mathterm.os.homedir();
     this.displayHost = null;
     this.ptyProc = null;
     this._closing = false;

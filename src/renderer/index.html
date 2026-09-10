@@ -190,7 +190,8 @@
     .tab-close:hover { color: var(--red); background: var(--border); }
     .tab-item:not(:hover) .tab-close { opacity: 0; }
 
-    #new-tab-btn {
+    #new-tab-btn,
+    #new-tab-chevron {
       background: transparent;
       border: none;
       color: var(--fg-dim);
@@ -206,7 +207,9 @@
       font-family: inherit;
       flex-shrink: 0;
     }
-    #new-tab-btn:hover { color: var(--accent); background: var(--bg-alt); }
+    #new-tab-btn:hover,
+    #new-tab-chevron:hover { color: var(--accent); background: var(--bg-alt); }
+    #new-tab-chevron { width: 16px; font-size: 12px; }
 
     #terminal-container {
       flex: 1;
@@ -625,7 +628,8 @@
     #search-bar button:hover { color: var(--accent); border-color: var(--border); }
 
     #context-menu,
-    #cwd-context-menu {
+    #cwd-context-menu,
+    #profile-menu {
       position: fixed;
       z-index: 100;
       background: var(--bg-alt);
@@ -638,9 +642,11 @@
       font-size: var(--ui-font-size);
     }
     #context-menu.open,
-    #cwd-context-menu.open { display: block; }
+    #cwd-context-menu.open,
+    #profile-menu.open { display: block; }
     #context-menu .menu-item,
-    #cwd-context-menu .menu-item {
+    #cwd-context-menu .menu-item,
+    #profile-menu .menu-item {
       padding: 6px 16px;
       cursor: pointer;
       color: var(--fg-muted);
@@ -649,11 +655,13 @@
       gap: 20px;
     }
     #context-menu .menu-item:hover,
-    #cwd-context-menu .menu-item:hover { background: var(--bg); color: var(--accent); }
+    #cwd-context-menu .menu-item:hover,
+    #profile-menu .menu-item:hover { background: var(--bg); color: var(--accent); }
     #context-menu .menu-item .shortcut { color: var(--fg-dim); font-size: 13px; }
     #context-menu .menu-item.disabled { color: var(--fg-dim); pointer-events: none; }
     #context-menu .menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
-    #cwd-context-menu {
+    #cwd-context-menu,
+    #profile-menu {
       z-index: 102;
       min-width: 140px;
     }
@@ -892,6 +900,7 @@
 <body>
   <div id="tab-bar">
     <button id="new-tab-btn" tabindex="-1" onclick="createTab()">+</button>
+    <button id="new-tab-chevron" tabindex="-1" title="New tab with a specific profile" style="display:none">&#9662;</button>
   </div>
   <div id="terminal-container">
     <div id="search-bar">
@@ -923,6 +932,7 @@
   <div id="cwd-context-menu">
     <div class="menu-item" id="cwd-copy">Copy Path</div>
   </div>
+  <div id="profile-menu"></div>
   <div id="zoom-popover" aria-hidden="true">
     <div class="zoom-options">
       <button type="button" tabindex="-1" data-zoom="0.75">75%</button>

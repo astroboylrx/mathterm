@@ -59,6 +59,34 @@ function hydrateThemes() {
   };
 }
 
+// The default-profile picker only makes sense on Windows, where multiple
+// shells are detected; hidden elsewhere.
+async function hydrateDefaultProfiles() {
+  const row = $('default-profile-row');
+  if (!row) return;
+  if (mt.os.platform !== 'win32') {
+    row.style.display = 'none';
+    return;
+  }
+  row.style.display = 'flex';
+  const sel = $('defaultProfile');
+  sel.innerHTML = '';
+  const autoOpt = document.createElement('option');
+  autoOpt.value = 'auto';
+  autoOpt.textContent = 'Auto';
+  sel.appendChild(autoOpt);
+  const result = await mt.ipc.invoke('list-shell-profiles').catch(() => null);
+  const profiles = result && result.ok && Array.isArray(result.profiles) ? result.profiles : [];
+  for (const profile of profiles) {
+    const opt = document.createElement('option');
+    opt.value = profile.id;
+    opt.textContent = profile.name || profile.id;
+    sel.appendChild(opt);
+  }
+  sel.value = typeof settings.defaultProfile === 'string' ? settings.defaultProfile : 'auto';
+  if (!sel.value) sel.value = 'auto';
+}
+
 function fillForm() {
   hydrateThemes();
   document.documentElement.style.setProperty('--ui-font-size', settings.fontSize + 'px');
@@ -72,6 +100,7 @@ function fillForm() {
   $('cursorStyle').value = settings.cursorStyle;
   $('inheritCwd').checked = !!settings.inheritCwd;
   $('splitPaneInheritsCwd').checked = !!settings.splitPaneInheritsCwd;
+  hydrateDefaultProfiles();
   $('mac-option-meta-row').style.display = isMac ? 'flex' : 'none';
   $('macOptionAsMeta').checked = settings.macOptionAsMeta !== false;
   $('restoreLastSession').checked = !!settings.restoreLastSession;
@@ -100,6 +129,9 @@ function collectForm() {
       ? $('cursorStyle').value : DEFAULTS.cursorStyle,
     inheritCwd: $('inheritCwd').checked,
     splitPaneInheritsCwd: $('splitPaneInheritsCwd').checked,
+    defaultProfile: mt.os.platform === 'win32'
+      ? ($('defaultProfile').value || 'auto')
+      : (typeof settings.defaultProfile === 'string' ? settings.defaultProfile : 'auto'),
     macOptionAsMeta: isMac ? $('macOptionAsMeta').checked : DEFAULTS.macOptionAsMeta,
     restoreLastSession: $('restoreLastSession').checked,
     copyOnSelect: $('copyOnSelect').checked,

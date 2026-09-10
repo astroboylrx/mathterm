@@ -12,10 +12,11 @@ const cwdAdapter = makeCwdAdapter({
     tmpdir: mt.os.tmpdir,
     env: mt.os.env
   },
-  fallbackCwd: mt.os.env.HOME
+  fallbackCwd: mt.os.homedir()
 });
 
 function formatTabCwd(cwd) {
+  if (typeof cwd !== 'string' || !cwd) return '~';
   const home = mt.os.homedir();
   if (cwd === home) return '~';
   return mt.path.basename(cwd) || '/';

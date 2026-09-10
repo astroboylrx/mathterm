@@ -125,7 +125,8 @@ function sanitizeWorkspace(raw, counts, adapter) {
       autoRender: !!pane.autoRender,
       zoomFactor: Number.isFinite(Number(pane.zoomFactor))
         ? Math.max(0.4, Math.min(3, Number(pane.zoomFactor)))
-        : 1
+        : 1,
+      profileId: typeof pane.profileId === 'string' && pane.profileId ? pane.profileId : null
     };
   });
   return {
@@ -205,7 +206,8 @@ function windowToRendererSession(rawWindow, adapter, opts = {}) {
       autoRender: !!pane.autoRender,
       zoomFactor: opts.sanitized
         ? pane.zoomFactor
-        : (Number.isFinite(Number(pane.zoomFactor)) ? Math.max(0.4, Math.min(3, Number(pane.zoomFactor))) : 1)
+        : (Number.isFinite(Number(pane.zoomFactor)) ? Math.max(0.4, Math.min(3, Number(pane.zoomFactor))) : 1),
+      profileId: typeof pane.profileId === 'string' && pane.profileId ? pane.profileId : null
     }]));
     return {
       cwd: opts.sanitized ? workspace.cwd : validCwd(workspace.cwd, adapter),

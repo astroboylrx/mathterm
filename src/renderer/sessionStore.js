@@ -27,7 +27,7 @@ const cwdAdapter = makeCwdAdapter({
     tmpdir: mt.os.tmpdir,
     env: mt.os.env
   },
-  fallbackCwd: mt.os.env.HOME
+  fallbackCwd: mt.os.homedir()
 });
 
 function captureSession() {
@@ -46,7 +46,8 @@ function captureSession() {
         cwd: validCwd(pane.cwd, cwdAdapter),
         localCwd: validCwd(pane.localCwd || pane.cwd, cwdAdapter),
         autoRender: !!pane.autoRender,
-        zoomFactor: pane.zoomFactor ?? 1
+        zoomFactor: pane.zoomFactor ?? 1,
+        profileId: typeof pane.profileId === 'string' && pane.profileId ? pane.profileId : null
       }))
     })).filter(workspace => workspace.layout && workspace.panes.length > 0)
   };

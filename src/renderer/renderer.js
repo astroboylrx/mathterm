@@ -18,6 +18,7 @@ const {
   initSessionPersistence
 } = require('./sessionStore');
 const { withSessionChangesSuppressed } = require('./sessionEvents');
+const { initProfiles, getProfiles } = require('./profiles');
 const { toggleMathMode } = require('./richView');
 const { closeSearch } = require('./search');
 const { initIpc } = require('./ipc');
@@ -176,7 +177,58 @@ function isStatusBarButtonTarget(target) {
   return !!target?.closest?.('button, #render-ind, #zoom-ind, #cwd-context-menu, #zoom-popover, .menu-item');
 }
 
+// Profile picker behind the ▾ next to the new-tab button; only shown when
+// more than one shell profile exists (i.e. on Windows).
+const newTabChevron = document.getElementById('new-tab-chevron');
+const profileMenu = document.getElementById('profile-menu');
+
+function hideProfileMenu() {
+  profileMenu?.classList.remove('open');
+}
+
+function showProfileMenu() {
+  if (!profileMenu || !newTabChevron) return;
+  profileMenu.innerHTML = '';
+  for (const profile of getProfiles()) {
+    const item = document.createElement('div');
+    item.className = 'menu-item';
+    item.textContent = profile.name || profile.id;
+    item.addEventListener('click', () => {
+      hideProfileMenu();
+      createTab(undefined, { profileId: profile.id });
+    });
+    profileMenu.appendChild(item);
+  }
+  const anchor = newTabChevron.getBoundingClientRect();
+  profileMenu.style.left = anchor.left + 'px';
+  profileMenu.style.top = anchor.bottom + 2 + 'px';
+  profileMenu.classList.add('open');
+  // Clamp into the window, same as showCwdContextMenu.
+  const rect = profileMenu.getBoundingClientRect();
+  const margin = 4;
+  let left = anchor.left;
+  let top = anchor.bottom + 2;
+  if (left + rect.width + margin > window.innerWidth) {
+    left = Math.max(margin, window.innerWidth - rect.width - margin);
+  }
+  if (top + rect.height + margin > window.innerHeight) {
+    top = Math.max(margin, anchor.top - rect.height - 2);
+  }
+  profileMenu.style.left = left + 'px';
+  profileMenu.style.top = top + 'px';
+}
+
+function updateNewTabChevronVisibility() {
+  if (newTabChevron) newTabChevron.style.display = getProfiles().length > 1 ? '' : 'none';
+}
+
 preventMouseFocus(document.getElementById('new-tab-btn'));
+preventMouseFocus(newTabChevron);
+newTabChevron?.addEventListener('click', e => {
+  e.stopPropagation();
+  if (profileMenu?.classList.contains('open')) hideProfileMenu();
+  else showProfileMenu();
+});
 preventMouseFocus(state.autoIndicator);
 preventMouseFocus(state.mathBtn);
 preventMouseFocus(state.cwdLink);
@@ -243,6 +295,7 @@ document.getElementById('cwd-copy')?.addEventListener('click', () => {
 document.addEventListener('click', e => {
   if (!state.cwdContextMenu?.contains(e.target)) hideCwdContextMenu();
   if (!zoomPopover?.contains(e.target) && e.target !== state.zoomInd) hideZoomPopover();
+  if (!profileMenu?.contains(e.target) && e.target !== newTabChevron) hideProfileMenu();
 });
 document.addEventListener('contextmenu', e => {
   if (!state.cwdContextMenu?.contains(e.target) && !state.statusBar.contains(e.target)) hideCwdContextMenu();
@@ -670,6 +723,11 @@ const liveWorkspaceToken = new URLSearchParams(window.location.search).get('live
   ]).catch(() => {});
   const timeout = new Promise(r => setTimeout(r, 1500));
   await Promise.race([loadFonts, timeout]);
+
+  // Profiles must be known before the first pane spawns; initProfiles falls
+  // back to a single default profile when detection fails.
+  await initProfiles();
+  updateNewTabChevronVisibility();
 
   if (liveWorkspaceToken) {
     let restored = false;

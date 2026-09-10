@@ -130,11 +130,52 @@ async function testExitCleansShimButKeepsSnapshot() {
   manager.closePane('pane-exit');
 }
 
+async function testUseShimFalseSkipsShim() {
+  const { adapter, manager } = createManager();
+  const pane = manager.createPane({
+    paneBackendId: 'pane-noshim',
+    shellCmd: 'powershell.exe',
+    shellArgs: ['-NoLogo', '-NoProfile'],
+    useShim: false,
+    cwd: os.tmpdir(),
+    cols: 50,
+    rows: 12
+  });
+  assert.strictEqual(pane.shimDir, null);
+  assert.strictEqual(adapter.processes.length, 1);
+  // Args reach spawn untouched instead of the shim's --rcfile injection.
+  assert.strictEqual(pane.pty.file, 'powershell.exe');
+  assert.deepStrictEqual(pane.pty.args, ['-NoLogo', '-NoProfile']);
+  assert.strictEqual(pane.pty.env.TERM_PROGRAM, 'MathTerm');
+  pane.pty.emitData('plain shell');
+  await manager.waitForTerminalWrites('pane-noshim');
+  const snapshot = await manager.snapshotPane('pane-noshim');
+  assert.ok(snapshot.snapshot.includes('plain shell'));
+  manager.closePane('pane-noshim');
+}
+
+async function testDefaultShellOnWin32() {
+  const adapter = new FakePtyAdapter();
+  const manager = new PtyManager({
+    ptyAdapter: adapter,
+    fs,
+    path,
+    os: { platform: () => 'win32', homedir: () => os.homedir(), tmpdir: () => os.tmpdir() },
+    env: { USERNAME: 'winuser' }
+  });
+  const pane = manager.createPane({ paneBackendId: 'pane-windefault', useShim: false });
+  assert.strictEqual(pane.pty.file, 'powershell.exe');
+  assert.deepStrictEqual(pane.pty.args, []);
+  manager.closePane('pane-windefault');
+}
+
 async function run() {
   await testCreateWriteResizeSnapshotAndClose();
   await testReplayAndAck();
   await testOutputAndExitEvents();
   await testExitCleansShimButKeepsSnapshot();
+  await testUseShimFalseSkipsShim();
+  await testDefaultShellOnWin32();
   console.log('ptyManager tests passed');
 }
 

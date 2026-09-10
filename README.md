@@ -23,6 +23,7 @@ An Electron terminal with browser-style tabs, split panes, and a math-aware view
 - Math-aware search, prompt navigation, PDF export, and PNG export.
 - Configurable themes, fonts, shortcuts, persistent LaTeX macros, and terminal behavior.
 - Optional multi-window session restore with fresh shells in the saved local directories.
+- On Windows, PowerShell, Command Prompt, WSL distributions, and Git Bash are detected automatically; when Windows Terminal is installed, its profile list and default profile are mirrored read-only.
 - Linux and Windows release builds for x64, plus Linux ARM64 builds.
 
 MathTerm is still pre-1.0 software. The terminal and session paths are in regular use, but release builds should still be treated as preview releases.
@@ -60,6 +61,8 @@ chmod +x MathTerm-0.11.1-arm64.AppImage
 ### Windows
 
 Download the x64 installer (`.exe`) or portable archive (`.zip`) from the latest release. The Windows build is not code-signed, so Windows SmartScreen may display an unknown-publisher warning.
+
+New tabs open the default shell profile; the **▾** button next to the new-tab button lists all detected profiles (Windows Terminal's list when available, otherwise PowerShell, Command Prompt, WSL distributions, and Git Bash). The default can be changed under Preferences → Behavior → Default shell profile. Changes to the Windows Terminal configuration require a MathTerm restart to be picked up.
 
 ### macOS (Build from Source)
 

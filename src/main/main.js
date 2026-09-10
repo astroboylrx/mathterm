@@ -10,6 +10,7 @@ const { SESSION_VERSION, makeCwdAdapter, normalizeSessionData, sanitizeWindow } 
 const { clampRestoredBounds } = require('../shared/windowBounds');
 const { sweepStaleShellShims } = require('./shellShim');
 const { PtyManager } = require('./ptyManager');
+const { detectShellProfiles } = require('./shellProfiles');
 
 let mainWindow;
 let lastFocusedTerminalWindow;
@@ -1626,11 +1627,35 @@ ipcMain.handle('complete-live-workspace', async (event, token) => {
   return { ok: true };
 });
 
+// Renderer panes normally pass an explicit profile command; this is only a
+// last-resort fallback (win32 has no SHELL env var to lean on).
+function defaultShellCommand() {
+  if (process.platform === 'win32') {
+    try {
+      const { profiles } = detectShellProfiles();
+      if (profiles.length) return profiles[0].command;
+    } catch {}
+    return 'powershell.exe';
+  }
+  return process.env.SHELL || '/bin/bash';
+}
+
+ipcMain.handle('list-shell-profiles', async () => {
+  try {
+    const { profiles, defaultProfileId, source } = detectShellProfiles();
+    return { ok: true, profiles, defaultProfileId, source };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.on('pane-create-sync', (event, opts = {}) => {
   try {
     const backend = ptyManager.createPane({
       paneBackendId: String(opts.paneBackendId || ''),
-      shellCmd: opts.shellCmd || process.env.SHELL || '/bin/bash',
+      shellCmd: opts.shellCmd || defaultShellCommand(),
+      shellArgs: Array.isArray(opts.shellArgs) ? opts.shellArgs.map(String) : [],
+      useShim: opts.useShim !== false,
       cwd: opts.cwd || process.env.HOME || os.homedir(),
       cols: Number.isInteger(opts.cols) ? opts.cols : 80,
       rows: Number.isInteger(opts.rows) ? opts.rows : 24,

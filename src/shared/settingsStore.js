@@ -26,6 +26,7 @@ const DEFAULTS = {
   backgroundCommandNotifications: true,
   backgroundCommandNotificationMinMs: 10000,
   quitWhenLastTabClosed: false,
+  defaultProfile: 'auto',
   _copyOnSelectDefaultVersion: 2,
   shortcuts: DEFAULT_SHORTCUTS,
 };

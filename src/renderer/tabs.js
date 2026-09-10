@@ -58,6 +58,7 @@ const {
   removePaneFromLayout
 } = require('./layoutTree');
 const { markSessionChanged } = require('./sessionEvents');
+const { defaultProfile, profileForPane } = require('./profiles');
 const { cloneLayout, makeCwdAdapter } = require('../shared/sessionFormat');
 const {
   choosePaneSpawnCwd,
@@ -76,7 +77,7 @@ const cwdAdapter = makeCwdAdapter({
     tmpdir: mt.os.tmpdir,
     env: mt.os.env
   },
-  fallbackCwd: mt.os.env.HOME
+  fallbackCwd: mt.os.homedir()
 });
 
 function paneSpawnCwd(pane, inheritCwd = true) {
@@ -463,7 +464,7 @@ function createPaneLeafElement(workspace, paneId) {
 
 function initPaneSessionState(pane, cwd, localCwd) {
   pane.autoRender = settings.autoRender;
-  pane.cwd = cwd || mt.os.env.HOME;
+  pane.cwd = cwd || mt.os.homedir();
   pane.localCwd = paneSpawnCwd({ cwd: localCwd || cwd }, true);
 }
 
@@ -651,21 +652,24 @@ function finalizePaneTerminal(pane, term, fitAddon, searchAddon, serializeAddon,
 }
 
 function spawnPaneShell(pane, term, opts = {}) {
-  const shellCmd = mt.os.env.SHELL || '/bin/bash';
   let ptyProc;
   try {
     const cwd = paneSpawnCwd(pane, true);
     pane.localCwd = cwd;
-    ptyProc = opts.attachExisting
-      ? mt.pty.attach(pane.paneBackendId, { afterSeq: opts.afterSeq })
-      : mt.pty.spawn(shellCmd, [], {
+    if (opts.attachExisting) {
+      ptyProc = mt.pty.attach(pane.paneBackendId, { afterSeq: opts.afterSeq });
+    } else {
+      const profile = profileForPane(pane.profileId);
+      ptyProc = mt.pty.spawn(profile.command, profile.args || [], {
         paneBackendId: pane.paneBackendId,
         name: 'xterm-256color',
         cols: term.cols,
         rows: term.rows,
         cwd,
-        scrollback: settings.scrollback
+        scrollback: settings.scrollback,
+        useShim: profile.useShim !== false
       });
+    }
   } catch (err) {
     const message = err?.message || String(err || 'Unknown PTY error');
     console.error('Failed to spawn pane shell:', err);
@@ -936,8 +940,9 @@ function attachPtyMetadataPipeline(pane) {
   ptyProc.onMetadata((metadata) => applyMainPaneMetadata(pane, metadata));
 }
 
-function createPaneSession({ id, cwd, localCwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null, onSnapshotReady = null }) {
+function createPaneSession({ id, cwd, localCwd, leafEl, workspace, paneBackendId, attachExisting = false, snapshot = null, onSnapshotReady = null, profileId = null }) {
   const pane = new PaneSession(id, workspace, { paneBackendId });
+  pane.profileId = typeof profileId === 'string' && profileId ? profileId : (defaultProfile()?.id ?? null);
   initPaneSessionState(pane, cwd, localCwd);
   buildPaneSessionDom(pane, leafEl);
   const { term, fitAddon, searchAddon, serializeAddon } = createPaneTerminal(pane, {
@@ -973,9 +978,16 @@ function createPaneSession({ id, cwd, localCwd, leafEl, workspace, paneBackendId
 
 function createTab(cwd, opts = {}) {
   const previousPane = getActivePane();
+  const profile = profileForPane(opts.profileId);
+  // Explicitly picking a different profile than the current pane starts in the
+  // home directory instead of inheriting a cwd the new shell may not handle.
+  const explicitProfileSwitch = typeof opts.profileId === 'string'
+    && opts.profileId
+    && previousPane
+    && previousPane.profileId !== profile.id;
   const spawnCwd = cwd
-    || (settings.inheritCwd ? paneSpawnCwd(previousPane, true) : null)
-    || mt.os.env.HOME;
+    || (settings.inheritCwd && !explicitProfileSwitch ? paneSpawnCwd(previousPane, true) : null)
+    || mt.os.homedir();
 
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id);
@@ -1013,7 +1025,7 @@ function createTab(cwd, opts = {}) {
   const leaf = createPaneLeafElement(workspace, paneId);
   leaf.style.flex = '1 1 0';
   root.appendChild(leaf);
-  const pane = createPaneSession({ id: paneId, cwd: spawnCwd, leafEl: leaf, workspace });
+  const pane = createPaneSession({ id: paneId, cwd: spawnCwd, leafEl: leaf, workspace, profileId: profile.id });
   refreshTabTitle(pane);
   focusPane(pane.id);
   if (!opts.skipSessionSave) markSessionChanged({ structural: true });
@@ -1046,7 +1058,7 @@ function applyRestoredMaximizedLayout(workspace) {
 function createRestoredWorkspace(snapshot) {
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id);
-  workspace.cwd = snapshot.cwd || mt.os.env.HOME;
+  workspace.cwd = snapshot.cwd || mt.os.homedir();
   workspace._customTitle = snapshot.customTitle || null;
 
   const container = document.createElement('div');
@@ -1084,10 +1096,11 @@ function createRestoredWorkspace(snapshot) {
     const leaf = getPaneLeaf(workspace, paneId);
     const pane = createPaneSession({
       id: paneId,
-      cwd: paneData.cwd || workspace.cwd || mt.os.env.HOME,
-      localCwd: paneData.localCwd || paneData.cwd || workspace.cwd || mt.os.env.HOME,
+      cwd: paneData.cwd || workspace.cwd || mt.os.homedir(),
+      localCwd: paneData.localCwd || paneData.cwd || workspace.cwd || mt.os.homedir(),
       leafEl: leaf,
-      workspace
+      workspace,
+      profileId: paneData.profileId
     });
     pane.autoRender = paneData.autoRender !== undefined ? paneData.autoRender : settings.autoRender;
     pane.zoomFactor = paneData.zoomFactor ?? 1;
@@ -1102,7 +1115,7 @@ async function createLiveWorkspace(snapshot, opts = {}) {
   if (!snapshot || !Array.isArray(snapshot.panes) || !snapshot.panes.length) return null;
   const id = state.tabIdCounter++;
   const workspace = new TabWorkspace(id, { workspaceBackendId: snapshot.workspaceBackendId });
-  workspace.cwd = snapshot.cwd || mt.os.env.HOME;
+  workspace.cwd = snapshot.cwd || mt.os.homedir();
   workspace.title = snapshot.title || workspace.title;
   workspace._customTitle = snapshot.customTitle || null;
 
@@ -1170,8 +1183,8 @@ async function createLiveWorkspace(snapshot, opts = {}) {
     const { paneData, paneId, leaf, paneSnapshot } = entry;
     const pane = createPaneSession({
       id: paneId,
-      cwd: paneSnapshot?.metadata?.cwd || paneData.cwd || workspace.cwd || mt.os.env.HOME,
-      localCwd: paneData.localCwd || mt.os.env.HOME,
+      cwd: paneSnapshot?.metadata?.cwd || paneData.cwd || workspace.cwd || mt.os.homedir(),
+      localCwd: paneData.localCwd || mt.os.homedir(),
       leafEl: leaf,
       workspace,
       paneBackendId: paneData.paneBackendId,
@@ -1467,7 +1480,8 @@ function splitActivePane(direction, placement = 'after') {
       cwd: spawnCwd,
       localCwd: spawnCwd,
       leafEl: newLeaf,
-      workspace
+      workspace,
+      profileId: pane.profileId
     });
     focusPane(newPane.id);
     refreshTabTitle(newPane);
@@ -1927,8 +1941,8 @@ function captureLiveWorkspace(workspace) {
     panes: workspace.panes.map(pane => ({
       id: pane.id,
       paneBackendId: pane.paneBackendId,
-      cwd: pane.cwd || workspace.cwd || mt.os.env.HOME,
-      localCwd: pane.localCwd || pane.cwd || workspace.cwd || mt.os.env.HOME,
+      cwd: pane.cwd || workspace.cwd || mt.os.homedir(),
+      localCwd: pane.localCwd || pane.cwd || workspace.cwd || mt.os.homedir(),
       autoRender: !!pane.autoRender,
       zoomFactor: pane.zoomFactor ?? 1,
       richVisible: !!(pane.richVisible || pane._richSnapshotPending),

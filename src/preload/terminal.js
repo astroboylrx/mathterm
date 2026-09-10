@@ -37,6 +37,8 @@ function spawnPty(file, args, opts) {
   const result = ipcRenderer.sendSync('pane-create-sync', {
     paneBackendId: requestedPaneBackendId,
     shellCmd: file,
+    shellArgs: Array.isArray(args) ? args.map(String) : [],
+    useShim: opts?.useShim !== false,
     cwd: opts?.cwd,
     cols: opts?.cols,
     rows: opts?.rows,
@@ -135,7 +137,8 @@ contextBridge.exposeInMainWorld('mathterm', {
         'export-pdf', 'save-png', 'detach-live-tab', 'claim-live-workspace',
         'open-live-tab-transfer-window', 'accept-live-tab-drag',
         'complete-live-tab-drag', 'complete-live-workspace',
-        'get-active-live-tab-drag', 'get-live-tab-transfer-state'
+        'get-active-live-tab-drag', 'get-live-tab-transfer-state',
+        'list-shell-profiles'
       ];
       if (allowed.includes(channel)) return ipcRenderer.invoke(channel, ...args);
       return Promise.reject(new Error('Channel not allowed: ' + channel));

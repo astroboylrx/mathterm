@@ -11,7 +11,8 @@ const {
   cloneLayout,
   pruneLayoutToPaneRecords,
   sanitizeWindow,
-  normalizeSessionData
+  normalizeSessionData,
+  windowToRendererSession
 } = require('../src/shared/sessionFormat');
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mathterm-session-format-test-'));
@@ -175,12 +176,54 @@ function testNormalizeSessionData() {
   assert.strictEqual(normalized.windows.length, 1);
 }
 
+function testProfileIdPassthrough() {
+  const counts = { workspaces: 0, panes: 0 };
+  const win = sanitizeWindow({
+    id: 'profiles',
+    activeWorkspaceId: 1,
+    workspaces: [{
+      id: 1,
+      cwd: tmpRoot,
+      activePaneId: 1,
+      layout: {
+        type: 'split',
+        direction: 'row',
+        children: [{ type: 'pane', paneId: 1 }, { type: 'pane', paneId: 2 }]
+      },
+      panes: [
+        { id: 1, cwd: tmpRoot, profileId: 'wt:{abc}' },
+        { id: 2, cwd: tmpRoot, profileId: 42 }
+      ]
+    }]
+  }, counts, adapter);
+  // Non-string profileId normalizes to null.
+  assert.deepStrictEqual(win.workspaces[0].panes.map(pane => pane.profileId), ['wt:{abc}', null]);
+
+  const session = windowToRendererSession(win, adapter, { sanitized: true });
+  assert.strictEqual(session.workspaces[0].panesById.get(1).profileId, 'wt:{abc}');
+  assert.strictEqual(session.workspaces[0].panesById.get(2).profileId, null);
+
+  const rawSession = windowToRendererSession({
+    id: 'raw',
+    activeWorkspaceId: 1,
+    workspaces: [{
+      id: 1,
+      cwd: tmpRoot,
+      activePaneId: 3,
+      layout: { type: 'pane', paneId: 3 },
+      panes: [{ id: 3, cwd: tmpRoot, profileId: 'auto:pwsh' }]
+    }]
+  }, adapter);
+  assert.strictEqual(rawSession.workspaces[0].panesById.get(3).profileId, 'auto:pwsh');
+}
+
 testAdapterValidation();
 testNormalizeSizes();
 testCloneLayout();
 testPruneLayoutToPaneRecords();
 testSanitizeWindow();
 testNormalizeSessionData();
+testProfileIdPassthrough();
 
 fs.rmSync(tmpRoot, { recursive: true, force: true });
 
