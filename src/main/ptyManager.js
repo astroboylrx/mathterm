@@ -15,6 +15,9 @@ class PtyManager {
     this.os = os;
     this.env = env;
     this.idFactory = idFactory;
+    // MATHTERM_PTY_DEBUG_DIR: when set, every pane's raw pty output is
+    // appended to <dir>/pty-<id>.log (diagnostics only; input is never logged).
+    this.debugDir = env.MATHTERM_PTY_DEBUG_DIR || null;
     this.panes = new Map();
     this.outputReadyHandlers = new Set();
     this.exitHandlers = new Set();
@@ -100,6 +103,7 @@ class PtyManager {
     };
 
     pty.onData(data => {
+      if (this.debugDir) this._debugLogOutput(backend, data);
       outputTransport.push(data);
       const metadataUpdates = metadata.feed(data);
       if (metadataUpdates.length) {
@@ -230,6 +234,19 @@ class PtyManager {
     const pane = this.getPane(paneBackendId);
     if (!pane) throw new Error(`unknown pane backend: ${paneBackendId}`);
     return pane;
+  }
+
+  _debugLogOutput(backend, data) {
+    try {
+      const file = this.path.join(this.debugDir, `pty-${backend.id}.log`);
+      if (!backend.debugLogStarted) {
+        backend.debugLogStarted = true;
+        this.fs.mkdirSync(this.debugDir, { recursive: true });
+        const header = { shell: backend.shell, cols: backend.cols, rows: backend.rows };
+        this.fs.writeFileSync(file, `# ${JSON.stringify(header)}\n`);
+      }
+      this.fs.appendFileSync(file, data);
+    } catch {}
   }
 
   _emitOutputReady(paneBackendId) {

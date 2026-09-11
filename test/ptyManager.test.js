@@ -169,6 +169,30 @@ async function testDefaultShellOnWin32() {
   manager.closePane('pane-windefault');
 }
 
+async function testDebugLogWritesRawOutput() {
+  const adapter = new FakePtyAdapter();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mathterm-pty-debug-'));
+  const manager = new PtyManager({
+    ptyAdapter: adapter,
+    fs,
+    path,
+    os,
+    env: {
+      HOME: os.homedir(),
+      SHELL: '/bin/bash',
+      PATH: process.env.PATH,
+      MATHTERM_PTY_DEBUG_DIR: dir
+    }
+  });
+  const pane = manager.createPane({ paneBackendId: 'pane-debug', cwd: os.tmpdir(), cols: 40, rows: 10 });
+  pane.pty.emitData('hello');
+  pane.pty.emitData('\x1b[8msecret');
+  const log = fs.readFileSync(path.join(dir, 'pty-pane-debug.log'), 'utf8');
+  assert.ok(log.startsWith(`# ${JSON.stringify({ shell: '/bin/bash', cols: 40, rows: 10 })}\n`));
+  assert.ok(log.endsWith('hello\x1b[8msecret'));
+  manager.closeAll();
+}
+
 async function run() {
   await testCreateWriteResizeSnapshotAndClose();
   await testReplayAndAck();
@@ -176,6 +200,7 @@ async function run() {
   await testExitCleansShimButKeepsSnapshot();
   await testUseShimFalseSkipsShim();
   await testDefaultShellOnWin32();
+  await testDebugLogWritesRawOutput();
   console.log('ptyManager tests passed');
 }
 
