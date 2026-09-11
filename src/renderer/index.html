@@ -209,6 +209,8 @@
     }
     #new-tab-btn:hover,
     #new-tab-chevron:hover { color: var(--accent); background: var(--bg-alt); }
+    /* The ▼ glyph renders larger than + at the same font-size; scale it down. */
+    #new-tab-chevron { font-size: calc(var(--tab-icon-size) * 0.78); }
 
     #terminal-container {
       flex: 1;

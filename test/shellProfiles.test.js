@@ -203,17 +203,27 @@ function testBuildAutoProfiles() {
 function testMergeProfiles() {
   const primary = [
     { id: 'wt:1', name: 'Ubuntu', command: 'wsl.exe', args: ['-d', 'Ubuntu', '--cd', '~'], useShim: false },
-    { id: 'wt:2', name: 'PS', command: 'C:\\PowerShell\\pwsh.exe', args: [], useShim: false }
+    { id: 'wt:2', name: 'PS', command: 'C:\\PowerShell\\pwsh.exe', args: [], useShim: false },
+    // Customized with extra flags: still the same shell as bare powershell.exe.
+    { id: 'wt:3', name: 'Windows PowerShell', command: 'powershell.exe', args: ['-NoExit'], useShim: false },
+    { id: 'wt:4', name: 'Command Prompt', command: 'C:\\Windows\\System32\\cmd.exe', args: [], useShim: false }
   ];
   const fallback = [
-    // Same command+args, different case: deduped.
+    // Same exe, different case/path: deduped.
     { id: 'auto:pwsh', name: 'PowerShell', command: 'c:\\powershell\\pwsh.exe', args: [], useShim: false },
-    // Same command but different args: kept.
+    // Same distro as wt:1 with fewer args: deduped (the WT entry wins).
     { id: 'auto:wsl:Ubuntu', name: 'Ubuntu', command: 'wsl.exe', args: ['-d', 'Ubuntu'], useShim: false },
-    { id: 'auto:cmd', name: 'Command Prompt', command: 'cmd.exe', args: [], useShim: false }
+    // Bare powershell.exe without args: same shell as the customized wt:3.
+    { id: 'auto:powershell', name: 'Windows PowerShell', command: 'powershell.exe', args: [], useShim: false },
+    // Full-path cmd in wt:4 vs bare cmd.exe: same shell.
+    { id: 'auto:cmd', name: 'Command Prompt', command: 'cmd.exe', args: [], useShim: false },
+    // A different distro survives.
+    { id: 'auto:wsl:Debian', name: 'Debian', command: 'wsl.exe', args: ['-d', 'Debian', '--cd', '~'], useShim: false },
+    // Something Windows Terminal does not list survives.
+    { id: 'auto:git-bash', name: 'Git Bash', command: 'C:\\Program Files\\Git\\bin\\bash.exe', args: ['--login', '-i'], useShim: false }
   ];
   const merged = mergeProfiles(primary, fallback);
-  assert.deepStrictEqual(merged.map(p => p.id), ['wt:1', 'wt:2', 'auto:wsl:Ubuntu', 'auto:cmd']);
+  assert.deepStrictEqual(merged.map(p => p.id), ['wt:1', 'wt:2', 'wt:3', 'wt:4', 'auto:wsl:Debian', 'auto:git-bash']);
 }
 
 function testResolveDefaultProfile() {

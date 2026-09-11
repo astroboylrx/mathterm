@@ -224,12 +224,23 @@ function buildAutoProfiles({ platform, env = {}, pwshPath = null, wslDistros = [
   return profiles;
 }
 
+// Dedupe key: the executable basename (case-insensitive, ".exe" stripped), so
+// a bare `powershell.exe` and an expanded `%SystemRoot%\...\powershell.exe`
+// count as the same shell. Args are ignored: a Windows Terminal entry the user
+// customized with extra flags should win over our bare auto-detected duplicate
+// of that same shell. wsl.exe keys on the distro so different distributions
+// stay distinct.
 function profileKey(profile) {
-  return [profile.command, ...(profile.args || [])].join('\0').toLowerCase();
+  const exe = windowsCommandBasename(profile.command).toLowerCase();
+  if (exe === 'wsl') {
+    const args = Array.isArray(profile.args) ? profile.args : [];
+    const i = args.indexOf('-d');
+    return `wsl:${i >= 0 && args[i + 1] ? String(args[i + 1]).toLowerCase() : ''}`;
+  }
+  return exe;
 }
 
-// Append fallback profiles that are not already in the primary list, comparing
-// command + args case-insensitively.
+// Append fallback profiles that are not already in the primary list.
 function mergeProfiles(primary, fallback) {
   const merged = [];
   const seen = new Set();
