@@ -144,6 +144,24 @@ const VSCODE_LIGHT = {
   ]
 };
 
+// Windows Terminal's default "Campbell" color scheme, paired with the dark
+// chrome of its "Dark" app theme.
+const WT_DARK = {
+  bg: '#0c0c0c', bgAlt: '#1a1a1a', bgDark: '#000000',
+  fg: '#cccccc', fgMuted: '#a6a6a6', fgDim: '#767676',
+  accent: '#3b78ff',
+  border: '#333333',
+  red: '#e74856', yellow: '#f9f1a5', blue: '#3b78ff',
+  purple: '#b4009e', cyan: '#61d6d6', orange: '#ffa94d',
+  highlight: '#ffa94d',
+  ansi: [
+    '#0c0c0c','#c50f1f','#13a10e','#c19c00',
+    '#0037da','#881798','#3a96dd','#cccccc',
+    '#767676','#e74856','#16c60c','#f9f1a5',
+    '#3b78ff','#b4009e','#61d6d6','#f2f2f2'
+  ]
+};
+
 const TOKYO_NIGHT = {
   bg: '#1a1b26', bgAlt: '#16161e', bgDark: '#15161e',
   fg: '#a9b1d6', fgMuted: '#9aa5ce', fgDim: '#565f89',
@@ -185,6 +203,7 @@ const BUILTIN_THEMES = {
   'solarized-dark': { name: 'Solarized Dark', colors: SOLARIZED_DARK },
   'catppuccin-mocha': { name: 'Catppuccin Mocha', colors: CATPPUCCIN_MOCHA },
   'gruvbox-dark': { name: 'Gruvbox Dark', colors: GRUVBOX_DARK },
+  'wt-dark': { name: 'Windows Terminal Dark', colors: WT_DARK },
   'vscode-light': { name: 'VS Code Light+', colors: VSCODE_LIGHT },
   'solarized-light': { name: 'Solarized Light', colors: SOLARIZED_LIGHT },
   'catppuccin-latte': { name: 'Catppuccin Latte', colors: CATPPUCCIN_LATTE },
