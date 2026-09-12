@@ -49,7 +49,8 @@ class PtyManager {
     cwd = this.env.HOME || this.os.homedir(),
     cols = 80,
     rows = 24,
-    scrollback = 1000
+    scrollback = 1000,
+    envExtras = {}
   } = {}) {
     if (this.panes.has(paneBackendId)) throw new Error(`pane backend already exists: ${paneBackendId}`);
     // The bash/zsh shim (OSC 133 marks, imgcat) only makes sense for POSIX
@@ -77,6 +78,7 @@ class PtyManager {
       cwd,
       env: {
         ...shim.shellEnv,
+        ...envExtras,
         TERM_PROGRAM: 'MathTerm',
         TERM_PROGRAM_VERSION: '0.6',
         COLORTERM: 'truecolor'

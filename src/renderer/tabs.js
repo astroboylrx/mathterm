@@ -660,6 +660,10 @@ function spawnPaneShell(pane, term, opts = {}) {
       ptyProc = mt.pty.attach(pane.paneBackendId, { afterSeq: opts.afterSeq });
     } else {
       const profile = profileForPane(pane.profileId);
+      // The current theme's fg/bg travel with the spawn so a wrapped WSL pane
+      // (see main/wslVtProxy.js) can answer OSC 10/11/12 color queries.
+      const { resolveTheme } = require('./themes');
+      const themeColors = resolveTheme(settings.theme);
       ptyProc = mt.pty.spawn(profile.command, profile.args || [], {
         paneBackendId: pane.paneBackendId,
         name: 'xterm-256color',
@@ -667,7 +671,8 @@ function spawnPaneShell(pane, term, opts = {}) {
         rows: term.rows,
         cwd,
         scrollback: settings.scrollback,
-        useShim: profile.useShim !== false
+        useShim: profile.useShim !== false,
+        terminalColors: { fg: themeColors.fg, bg: themeColors.bg }
       });
     }
   } catch (err) {

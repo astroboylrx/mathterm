@@ -42,7 +42,10 @@ function spawnPty(file, args, opts) {
     cwd: opts?.cwd,
     cols: opts?.cols,
     rows: opts?.rows,
-    scrollback: opts?.scrollback
+    scrollback: opts?.scrollback,
+    terminalColors: opts?.terminalColors && typeof opts.terminalColors === 'object'
+      ? { fg: String(opts.terminalColors.fg || ''), bg: String(opts.terminalColors.bg || '') }
+      : undefined
   });
   if (!result || !result.ok) {
     throw new Error(result?.error || 'Failed to create pane backend');

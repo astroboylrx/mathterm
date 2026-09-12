@@ -11,6 +11,7 @@ const {
   parseWslDistroList,
   profileFromWindowsTerminalEntry
 } = require('../shared/shellProfiles');
+const { maybeWrapWslProfile } = require('./wslVtProxy');
 
 let cachedResult = null;
 
@@ -121,13 +122,13 @@ function detectShellProfiles() {
     // WT profiles keep their configured order; our own detection appends
     // anything WT does not list (e.g. a distro installed later).
     cachedResult = {
-      profiles: mergeProfiles(wt.profiles, autoProfiles),
+      profiles: mergeProfiles(wt.profiles, autoProfiles).map(maybeWrapWslProfile),
       defaultProfileId: wt.defaultProfileId,
       source: 'windows-terminal'
     };
   } else {
     cachedResult = {
-      profiles: autoProfiles,
+      profiles: autoProfiles.map(maybeWrapWslProfile),
       defaultProfileId: autoProfiles[0] ? autoProfiles[0].id : null,
       source: 'auto'
     };
