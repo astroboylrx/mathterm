@@ -1650,21 +1650,9 @@ ipcMain.handle('list-shell-profiles', async () => {
 });
 
 // Wrapped WSL panes (see shellProfiles.js/wslVtProxy.js) run an in-distro VT
-// proxy that answers OSC 10/11/12 color queries itself; hand it the pane's
-// theme colors. WSLENV carries the values across the wsl.exe boundary.
-function wslProxyEnvExtras(shellCmd, terminalColors) {
-  if (process.platform !== 'win32') return undefined;
-  const base = String(shellCmd || '').split(/[\\/]/).pop().replace(/\.exe$/i, '').toLowerCase();
-  if (base !== 'wsl') return undefined;
-  const valid = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
-  const fg = terminalColors && terminalColors.fg;
-  const bg = terminalColors && terminalColors.bg;
-  if (!valid(fg) || !valid(bg)) return undefined;
-  const existing = String(process.env.WSLENV || '').split(':').filter(Boolean);
-  const names = ['MT_TERM_FG', 'MT_TERM_BG'];
-  const wslenv = existing.concat(names.filter(name => !existing.includes(name))).join(':');
-  return { MT_TERM_FG: fg, MT_TERM_BG: bg, WSLENV: wslenv };
-}
+// proxy that answers OSC 10/11/12 color queries itself; WSLENV carries the
+// pane's theme colors and truecolor capability across the wsl.exe boundary.
+const { wslPaneEnvExtras } = require('./wslVtProxy');
 
 ipcMain.on('pane-create-sync', (event, opts = {}) => {
   try {
@@ -1677,7 +1665,7 @@ ipcMain.on('pane-create-sync', (event, opts = {}) => {
       cols: Number.isInteger(opts.cols) ? opts.cols : 80,
       rows: Number.isInteger(opts.rows) ? opts.rows : 24,
       scrollback: Number.isInteger(opts.scrollback) ? opts.scrollback : 1000,
-      envExtras: wslProxyEnvExtras(opts.shellCmd, opts.terminalColors)
+      envExtras: wslPaneEnvExtras(opts.shellCmd, opts.terminalColors)
     });
     event.returnValue = { ok: true, paneBackendId: backend.id, pid: backend.pty.pid };
   } catch (err) {

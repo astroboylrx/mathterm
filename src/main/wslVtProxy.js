@@ -312,10 +312,38 @@ function createWslVtProxy({ execFileSync: execFileSyncImpl = execFileSync } = {}
 
 const defaultProxy = createWslVtProxy();
 
+// WSL pane environment extras. WSL only imports a Windows env var when it is
+// listed in WSLENV, and setting WSLENV replaces WSL's built-in default
+// (WT_SESSION:WT_PROFILE_ID), so keep those. COLORTERM=truecolor (added to
+// every pane by ptyManager) is propagated so TUI apps inside WSL see
+// MathTerm's truecolor support regardless of how MathTerm was launched.
+// MT_TERM_FG/BG (when the renderer supplied valid theme colors) feed the VT
+// proxy's OSC query answers.
+function wslPaneEnvExtras(shellCmd, terminalColors, { platform = process.platform, env = process.env } = {}) {
+  if (platform !== 'win32') return undefined;
+  const base = String(shellCmd || '').split(/[\\/]/).pop().replace(/\.exe$/i, '').toLowerCase();
+  if (base !== 'wsl') return undefined;
+  const existing = String(env.WSLENV || '').split(':').filter(Boolean);
+  const existingNames = new Set(existing.map(entry => entry.split('/')[0]));
+  const names = ['WT_SESSION', 'WT_PROFILE_ID', 'COLORTERM'];
+  const extras = {};
+  const valid = value => typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value);
+  const fg = terminalColors && terminalColors.fg;
+  const bg = terminalColors && terminalColors.bg;
+  if (valid(fg) && valid(bg)) {
+    extras.MT_TERM_FG = fg;
+    extras.MT_TERM_BG = bg;
+    names.push('MT_TERM_FG', 'MT_TERM_BG');
+  }
+  extras.WSLENV = existing.concat(names.filter(name => !existingNames.has(name))).join(':');
+  return extras;
+}
+
 module.exports = {
   PROXY_SCRIPT,
   PROXY_STAMP,
   createWslVtProxy,
   ensureProxyInstalled: defaultProxy.ensureProxyInstalled,
-  maybeWrapWslProfile: defaultProxy.maybeWrapWslProfile
+  maybeWrapWslProfile: defaultProxy.maybeWrapWslProfile,
+  wslPaneEnvExtras
 };

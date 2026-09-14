@@ -3,7 +3,8 @@ const {
   PROXY_SCRIPT,
   PROXY_STAMP,
   createWslVtProxy,
-  maybeWrapWslProfile
+  maybeWrapWslProfile,
+  wslPaneEnvExtras
 } = require('../src/main/wslVtProxy');
 
 // Fake execFileSync that understands the three wsl.exe invocations the
@@ -157,6 +158,30 @@ function testDefaultExportPassesThrough() {
   assert.strictEqual(maybeWrapWslProfile(powershell), powershell);
 }
 
+function testWslPaneEnvExtras() {
+  const colors = { fg: '#cccccc', bg: '#0c0c0c' };
+  // POSIX and non-WSL commands get nothing.
+  assert.strictEqual(wslPaneEnvExtras('wsl.exe', colors, { platform: 'linux', env: {} }), undefined);
+  assert.strictEqual(wslPaneEnvExtras('powershell.exe', colors, { platform: 'win32', env: {} }), undefined);
+  // WSL pane with valid colors: theme colors + WSLENV carrying WSL's default
+  // propagation entries (WT_SESSION:WT_PROFILE_ID), COLORTERM, and ours.
+  const full = wslPaneEnvExtras('wsl.exe', colors, { platform: 'win32', env: {} });
+  assert.strictEqual(full.MT_TERM_FG, '#cccccc');
+  assert.strictEqual(full.MT_TERM_BG, '#0c0c0c');
+  assert.strictEqual(full.WSLENV, 'WT_SESSION:WT_PROFILE_ID:COLORTERM:MT_TERM_FG:MT_TERM_BG');
+  // Existing WSLENV entries (incl. flags) are preserved and not duplicated.
+  const merged = wslPaneEnvExtras('C:\\Windows\\System32\\wsl.exe', colors, {
+    platform: 'win32',
+    env: { WSLENV: 'WT_SESSION:FOO/p:COLORTERM' }
+  });
+  assert.strictEqual(merged.WSLENV, 'WT_SESSION:FOO/p:COLORTERM:WT_PROFILE_ID:MT_TERM_FG:MT_TERM_BG');
+  // Without valid colors the proxy colors stay out, but capability/default
+  // propagation still applies to every WSL pane.
+  const noColors = wslPaneEnvExtras('wsl.exe', { fg: 'red', bg: '#0c0c0c' }, { platform: 'win32', env: {} });
+  assert.strictEqual(noColors.MT_TERM_FG, undefined);
+  assert.strictEqual(noColors.WSLENV, 'WT_SESSION:WT_PROFILE_ID:COLORTERM');
+}
+
 testScriptStamp();
 testWrapsWslProfile();
 testBasenameVariants();
@@ -168,5 +193,6 @@ testStaleVersionReinstalled();
 testPositiveResultCached();
 testEmptyDistroRejected();
 testDefaultExportPassesThrough();
+testWslPaneEnvExtras();
 
 console.log('wsl vt proxy tests passed');
