@@ -127,6 +127,62 @@ function testMaxHoldCheckedOnPush() {
   assert.ok(timers.every(timer => timer.cleared), 'stale timer cleared after the synchronous flush');
 }
 
+function testSyncFrameBurstUsesLongerQuiet() {
+  // Measured ConPTY pacing: a 2026 frame's drawing trails its marker in
+  // chunks ~10-14ms apart, so the plain 8ms quiet window would split it.
+  const { rig, deliveries, coalescer } = createHarness();
+  coalescer.push('H', { syncFrame: true });
+  rig.advance(5);
+  coalescer.push('d1');
+  rig.advance(11);
+  coalescer.push('d2');
+  rig.advance(11);
+  coalescer.push('d3');
+  rig.advance(20);
+  assert.strictEqual(deliveries.length, 0, 'sync frame survives 10ms+ chunk gaps');
+  rig.advance(40);
+  assert.strictEqual(deliveries.length, 1);
+  assert.deepStrictEqual(deliveries[0], ['H', 'd1', 'd2', 'd3']);
+}
+
+function testSyncFrameMaxHold() {
+  const { rig, deliveries, coalescer } = createHarness({ syncMaxHoldMs: 60 });
+  coalescer.push('H', { syncFrame: true });
+  for (let i = 0; i < 25; i++) {
+    rig.advance(5);
+    coalescer.push(`c${i}`);
+  }
+  assert.ok(deliveries.length >= 2, `endless sync flood flushes periodically, got ${deliveries.length}`);
+  coalescer.flush();
+  const merged = deliveries.flat();
+  assert.deepStrictEqual(merged, ['H', ...Array.from({ length: 25 }, (_, i) => `c${i}`)]);
+}
+
+function testSyncModeResetsAfterFlush() {
+  const { rig, deliveries, coalescer } = createHarness();
+  coalescer.push('H', { syncFrame: true });
+  rig.advance(40);
+  assert.strictEqual(deliveries.length, 1);
+  coalescer.push('x');
+  rig.advance(8);
+  assert.strictEqual(deliveries.length, 2, 'plain output after a sync frame uses the short quiet window again');
+  assert.deepStrictEqual(deliveries[1], ['x']);
+}
+
+function testSyncFlagMidBurstExtendsHold() {
+  const { rig, deliveries, coalescer } = createHarness();
+  coalescer.push('a');
+  rig.advance(5);
+  coalescer.push('H', { syncFrame: true });
+  rig.advance(10);
+  coalescer.push('d1');
+  rig.advance(20);
+  assert.strictEqual(deliveries.length, 0, 'sync flag mid-burst extends the pending hold');
+  rig.advance(40);
+  assert.strictEqual(deliveries.length, 1);
+  assert.deepStrictEqual(deliveries[0], ['a', 'H', 'd1']);
+}
+
 function run() {
   testBurstCoalescesIntoOneDelivery();
   testQuietGapSplitsDeliveries();
@@ -134,6 +190,10 @@ function run() {
   testCancelDropsPending();
   testFlushWithoutQueueIsNoop();
   testMaxHoldCheckedOnPush();
+  testSyncFrameBurstUsesLongerQuiet();
+  testSyncFrameMaxHold();
+  testSyncModeResetsAfterFlush();
+  testSyncFlagMidBurstExtendsHold();
   console.log('outputCoalescer tests passed');
 }
 

@@ -817,12 +817,15 @@ function attachPtyDataPipeline(pane, term) {
     });
   };
   // ConPTY re-emits synchronized-output (DEC mode 2026) frames as unwrapped
-  // drawing spread over many chunks and tens of milliseconds, so writing
-  // every chunk straight into xterm.js paints the cursor at mid-flight
-  // positions (visible jumping during animations like codex's whimsy banner).
-  // Coalesce bursts on Windows so each renders once with its final cursor
-  // position. POSIX ConPTY-free panes get the 2026 markers intact and
-  // xterm.js already renders those frames atomically.
+  // drawing spread over several chunks: the 2026 markers pass through as
+  // empty shells while the frame's drawing trails behind in chunks measured
+  // ~10-14ms apart, so writing every chunk straight into xterm.js paints the
+  // cursor at mid-flight positions (visible jumping during animations like
+  // codex's whimsy banner). Coalesce bursts on Windows so each renders once
+  // with its final cursor position; bursts containing a 2026 frame start get
+  // a longer quiet window since their drawing chunks arrive further apart.
+  // POSIX ConPTY-free panes get the 2026 markers intact and xterm.js already
+  // renders those frames atomically.
   const coalescer = mt.os?.platform === 'win32'
     ? require('./outputCoalescer').createOutputCoalescer({
       deliver: (items) => {
@@ -844,8 +847,14 @@ function attachPtyDataPipeline(pane, term) {
       if (meta.batchId != null && ptyProc.ack) ptyProc.ack(meta.batchId);
     };
     if (cleanData) {
-      if (coalescer) coalescer.push({ data: cleanData, ack: ackOutput });
-      else writeOutput(cleanData, ackOutput);
+      if (coalescer) {
+        // A DEC 2026 frame start means more of this frame's drawing is still
+        // on its way through ConPTY; the coalescer holds it longer so the
+        // whole frame renders in one pass.
+        coalescer.push({ data: cleanData, ack: ackOutput }, { syncFrame: cleanData.includes('\x1b[?2026h') });
+      } else {
+        writeOutput(cleanData, ackOutput);
+      }
     } else {
       ackOutput();
     }
