@@ -806,6 +806,33 @@ function attachOsc133Tracking(pane, term) {
 function attachPtyDataPipeline(pane, term) {
   const ptyProc = pane.ptyProc;
   if (!ptyProc) return;
+  const writeOutput = (cleanData, ackOutput) => {
+    term.write(cleanData, () => {
+      const promptTrackingChanged = invalidateChangedPromptMarkers(pane);
+      scheduleTerminalRefresh(pane);
+      if (promptTrackingChanged && pane.richVisible) {
+        refreshRichViewAfterLayout(pane, { force: true });
+      }
+      ackOutput();
+    });
+  };
+  // ConPTY re-emits synchronized-output (DEC mode 2026) frames as unwrapped
+  // drawing spread over many chunks and tens of milliseconds, so writing
+  // every chunk straight into xterm.js paints the cursor at mid-flight
+  // positions (visible jumping during animations like codex's whimsy banner).
+  // Coalesce bursts on Windows so each renders once with its final cursor
+  // position. POSIX ConPTY-free panes get the 2026 markers intact and
+  // xterm.js already renders those frames atomically.
+  const coalescer = mt.os?.platform === 'win32'
+    ? require('./outputCoalescer').createOutputCoalescer({
+      deliver: (items) => {
+        writeOutput(items.map(item => item.data).join(''), () => {
+          for (const item of items) item.ack();
+        });
+      }
+    })
+    : null;
+  pane._outputCoalescer = coalescer;
   ptyProc.onData((data, meta = {}) => {
     const { images, cleanData } = pane.osc1337Parser.feed(data);
     if (images.length) {
@@ -817,14 +844,8 @@ function attachPtyDataPipeline(pane, term) {
       if (meta.batchId != null && ptyProc.ack) ptyProc.ack(meta.batchId);
     };
     if (cleanData) {
-      term.write(cleanData, () => {
-        const promptTrackingChanged = invalidateChangedPromptMarkers(pane);
-        scheduleTerminalRefresh(pane);
-        if (promptTrackingChanged && pane.richVisible) {
-          refreshRichViewAfterLayout(pane, { force: true });
-        }
-        ackOutput();
-      });
+      if (coalescer) coalescer.push({ data: cleanData, ack: ackOutput });
+      else writeOutput(cleanData, ackOutput);
     } else {
       ackOutput();
     }
@@ -1290,6 +1311,7 @@ function disposePane(pane, opts = {}) {
   try { require('./richView').disposeRichSnapshotSource(pane); } catch {}
   clearTimeout(pane.sectionTimer);
   clearTimeout(pane._promptJumpFlashTimer);
+  try { pane._outputCoalescer?.cancel(); } catch {}
   if (pane._promptResizeRebuildRaf) {
     cancelAnimationFrame(pane._promptResizeRebuildRaf);
     pane._promptResizeRebuildRaf = 0;

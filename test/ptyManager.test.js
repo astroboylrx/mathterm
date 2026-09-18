@@ -190,6 +190,10 @@ async function testDebugLogWritesRawOutput() {
   const log = fs.readFileSync(path.join(dir, 'pty-pane-debug.log'), 'utf8');
   assert.ok(log.startsWith(`# ${JSON.stringify({ shell: '/bin/bash', cols: 40, rows: 10 })}\n`));
   assert.ok(log.endsWith('hello\x1b[8msecret'));
+  const timing = fs.readFileSync(path.join(dir, 'pty-pane-debug.log.timing'), 'utf8').trim().split('\n');
+  assert.strictEqual(timing.length, 2);
+  assert.ok(/^\d+ 5$/.test(timing[0]), `first chunk was 5 bytes: ${timing[0]}`);
+  assert.ok(/^\d+ 10$/.test(timing[1]), `second chunk was 10 bytes: ${timing[1]}`);
   manager.closeAll();
 }
 

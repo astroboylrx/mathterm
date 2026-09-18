@@ -248,6 +248,10 @@ class PtyManager {
         this.fs.writeFileSync(file, `# ${JSON.stringify(header)}\n`);
       }
       this.fs.appendFileSync(file, data);
+      // Sidecar chunk-timing log ("<epochMs> <bytes>" per pty read) so the
+      // pacing of the byte-exact raw stream above can be reconstructed when
+      // diagnosing render-timing issues (e.g. ConPTY output fragmentation).
+      this.fs.appendFileSync(`${file}.timing`, `${Date.now()} ${Buffer.byteLength(String(data))}\n`);
     } catch {}
   }
 
