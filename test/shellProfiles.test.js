@@ -226,6 +226,27 @@ function testMergeProfiles() {
   assert.deepStrictEqual(merged.map(p => p.id), ['wt:1', 'wt:2', 'wt:3', 'wt:4', 'auto:wsl:Debian', 'auto:git-bash']);
 }
 
+function testMergeProfilesKeepsDistinctArgs() {
+  // Two deliberately different pwsh setups (both carry args) are not the same
+  // shell and must both survive; a bare auto entry still merges into them.
+  const primary = [
+    { id: 'wt:pwsh-dev', name: 'pwsh dev', command: 'pwsh.exe', args: ['-WorkingDirectory', 'C:\\dev'], useShim: false },
+    { id: 'wt:pwsh-admin', name: 'pwsh admin', command: 'pwsh.exe', args: ['-NoProfile'], useShim: false }
+  ];
+  const fallback = [
+    { id: 'auto:pwsh', name: 'PowerShell', command: 'pwsh.exe', args: [], useShim: false },
+    // Exact same args as wt:pwsh-admin: a true duplicate, dropped.
+    { id: 'dup', name: 'dup', command: 'C:\\pwsh\\pwsh.exe', args: ['-NoProfile'], useShim: false },
+    // Same distro, different args: still the same WSL shell (distro-keyed).
+    { id: 'wt:wsl-fish', name: 'Ubuntu fish', command: 'wsl.exe', args: ['-d', 'Ubuntu', '-e', 'fish'], useShim: false }
+  ];
+  const withWsl = [{ id: 'auto:wsl:Ubuntu', name: 'Ubuntu', command: 'wsl.exe', args: ['-d', 'Ubuntu', '--cd', '~'], useShim: false }];
+  const merged = mergeProfiles(primary, fallback);
+  assert.deepStrictEqual(merged.map(p => p.id), ['wt:pwsh-dev', 'wt:pwsh-admin', 'wt:wsl-fish']);
+  const mergedWsl = mergeProfiles(withWsl, fallback.slice(2));
+  assert.deepStrictEqual(mergedWsl.map(p => p.id), ['auto:wsl:Ubuntu']);
+}
+
 function testResolveDefaultProfile() {
   const profiles = [
     { id: 'wt:a', command: 'pwsh.exe' },
@@ -251,6 +272,7 @@ testProfileFromWindowsTerminalEntry();
 testParseWslDistroList();
 testBuildAutoProfiles();
 testMergeProfiles();
+testMergeProfilesKeepsDistinctArgs();
 testResolveDefaultProfile();
 
 console.log('shell profiles tests passed');

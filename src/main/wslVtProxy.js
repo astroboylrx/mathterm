@@ -312,6 +312,19 @@ function createWslVtProxy({ execFileSync: execFileSyncImpl = execFileSync } = {}
 
 const defaultProxy = createWslVtProxy();
 
+// Lazy spawn-time variant of maybeWrapWslProfile. Detection returns bare WSL
+// profiles (see shellProfiles.js) so startup never blocks on synchronous
+// wsl.exe round-trips; the proxy install check runs here instead, only when a
+// WSL pane is actually launched, and only once per distro per session (the
+// result is cached). Non-WSL commands pass through unchanged.
+function maybeWrapWslSpawn(shellCmd, shellArgs, proxy = defaultProxy) {
+  const wrapped = proxy.maybeWrapWslProfile({
+    command: shellCmd,
+    args: Array.isArray(shellArgs) ? shellArgs : []
+  });
+  return { shellCmd: wrapped.command, shellArgs: wrapped.args };
+}
+
 // WSL pane environment extras. WSL only imports a Windows env var when it is
 // listed in WSLENV, and setting WSLENV replaces WSL's built-in default
 // (WT_SESSION:WT_PROFILE_ID), so keep those. COLORTERM=truecolor (added to
@@ -345,5 +358,6 @@ module.exports = {
   createWslVtProxy,
   ensureProxyInstalled: defaultProxy.ensureProxyInstalled,
   maybeWrapWslProfile: defaultProxy.maybeWrapWslProfile,
+  maybeWrapWslSpawn,
   wslPaneEnvExtras
 };

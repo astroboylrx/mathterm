@@ -1225,6 +1225,7 @@ async function createLiveWorkspace(snapshot, opts = {}) {
       paneBackendId: paneData.paneBackendId,
       attachExisting: true,
       snapshot: paneSnapshot,
+      profileId: typeof paneData.profileId === 'string' && paneData.profileId ? paneData.profileId : null,
       onSnapshotReady: pane => {
         if (paneData.richVisible) {
           showManualRichView(pane).then(shown => {
@@ -1981,6 +1982,7 @@ function captureLiveWorkspace(workspace) {
       localCwd: pane.localCwd || pane.cwd || workspace.cwd || mt.os.homedir(),
       autoRender: !!pane.autoRender,
       zoomFactor: pane.zoomFactor ?? 1,
+      profileId: pane.profileId || null,
       richVisible: !!(pane.richVisible || pane._richSnapshotPending),
       richViewState: captureRichViewLayoutState(pane)
     }))

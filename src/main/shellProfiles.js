@@ -1,6 +1,10 @@
 // Shell profile detection for the main process. All parsing lives in
 // ../shared/shellProfiles; this module only does fs/process probing and caches
 // the result (restart MathTerm to pick up Windows Terminal config changes).
+// WSL profiles are returned bare on purpose: installing the in-distro VT
+// proxy means synchronous wsl.exe round-trips, so it happens lazily at pane
+// spawn time (see maybeWrapWslSpawn in ./wslVtProxy), never on this path —
+// startup must not block the main process on distros that are not running.
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -11,7 +15,6 @@ const {
   parseWslDistroList,
   profileFromWindowsTerminalEntry
 } = require('../shared/shellProfiles');
-const { maybeWrapWslProfile } = require('./wslVtProxy');
 
 let cachedResult = null;
 
@@ -122,13 +125,13 @@ function detectShellProfiles() {
     // WT profiles keep their configured order; our own detection appends
     // anything WT does not list (e.g. a distro installed later).
     cachedResult = {
-      profiles: mergeProfiles(wt.profiles, autoProfiles).map(maybeWrapWslProfile),
+      profiles: mergeProfiles(wt.profiles, autoProfiles),
       defaultProfileId: wt.defaultProfileId,
       source: 'windows-terminal'
     };
   } else {
     cachedResult = {
-      profiles: autoProfiles.map(maybeWrapWslProfile),
+      profiles: autoProfiles,
       defaultProfileId: autoProfiles[0] ? autoProfiles[0].id : null,
       source: 'auto'
     };

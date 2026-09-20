@@ -226,10 +226,8 @@ function buildAutoProfiles({ platform, env = {}, pwshPath = null, wslDistros = [
 
 // Dedupe key: the executable basename (case-insensitive, ".exe" stripped), so
 // a bare `powershell.exe` and an expanded `%SystemRoot%\...\powershell.exe`
-// count as the same shell. Args are ignored: a Windows Terminal entry the user
-// customized with extra flags should win over our bare auto-detected duplicate
-// of that same shell. wsl.exe keys on the distro so different distributions
-// stay distinct.
+// count as the same shell. wsl.exe keys on the distro so different
+// distributions stay distinct.
 function profileKey(profile) {
   const exe = windowsCommandBasename(profile.command).toLowerCase();
   if (exe === 'wsl') {
@@ -240,16 +238,30 @@ function profileKey(profile) {
   return exe;
 }
 
+// Two profiles are "the same shell" when they share an exe key and at least
+// one of them has no args: a Windows Terminal entry the user customized with
+// extra flags should win over our bare auto-detected duplicate of that shell.
+// When BOTH carry args they are only duplicates if the args match, so two
+// deliberately different pwsh setups both survive. wsl profiles stay
+// distro-keyed regardless of args: Windows Terminal auto-lists every distro
+// with different args than our own detection, and those must still dedupe.
+function sameShellProfile(a, b) {
+  if (profileKey(a) !== profileKey(b)) return false;
+  if (profileKey(a).startsWith('wsl:')) return true;
+  const argsOf = p => (Array.isArray(p.args) ? p.args.map(String) : []);
+  const aArgs = argsOf(a);
+  const bArgs = argsOf(b);
+  if (aArgs.length && bArgs.length) return aArgs.join('\x00') === bArgs.join('\x00');
+  return true;
+}
+
 // Append fallback profiles that are not already in the primary list.
 function mergeProfiles(primary, fallback) {
   const merged = [];
-  const seen = new Set();
   for (const list of [primary, fallback]) {
     for (const profile of Array.isArray(list) ? list : []) {
       if (!profile || !profile.command) continue;
-      const key = profileKey(profile);
-      if (seen.has(key)) continue;
-      seen.add(key);
+      if (merged.some(existing => sameShellProfile(existing, profile))) continue;
       merged.push(profile);
     }
   }

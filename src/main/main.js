@@ -1649,17 +1649,24 @@ ipcMain.handle('list-shell-profiles', async () => {
   }
 });
 
-// Wrapped WSL panes (see shellProfiles.js/wslVtProxy.js) run an in-distro VT
-// proxy that answers OSC 10/11/12 color queries itself; WSLENV carries the
-// pane's theme colors and truecolor capability across the wsl.exe boundary.
-const { wslPaneEnvExtras } = require('./wslVtProxy');
+// WSL panes run an in-distro VT proxy (see wslVtProxy.js) that answers OSC
+// 10/11/12 color queries itself. The proxy is installed lazily here at spawn
+// time — never during profile detection — so startup never blocks the main
+// process on wsl.exe round-trips for distros that may not even be running.
+// WSLENV carries the pane's theme colors and truecolor capability across the
+// wsl.exe boundary.
+const { maybeWrapWslSpawn, wslPaneEnvExtras } = require('./wslVtProxy');
 
 ipcMain.on('pane-create-sync', (event, opts = {}) => {
   try {
+    const spawn = maybeWrapWslSpawn(
+      opts.shellCmd || defaultShellCommand(),
+      Array.isArray(opts.shellArgs) ? opts.shellArgs.map(String) : []
+    );
     const backend = ptyManager.createPane({
       paneBackendId: String(opts.paneBackendId || ''),
-      shellCmd: opts.shellCmd || defaultShellCommand(),
-      shellArgs: Array.isArray(opts.shellArgs) ? opts.shellArgs.map(String) : [],
+      shellCmd: spawn.shellCmd,
+      shellArgs: spawn.shellArgs,
       useShim: opts.useShim !== false,
       cwd: opts.cwd || process.env.HOME || os.homedir(),
       cols: Number.isInteger(opts.cols) ? opts.cols : 80,

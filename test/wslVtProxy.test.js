@@ -4,6 +4,7 @@ const {
   PROXY_STAMP,
   createWslVtProxy,
   maybeWrapWslProfile,
+  maybeWrapWslSpawn,
   wslPaneEnvExtras
 } = require('../src/main/wslVtProxy');
 
@@ -158,6 +159,19 @@ function testDefaultExportPassesThrough() {
   assert.strictEqual(maybeWrapWslProfile(powershell), powershell);
 }
 
+function testMaybeWrapWslSpawn() {
+  // WSL spawn: same wrapping as maybeWrapWslProfile, through the injectable proxy.
+  const proxy = createWslVtProxy({ execFileSync: makeFakeExec({ installedScript: PROXY_SCRIPT }).exec });
+  const wrapped = maybeWrapWslSpawn('wsl.exe', ['-d', 'Ubuntu', '--cd', '~'], proxy);
+  assert.strictEqual(wrapped.shellCmd, 'wsl.exe');
+  assert.deepStrictEqual(wrapped.shellArgs.slice(0, 2), ['-d', 'Ubuntu']);
+  assert.ok(wrapped.shellArgs.includes('--exec'), 'spawn args route through the VT proxy');
+  // Non-WSL and non-array args pass through untouched.
+  const bare = maybeWrapWslSpawn('powershell.exe', null, proxy);
+  assert.strictEqual(bare.shellCmd, 'powershell.exe');
+  assert.deepStrictEqual(bare.shellArgs, []);
+}
+
 function testWslPaneEnvExtras() {
   const colors = { fg: '#cccccc', bg: '#0c0c0c' };
   // POSIX and non-WSL commands get nothing.
@@ -193,6 +207,7 @@ testStaleVersionReinstalled();
 testPositiveResultCached();
 testEmptyDistroRejected();
 testDefaultExportPassesThrough();
+testMaybeWrapWslSpawn();
 testWslPaneEnvExtras();
 
 console.log('wsl vt proxy tests passed');
