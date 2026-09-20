@@ -48,14 +48,14 @@ Release builds are produced for x64 and ARM64. They are built in an Ubuntu 20.04
 Install the Debian package:
 
 ```bash
-sudo apt install ./MathTerm-0.11.1-arm64.deb
+sudo apt install ./MathTerm-0.11.2-arm64.deb
 ```
 
 Use the `x64` file instead on an Intel/AMD machine. To run the AppImage without installing it:
 
 ```bash
-chmod +x MathTerm-0.11.1-arm64.AppImage
-./MathTerm-0.11.1-arm64.AppImage
+chmod +x MathTerm-0.11.2-arm64.AppImage
+./MathTerm-0.11.2-arm64.AppImage
 ```
 
 ### Windows
@@ -86,7 +86,7 @@ git clone https://github.com/astroboylrx/mathterm.git
 cd mathterm
 ```
 
-To build a specific release instead of the current development branch, run `git checkout v0.11.1` after cloning.
+To build a specific release instead of the current development branch, run `git checkout v0.11.2` after cloning.
 
 **3. Install dependencies and build the app**
 

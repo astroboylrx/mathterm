@@ -1,6 +1,6 @@
 {
   "name": "mathterm",
-  "version": "0.11.1",
+  "version": "0.11.2",
   "desktopName": "mathterm",
   "description": "An Electron terminal with math-aware rich rendering, LaTeX/Markdown display, inline images, prompt navigation, and exportable math views.",
   "author": "Rixin Li",
