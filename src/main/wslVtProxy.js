@@ -4,18 +4,36 @@
 // panes we install a tiny Python3 shim inside the distro (cached per distro
 // under $HOME/.cache/mathterm) that forwards the session byte stream
 // transparently and answers those queries itself with MathTerm's theme
-// colors. POSIX code paths never touch this module's functions.
+// colors. The proxy also launches the login shell through the same
+// shell-integration rc files shellShim.js uses on POSIX (OSC 133 prompt
+// marks, imgcat) so Math Mode prompt highlighting works in WSL panes.
+// POSIX code paths never touch this module's functions.
 const { execFileSync } = require('child_process');
+const { createBashShimScript, createZshShimFiles } = require('./shellShim');
 
-const PROXY_STAMP = '# MT-VT-PROXY v1';
+const PROXY_STAMP = '# MT-VT-PROXY v2';
 
-const PROXY_SCRIPT = `# MT-VT-PROXY v1
+function toB64(text) {
+  return Buffer.from(String(text), 'utf8').toString('base64');
+}
+
+// The shell-integration payloads the proxy materializes inside the distro at
+// startup (base64 so the Python template needs no escaping gymnastics).
+const BASH_SHIM_B64 = toB64(createBashShimScript());
+const ZSH_SHIM_B64 = Object.entries(createZshShimFiles())
+  .map(([name, content]) => `    ${JSON.stringify(name)}: '${toB64(content)}',`)
+  .join('\n');
+
+const PROXY_SCRIPT = `${PROXY_STAMP}
 # MathTerm WSL VT proxy. ConPTY swallows OSC 10/11/12 terminal color queries
 # on their way through wsl.exe, so apps that probe the terminal's default
 # colors (to pick their theme) time out and render degraded styles. This shim
 # forwards the session byte stream transparently between the outer
 # (wsl.exe-bridged) pty and an inner pty running the login shell, and answers
 # those color queries itself with MathTerm's theme colors (MT_TERM_FG/BG).
+# It also launches bash/zsh through MathTerm's shell-integration rc files
+# (OSC 133 prompt marks, imgcat) so prompt tracking works in WSL panes.
+import base64
 import fcntl
 import os
 import pwd
@@ -28,6 +46,12 @@ import sys
 import termios
 import time
 import tty
+
+
+_BASH_SHIM_B64 = '${BASH_SHIM_B64}'
+_ZSH_SHIM_B64 = {
+${ZSH_SHIM_B64}
+}
 
 
 def _rgb16(value, fallback):
@@ -90,8 +114,48 @@ def _login_shell():
     return '/bin/bash'
 
 
+def _cache_dir():
+    return os.path.join(os.path.expanduser('~'), '.cache', 'mathterm')
+
+
+def _install_shell_shim(shell):
+    # Materialize MathTerm's shell-integration rc files next to this script
+    # and return (argv, env additions) to launch the shell with OSC 133
+    # prompt marks. Returns None on any failure so the caller can fall back
+    # to a plain login shell.
+    name = os.path.basename(shell)
+    try:
+        if name == 'bash':
+            rc = os.path.join(_cache_dir(), 'bashrc.sh')
+            with open(rc, 'wb') as f:
+                f.write(base64.b64decode(_BASH_SHIM_B64))
+            return ([shell, '--rcfile', rc, '-i'], {})
+        if name == 'zsh':
+            zdir = os.path.join(_cache_dir(), 'zsh')
+            os.makedirs(zdir, exist_ok=True)
+            for fname, payload in _ZSH_SHIM_B64.items():
+                with open(os.path.join(zdir, fname), 'wb') as f:
+                    f.write(base64.b64decode(payload))
+            home = os.path.expanduser('~')
+            return ([shell, '-l', '-i'], {
+                'ZDOTDIR': zdir,
+                '_MT_USER_ZDOTDIR': os.environ.get('ZDOTDIR') or home,
+            })
+    except Exception:
+        pass
+    return None
+
+
 def _exec_shell():
     shell = _login_shell()
+    shim = _install_shell_shim(shell)
+    if shim:
+        argv, env_additions = shim
+        os.environ.update(env_additions)
+        try:
+            os.execvp(argv[0], argv)
+        except Exception:
+            pass
     for candidate in (shell, '/bin/bash'):
         try:
             os.execvp(candidate, [candidate, '-l'])

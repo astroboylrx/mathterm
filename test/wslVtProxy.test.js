@@ -42,7 +42,22 @@ const UBUNTU_PROFILE = {
 
 function testScriptStamp() {
   assert.ok(PROXY_SCRIPT.includes(PROXY_STAMP));
-  assert.strictEqual(PROXY_STAMP, '# MT-VT-PROXY v1');
+  assert.strictEqual(PROXY_STAMP, '# MT-VT-PROXY v2');
+}
+
+function testEmbeddedShellShim() {
+  // The proxy launches bash/zsh through the same shell-integration rc files
+  // shellShim.js installs on POSIX (OSC 133 prompt marks for Math Mode).
+  assert.ok(PROXY_SCRIPT.includes('--rcfile'), 'bash exec uses --rcfile');
+  assert.ok(PROXY_SCRIPT.includes('ZDOTDIR'), 'zsh exec sets ZDOTDIR');
+  const bashB64 = PROXY_SCRIPT.match(/_BASH_SHIM_B64 = '([A-Za-z0-9+/=]+)'/);
+  assert.ok(bashB64, 'bash shim payload embedded');
+  const bashRc = Buffer.from(bashB64[1], 'base64').toString('utf8');
+  assert.ok(bashRc.includes('133;A') && bashRc.includes('133;D'), 'bash shim emits OSC 133 marks');
+  const zshB64 = PROXY_SCRIPT.match(/["']\.zshrc["']: '([A-Za-z0-9+/=]+)'/);
+  assert.ok(zshB64, 'zsh shim payload embedded');
+  const zshRc = Buffer.from(zshB64[1], 'base64').toString('utf8');
+  assert.ok(zshRc.includes('133;A') && zshRc.includes('add-zsh-hook'), 'zsh shim emits OSC 133 marks');
 }
 
 function testWrapsWslProfile() {
@@ -197,6 +212,7 @@ function testWslPaneEnvExtras() {
 }
 
 testScriptStamp();
+testEmbeddedShellShim();
 testWrapsWslProfile();
 testBasenameVariants();
 testNonWslProfilesPassThrough();

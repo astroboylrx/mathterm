@@ -30,38 +30,16 @@ imgcat() {
 }`;
 }
 
-function createShellShim({ fs, path, os, shellCmd, env = process.env } = {}) {
-  if (!fs || !path || !os) throw new Error('shell shim requires fs, path, and os');
-  if (!shellCmd) throw new Error('shell command is required');
-  const isZsh = shellCmd.includes('zsh');
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), SHIM_PREFIX));
+// The bash rc that installs OSC 133 prompt marks (and imgcat). Also used by
+// the WSL VT proxy, which writes it inside the distro and launches bash with
+// `--rcfile` — keep the two call sites on this single template.
+function createBashShimScript() {
   const markA = "printf '\\033]133;A\\007'";
   const markB = "printf '\\033]133;B\\007'";
   const markC = "printf '\\033]133;C\\007'";
   const markD = "printf '\\033]133;D;%s\\007'";
   const imgcatFn = createImgcatFunction();
-
-  if (isZsh) {
-    const zshrc = `_mt_real_zdot="\$_MT_USER_ZDOTDIR"
-if [ -f "$_mt_real_zdot/.zshrc" ]; then . "$_mt_real_zdot/.zshrc"; fi
-mathterm_prompt_marker() { ${markA}; }
-mathterm_prompt_end() { ${markB}; }
-mathterm_preexec() { ${markC}; }
-mathterm_precmd() { local _mt_ec=\$?; ${markD} "\$_mt_ec"; }
-autoload -Uz add-zsh-hook
-add-zsh-hook precmd mathterm_precmd
-add-zsh-hook precmd mathterm_prompt_marker
-add-zsh-hook preexec mathterm_preexec
-zle -N zle-line-init mathterm_prompt_end
-${imgcatFn}
-`;
-    fs.writeFileSync(path.join(tmpDir, '.zshenv'),
-      `# _MT_USER_ZDOTDIR is set by the parent process before zsh starts.\nif [ -z "\$_MT_USER_ZDOTDIR" ]; then export _MT_USER_ZDOTDIR="\$HOME"; fi\nif [ -f "\$_MT_USER_ZDOTDIR/.zshenv" ]; then . "\$_MT_USER_ZDOTDIR/.zshenv"; fi\n`);
-    fs.writeFileSync(path.join(tmpDir, '.zprofile'), `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zprofile" ]; then . "$_mt_real_zdot/.zprofile"; fi\n`);
-    fs.writeFileSync(path.join(tmpDir, '.zshrc'), zshrc);
-    fs.writeFileSync(path.join(tmpDir, '.zlogin'), `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zlogin" ]; then . "$_mt_real_zdot/.zlogin"; fi\n`);
-  } else {
-    const bashrc = `for f in /etc/profile; do [ -f "$f" ] && . "$f" && break; done
+  return `for f in /etc/profile; do [ -f "$f" ] && . "$f" && break; done
 for f in ~/.bash_profile ~/.bash_login ~/.profile; do [ -f "$f" ] && . "$f" && break; done
 [ -z "\$_MATHTERM_BASHRC_LOADED" ] && [ -f ~/.bashrc ] && . ~/.bashrc && export _MATHTERM_BASHRC_LOADED=1
 _mathterm_preexec_invoke_exec() { case "\$_MATHTERM_PREEXEC" in 1|2) return;; esac; _MATHTERM_PREEXEC=1; ${markC}; }
@@ -74,7 +52,50 @@ case "\$PS1" in
 esac
 ${imgcatFn}
 `;
-    fs.writeFileSync(path.join(tmpDir, 'bashrc.sh'), bashrc);
+}
+
+// The zsh shim dir contents (.zshenv/.zprofile/.zshrc/.zlogin) that install
+// the same marks. Also used by the WSL VT proxy via ZDOTDIR — single template.
+function createZshShimFiles() {
+  const markA = "printf '\\033]133;A\\007'";
+  const markB = "printf '\\033]133;B\\007'";
+  const markC = "printf '\\033]133;C\\007'";
+  const markD = "printf '\\033]133;D;%s\\007'";
+  const imgcatFn = createImgcatFunction();
+  const zshrc = `_mt_real_zdot="\$_MT_USER_ZDOTDIR"
+if [ -f "$_mt_real_zdot/.zshrc" ]; then . "$_mt_real_zdot/.zshrc"; fi
+mathterm_prompt_marker() { ${markA}; }
+mathterm_prompt_end() { ${markB}; }
+mathterm_preexec() { ${markC}; }
+mathterm_precmd() { local _mt_ec=\$?; ${markD} "\$_mt_ec"; }
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd mathterm_precmd
+add-zsh-hook precmd mathterm_prompt_marker
+add-zsh-hook preexec mathterm_preexec
+zle -N zle-line-init mathterm_prompt_end
+${imgcatFn}
+`;
+  return {
+    '.zshenv': `# _MT_USER_ZDOTDIR is set by the parent process before zsh starts.\nif [ -z "\$_MT_USER_ZDOTDIR" ]; then export _MT_USER_ZDOTDIR="\$HOME"; fi\nif [ -f "\$_MT_USER_ZDOTDIR/.zshenv" ]; then . "\$_MT_USER_ZDOTDIR/.zshenv"; fi\n`,
+    '.zprofile': `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zprofile" ]; then . "$_mt_real_zdot/.zprofile"; fi\n`,
+    '.zshrc': zshrc,
+    '.zlogin': `_mt_real_zdot="$_MT_USER_ZDOTDIR"; if [ -f "$_mt_real_zdot/.zlogin" ]; then . "$_mt_real_zdot/.zlogin"; fi\n`
+  };
+}
+
+function createShellShim({ fs, path, os, shellCmd, env = process.env } = {}) {
+  if (!fs || !path || !os) throw new Error('shell shim requires fs, path, and os');
+  if (!shellCmd) throw new Error('shell command is required');
+  const isZsh = shellCmd.includes('zsh');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), SHIM_PREFIX));
+
+  if (isZsh) {
+    const files = createZshShimFiles();
+    for (const [name, content] of Object.entries(files)) {
+      fs.writeFileSync(path.join(tmpDir, name), content);
+    }
+  } else {
+    fs.writeFileSync(path.join(tmpDir, 'bashrc.sh'), createBashShimScript());
   }
 
   return {
@@ -133,6 +154,8 @@ function sweepStaleShellShims({ fs, path, os, olderThanMs = 24 * 60 * 60 * 1000,
 module.exports = {
   SHIM_PREFIX,
   createShellShim,
+  createBashShimScript,
+  createZshShimFiles,
   buildShellArgs,
   removeShellShim,
   sweepStaleShellShims
