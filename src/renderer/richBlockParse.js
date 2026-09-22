@@ -1,6 +1,9 @@
 const { queueKatex } = require('./richKatexQueue');
 const {
   isLikelyDisplayMathBodyText,
+  matchDisplayMathOpen,
+  matchDisplayMathClose,
+  looksLikeDisplayMath,
   isLikelyCodeFenceBodyText,
   parseFenceLine,
   isClosingFenceLine
@@ -22,13 +25,15 @@ function hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineCh
   for (let i = startIdx + 1; i < textLines.length; i++) {
     const item = textLines[i];
     const text = typeof item === 'string' ? item : (item.text || '');
-    if (text.trim() === '$$') return sawBody;
+    if (matchDisplayMathClose(text)) return sawBody;
     if (typeof item === 'object' && item.y !== undefined
         && pane && promptLineChecker && promptLineChecker(pane, text, item.y)
         && !isLikelyDisplayMathBodyText(text)) {
       return false;
     }
-    if (isLikelyDisplayMathBodyText(text)) sawBody = true;
+    // isLikelyDisplayMathBodyText rejects `|` and a leading `-`, both ordinary
+    // in real formulas, so a plain LaTeX body counts here too.
+    if (isLikelyDisplayMathBodyText(text) || looksLikeDisplayMath(text)) sawBody = true;
   }
   return false;
 }
@@ -36,20 +41,22 @@ function hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineCh
 function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker) {
   const startItem = textLines[startIdx];
   const text = typeof startItem === 'string' ? startItem : (startItem.text || '');
-  const trimmed = text.trim();
-  if (trimmed !== '$$') return null;
+  const opener = matchDisplayMathOpen(text);
+  if (!opener) return null;
+  // `$$x$$` on one line stays with the inline renderer, as it always has.
+  if (!opener.bare && matchDisplayMathClose(text)) return null;
   if (opts && opts.displayMathSpanStarts
       && (typeof startItem !== 'object' || !opts.displayMathSpanStarts.has(startItem.y))) {
     return null;
   }
-  if (!(opts && opts.displayMathSpanStarts)
+  if (opener.bare && !(opts && opts.displayMathSpanStarts)
       && isLikelyDisplayMathBodyText(previousMeaningfulTextLine(textLines, startIdx))
       && !hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineChecker)) {
     return null;
   }
 
   let j = startIdx + 1;
-  let mathLines = [];
+  let mathLines = opener.bare ? [] : [opener.rest.trimEnd()];
   while (j < textLines.length) {
     const item = textLines[j];
     const t = typeof item === 'string' ? item : (item.text || '');
@@ -57,8 +64,14 @@ function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker)
     // A real prompt line is a hard command boundary, so bail and let the $$
     // render as literal text. If prompt tracking falsely tags a math body row,
     // keep parsing so a valid display block still renders.
-    if (t.trim() === '$$') {
+    const closer = matchDisplayMathClose(t);
+    if (closer) {
+      if (!closer.bare) mathLines.push(closer.prefix.trimEnd());
       const latex = mathLines.join('\n');
+      // A delimiter carrying math is the relaxed form, and `$$` is also the
+      // shell's pid and Make's escaped `$`, so that form has to read like math.
+      // The bare-to-bare form is the long-standing one and is left alone.
+      if (!(opener.bare && closer.bare) && !looksLikeDisplayMath(latex)) return null;
       const el = document.createElement('div');
       el.className = 'display-math';
       el.style.textAlign = 'center';
@@ -72,6 +85,9 @@ function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker)
       queueKatex(latex, el, true, opts);
       return { element: el, endIdx: j + 1 };
     }
+    // A loaded opener may not span a blank line, or two stray `$$` in ordinary
+    // output merge across the text between them.
+    if (!opener.bare && !t.trim()) return null;
     if (typeof item === 'object' && item.y !== undefined
         && pane && promptLineChecker && promptLineChecker(pane, t, item.y)
         && !isLikelyDisplayMathBodyText(t)) {

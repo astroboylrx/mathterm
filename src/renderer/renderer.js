@@ -337,6 +337,19 @@ window.doSearchPrev = require('./search').doSearchPrev;
 window.doSearchNext = require('./search').doSearchNext;
 window.closeSearch = closeSearch;
 
+// Wired here rather than with onclick= in the markup: the renderer's CSP has
+// no script-src 'unsafe-inline', so an inline handler never fires.
+for (const [id, handler] of [
+  ['new-tab-btn', () => window.createTab()],
+  ['search-prev', () => window.doSearchPrev()],
+  ['search-next', () => window.doSearchNext()],
+  ['search-close', () => window.closeSearch()],
+  ['auto-indicator', () => window.toggleAutoRender()],
+  ['math-btn', () => window.toggleMathMode()]
+]) {
+  document.getElementById(id)?.addEventListener('click', handler);
+}
+
 const { parseShortcut, matchShortcut } = require('./keybindings');
 
 let _bindings = {};

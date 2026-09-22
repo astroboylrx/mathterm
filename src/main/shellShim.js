@@ -83,26 +83,62 @@ ${imgcatFn}
   };
 }
 
+// zsh is launched with ZDOTDIR pointing at the shim dir, and zsh derives more
+// than its rc files from that: compinit caches its dump at
+// ${ZDOTDIR:-$HOME}/.zcompdump, and plugin managers key their caches off it the
+// same way. A throwaway dir per pane therefore means a cold cache per pane,
+// which costs a full $fpath rescan every time a tab opens (and surfaces any
+// broken completion symlink on the box as an error before the first prompt).
+// So the dir is stable and shared, at the same layout the WSL VT proxy already
+// materializes inside the distro.
+function shimCacheDir({ fs, path, os, isZsh }) {
+  const base = path.join(os.homedir(), '.cache', 'mathterm');
+  const dir = isZsh ? path.join(base, 'zsh') : base;
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+// Panes start concurrently, so a pane must never read a half-written rc file.
+// The content is fixed per build, so an up-to-date file is left alone: that
+// skips the rename in the common case, and with it the chance of colliding
+// with another pane reading the same shared file.
+function writeShimFile(fs, path, filePath, content) {
+  try {
+    if (fs.readFileSync(filePath, 'utf8') === content) return;
+  } catch {}
+  const tmp = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2, 10)}`;
+  fs.writeFileSync(tmp, content);
+  fs.renameSync(tmp, filePath);
+}
+
 function createShellShim({ fs, path, os, shellCmd, env = process.env } = {}) {
   if (!fs || !path || !os) throw new Error('shell shim requires fs, path, and os');
   if (!shellCmd) throw new Error('shell command is required');
   const isZsh = shellCmd.includes('zsh');
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), SHIM_PREFIX));
+  const files = isZsh
+    ? Object.entries(createZshShimFiles())
+    : [['bashrc.sh', createBashShimScript()]];
 
-  if (isZsh) {
-    const files = createZshShimFiles();
-    for (const [name, content] of Object.entries(files)) {
-      fs.writeFileSync(path.join(tmpDir, name), content);
-    }
-  } else {
-    fs.writeFileSync(path.join(tmpDir, 'bashrc.sh'), createBashShimScript());
+  const materialize = dir => {
+    for (const [name, content] of files) writeShimFile(fs, path, path.join(dir, name), content);
+    return dir;
+  };
+
+  let shimDir;
+  try {
+    // mkdirSync succeeds on a directory that already exists but is read-only,
+    // so the writes have to be inside the same try as the mkdir -- otherwise a
+    // pane fails to open rather than falling back.
+    shimDir = materialize(shimCacheDir({ fs, path, os, isZsh }));
+  } catch {
+    // The shared dir is unusable (no writable home, a file locked by another
+    // process). Fall back to the throwaway dir older builds always used, which
+    // removeShellShim still cleans up by name.
+    shimDir = materialize(fs.mkdtempSync(path.join(os.tmpdir(), SHIM_PREFIX)));
   }
 
-  return {
-    shimDir: tmpDir,
-    shellArgs: buildShellArgs({ path, shellCmd, shimDir: tmpDir, env }).args,
-    shellEnv: buildShellArgs({ path, shellCmd, shimDir: tmpDir, env }).env
-  };
+  const built = buildShellArgs({ path, shellCmd, shimDir, env });
+  return { shimDir, shellArgs: built.args, shellEnv: built.env };
 }
 
 function buildShellArgs({ path, shellCmd, shimDir, env = process.env } = {}) {
@@ -124,8 +160,12 @@ function buildShellArgs({ path, shellCmd, shimDir, env = process.env } = {}) {
   };
 }
 
+// The shim dir is shared by every pane now, so closing one pane must not take
+// it away from the others. Only the per-pane throwaway dirs older builds (and
+// the no-home fallback above) create are still removable here.
 function removeShellShim({ fs, shimDir } = {}) {
   if (!fs || !shimDir) return;
+  if (!new RegExp(`(?:^|[\\\\/])${SHIM_PREFIX}[^\\\\/]*$`).test(shimDir)) return;
   try { fs.rmSync(shimDir, { recursive: true, force: true }); } catch {}
 }
 

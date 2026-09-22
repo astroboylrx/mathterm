@@ -5,15 +5,19 @@ const path = require('path');
 const { PtyManager } = require('../src/main/ptyManager');
 const { FakePtyAdapter } = require('./helpers/fakePtyAdapter');
 
+// The shim dir is derived from homedir(); keep the real ~/.cache out of tests.
+const sandboxHome = fs.mkdtempSync(path.join(os.tmpdir(), 'mathterm-ptytest-'));
+const sandboxOs = Object.assign(Object.create(os), { homedir: () => sandboxHome });
+
 function createManager() {
   const adapter = new FakePtyAdapter();
   const manager = new PtyManager({
     ptyAdapter: adapter,
     fs,
     path,
-    os,
+    os: sandboxOs,
     env: {
-      HOME: os.homedir(),
+      HOME: sandboxHome,
       SHELL: '/bin/bash',
       PATH: process.env.PATH
     }
@@ -113,7 +117,7 @@ async function testOutputAndExitEvents() {
   manager.closePane('pane-events');
 }
 
-async function testExitCleansShimButKeepsSnapshot() {
+async function testExitReleasesShimButKeepsSnapshot() {
   const { manager } = createManager();
   const pane = manager.createPane({ paneBackendId: 'pane-exit' });
   const shimDir = pane.shimDir;
@@ -123,7 +127,9 @@ async function testExitCleansShimButKeepsSnapshot() {
   assert.strictEqual(pane.state, 'closed');
   assert.deepStrictEqual(pane.exitState, { exitCode: 7, signal: 0 });
   assert.strictEqual(pane.shimDir, null);
-  assert.strictEqual(fs.existsSync(shimDir), false);
+  // The dir is shared with every other pane and holds their completion cache,
+  // so an exiting pane releases its reference without deleting it.
+  assert.strictEqual(fs.existsSync(shimDir), true);
   const snapshot = await manager.snapshotPane('pane-exit');
   assert.ok(snapshot.snapshot.includes('before exit'));
   assert.deepStrictEqual(snapshot.exitState, { exitCode: 7, signal: 0 });
@@ -201,7 +207,7 @@ async function run() {
   await testCreateWriteResizeSnapshotAndClose();
   await testReplayAndAck();
   await testOutputAndExitEvents();
-  await testExitCleansShimButKeepsSnapshot();
+  await testExitReleasesShimButKeepsSnapshot();
   await testUseShimFalseSkipsShim();
   await testDefaultShellOnWin32();
   await testDebugLogWritesRawOutput();

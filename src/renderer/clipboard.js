@@ -18,6 +18,24 @@ function doCopy() {
   if (text) mt.clipboard.writeText(text);
 }
 
+// Bracketed paste markers are only meaningful to an application that asked for
+// them with DECSET 2004. Editors that never enable it (nano < 5.7, vim without
+// t_BE, plain `cat`) read a bare ESC [ 2 0 0 ~ as an unknown key sequence, so
+// the markers have to follow the mode the foreground app actually set.
+function preparePasteData(tab, text) {
+  if (tab.term?.modes?.bracketedPasteMode) {
+    // Clipboard content holding an end marker would otherwise close the bracket
+    // early and let the remainder run as typed input.
+    // CRLF from a Windows app or a web page reaches bash/zsh as two newlines,
+    // leaving a stray blank line. A lone LF is already what they expect, so it
+    // is left alone.
+    const body = text.replace(/\x1b\[201~/g, '').replace(/\r\n/g, '\n');
+    return '\x1b[200~' + body + '\x1b[201~';
+  }
+  // Unbracketed, the app reads this as keystrokes: Enter is CR, not LF.
+  return text.replace(/\r?\n/g, '\r');
+}
+
 function doPaste() {
   const tab = getActivePane();
   if (!tab) return;
@@ -25,7 +43,7 @@ function doPaste() {
   const search = require('./search');
   if (search.isSearchBarOpen() && search.insertTextIntoSearchInput(text)) return;
   if (tab.richVisible || tab._richSnapshotPending) return;
-  if (text) tab.ptyProc.write('\x1b[200~' + text + '\x1b[201~');
+  if (text) tab.ptyProc.write(preparePasteData(tab, text));
 }
 
 function doSelectAll() {
@@ -120,4 +138,4 @@ function initClipboardListeners() {
   });
 }
 
-module.exports = { doCopy, doPaste, doSelectAll, showContextMenu, hideContextMenu, initClipboardListeners };
+module.exports = { doCopy, doPaste, preparePasteData, doSelectAll, showContextMenu, hideContextMenu, initClipboardListeners };

@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; font-src 'self' file: data:; img-src 'self' file: data: blob: https:; connect-src 'self' file:; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
   <style>
     @font-face {
       font-family: 'JetBrainsMono Nerd Font Mono';
@@ -900,16 +901,16 @@
 </head>
 <body>
   <div id="tab-bar">
-    <button id="new-tab-btn" tabindex="-1" onclick="createTab()">+</button>
+    <button id="new-tab-btn" tabindex="-1">+</button>
     <button id="new-tab-chevron" tabindex="-1" title="New tab with a specific profile" style="display:none">&#9660;</button>
   </div>
   <div id="terminal-container">
     <div id="search-bar">
       <input type="text" id="search-input" placeholder="Search terminal...">
       <span id="search-count"></span>
-      <button onclick="doSearchPrev()" title="Previous">&#x2191;</button>
-      <button onclick="doSearchNext()" title="Next">&#x2193;</button>
-      <button onclick="closeSearch()" title="Close">&#x2715;</button>
+      <button id="search-prev" title="Previous">&#x2191;</button>
+      <button id="search-next" title="Next">&#x2193;</button>
+      <button id="search-close" title="Close">&#x2715;</button>
     </div>
   </div>
   <div id="context-menu">
@@ -958,8 +959,8 @@
       <span id="git-branch" class="hidden"></span>
     </div>
     <div class="right">
-      <button id="auto-indicator" tabindex="-1" title="Toggle auto-render LaTeX (per tab)" onclick="toggleAutoRender()">AUTO</button>
-      <button id="math-btn" tabindex="-1" title="Toggle Math mode (Ctrl+Shift+M)" onclick="toggleMathMode()">&#x2211; Math</button>
+      <button id="auto-indicator" tabindex="-1" title="Toggle auto-render LaTeX (per tab)">AUTO</button>
+      <button id="math-btn" tabindex="-1" title="Toggle Math mode (Ctrl+Shift+M)">&#x2211; Math</button>
     </div>
   </div>
 <script src="renderer.js"></script>

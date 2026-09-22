@@ -3,6 +3,8 @@
 const { splitLatexSmart } = require('./latex');
 const { bufferLineToSemanticText } = require('./bufferText');
 
+const { collectLogicalBufferLines } = require('./bufferText');
+
 const RICH_VIRTUAL_OVERSCAN_ROWS = 80;
 const RICH_VIRTUAL_MAX_RENDERED_ROWS = 320;
 const RICH_VIRTUAL_STRUCTURE_BACKSCAN_ROWS = 50;
@@ -112,18 +114,58 @@ function isLikelyDisplayMathBodyText(text) {
   return /[\\_^=]/.test(trimmed);
 }
 
-function hasLikelyDisplayMathCloseAhead(buf, openerY, sourceEndY, isBoundaryLine, isIgnoredLine) {
+// A display-math delimiter may carry math on its own line -- `$$ \\begin{aligned}`
+// ... `\\end{aligned} $$` is the dominant LaTeX style. Each delimiter line is
+// classified on its own, so a block can open bare and close loaded or vice
+// versa. `$$` alone on the line yields an empty remainder/prefix.
+const DISPLAY_MATH_OPEN_RE = /^[ \t]*\$\$(.*)$/;
+const DISPLAY_MATH_CLOSE_RE = /^(.*?)\$\$[ \t]*$/;
+
+function matchDisplayMathOpen(text) {
+  const m = String(text == null ? '' : text).match(DISPLAY_MATH_OPEN_RE);
+  if (!m) return null;
+  return { rest: m[1], bare: m[1].trim() === '' };
+}
+
+function matchDisplayMathClose(text) {
+  const m = String(text == null ? '' : text).match(DISPLAY_MATH_CLOSE_RE);
+  if (!m) return null;
+  return { prefix: m[1], bare: m[1].trim() === '' };
+}
+
+// `$$` is also the shell's pid and Make's escaped `$`, so a block whose
+// delimiters are not alone on their lines only counts when the body reads like
+// math. isLikelyDisplayMathBodyText cannot serve here: it rejects `|` and a
+// leading `-`, both ordinary in real formulas.
+const LATEX_COMMAND_RE = /\\[a-zA-Z]{2,}/;
+const SHELL_TOKEN_RE = /\$\{|\$\(|`|>>|&&|\|\||^\t/m;
+
+function looksLikeDisplayMath(latex) {
+  return LATEX_COMMAND_RE.test(latex) && !SHELL_TOKEN_RE.test(latex);
+}
+
+function hasLikelyDisplayMathCloseAhead(lines, fromIdx, isBoundaryLine, isIgnoredLine) {
   let sawBody = false;
-  for (let y = openerY + 1; y <= sourceEndY; y++) {
-    const info = lineInfo(buf, y);
-    if (!info) continue;
-    if (isIgnoredLine && isIgnoredLine(y)) return false;
-    if (info.trimmed === '$$') return sawBody;
-    if (isBoundaryLine && isBoundaryLine(info.text, y)
-        && !isLikelyDisplayMathBodyText(info.text)) return false;
-    if (isLikelyDisplayMathBodyText(info.text)) sawBody = true;
+  for (let i = fromIdx + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const text = line.text || '';
+    if (isIgnoredLine && isIgnoredLine(line.y)) return false;
+    if (matchDisplayMathClose(text)) return sawBody;
+    if (isBoundaryLine && isBoundaryLine(text, line.y)
+        && !isLikelyDisplayMathBodyText(text)) return false;
+    // isLikelyDisplayMathBodyText rejects `|` and a leading `-`, both ordinary
+    // in real formulas, so a plain LaTeX body counts here too.
+    if (isLikelyDisplayMathBodyText(text) || looksLikeDisplayMath(text)) sawBody = true;
   }
   return false;
+}
+
+function previousMeaningfulLine(lines, fromIdx) {
+  for (let i = fromIdx - 1; i >= 0; i--) {
+    const text = lines[i].text || '';
+    if (text.trim()) return text;
+  }
+  return null;
 }
 
 function previousMeaningfulLineInfo(buf, fromY, stopY) {
@@ -156,36 +198,61 @@ function findPreviousDisplayMathOpen(buf, fromY, stopY) {
   return null;
 }
 
+// The renderer parses logical lines, so spans must be computed on the very
+// same ones. Walking physical rows hands a heuristic a wrap fragment instead of
+// the whole line, and its verdict then swings with the terminal width.
 function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine, isIgnoredLine) {
   const spans = [];
-  let openY = null;
-  for (let y = sourceStartY; y <= sourceEndY; y++) {
-    const info = lineInfo(buf, y);
-    if (!info) continue;
-    if (isIgnoredLine && isIgnoredLine(y)) {
-      openY = null;
+  const lines = collectLogicalBufferLines(buf, sourceStartY, sourceEndY);
+  let open = null;
+  let body = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const text = line.text || '';
+    const endY = line.yEnd !== undefined ? line.yEnd : line.y;
+    if (isIgnoredLine && isIgnoredLine(line.y)) {
+      open = null;
       continue;
     }
-    if (openY != null) {
-      if (info.trimmed === '$$') {
-        spans.push({ startY: openY, endY: y });
-        openY = null;
+    if (open) {
+      const close = matchDisplayMathClose(text);
+      if (close) {
+        if (!close.bare) body.push(close.prefix);
+        // Relaxed only when a delimiter carries math; the bare-to-bare form is
+        // the long-standing one and stays as permissive as it was.
+        if ((open.bare && close.bare) || looksLikeDisplayMath(body.join('\n'))) {
+          spans.push({ startY: open.startY, endY });
+        }
+        open = null;
         continue;
       }
-      if (isBoundaryLine && isBoundaryLine(info.text, y)
-          && !isLikelyDisplayMathBodyText(info.text)) {
-        openY = null;
+      // A loaded opener may not span a blank line, or two stray `$$` in
+      // ordinary output merge across the text between them.
+      if (!open.bare && !text.trim()) {
+        open = null;
+        continue;
       }
+      if (isBoundaryLine && isBoundaryLine(text, line.y)
+          && !isLikelyDisplayMathBodyText(text)) {
+        open = null;
+        continue;
+      }
+      body.push(text);
       continue;
     }
-    if (info.trimmed === '$$') {
-      const prev = previousMeaningfulLineInfo(buf, y - 1, sourceStartY);
-      if (prev && isLikelyDisplayMathBodyText(prev.text)
-          && !hasLikelyDisplayMathCloseAhead(buf, y, sourceEndY, isBoundaryLine, isIgnoredLine)) {
+    const opener = matchDisplayMathOpen(text);
+    if (!opener) continue;
+    // `$$x$$` on one line stays with the inline renderer.
+    if (!opener.bare && matchDisplayMathClose(text)) continue;
+    if (opener.bare) {
+      const prev = previousMeaningfulLine(lines, i);
+      if (prev && isLikelyDisplayMathBodyText(prev)
+          && !hasLikelyDisplayMathCloseAhead(lines, i, isBoundaryLine, isIgnoredLine)) {
         continue;
       }
-      openY = y;
     }
+    open = { startY: line.y, bare: opener.bare };
+    body = opener.bare ? [] : [opener.rest];
   }
   return spans;
 }
@@ -314,6 +381,9 @@ module.exports = {
   computeFencedCodeSpans,
   expandRangeForDisplayMathSpans,
   isLikelyDisplayMathBodyText,
+  matchDisplayMathOpen,
+  matchDisplayMathClose,
+  looksLikeDisplayMath,
   isLikelyCodeFenceBodyText,
   parseFenceLine,
   isClosingFenceLine,

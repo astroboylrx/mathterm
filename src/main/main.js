@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen, webContents } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, Notification, screen, shell, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -757,6 +757,18 @@ function createWindow(opts = {}) {
     ...windowOptions
   });
   attachWindowDiagnostics(win, 'terminal');
+  // A rendered markdown file can carry links, and nothing else stops one from
+  // navigating the whole window off the app. Keep the renderer on its own page
+  // and hand anything else to the OS.
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url === win.webContents.getURL()) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url).catch(() => {});
+    return { action: 'deny' };
+  });
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type === 'keyDown' && isToggleDevToolsInput(input)) {
       event.preventDefault();
