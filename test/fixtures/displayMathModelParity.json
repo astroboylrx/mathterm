@@ -1,0 +1,283 @@
+{
+ "lines": [
+  {
+   "text": "$$",
+   "z": -1.91103
+  },
+  {
+   "text": "$$ \\left\\{\\begin{aligned}",
+   "z": 51.236560247856055
+  },
+  {
+   "text": "\\end{aligned}\\right. $$",
+   "z": 61.34740492095077
+  },
+  {
+   "text": "\\frac{\\partial \\Sigma}{\\partial t} &= 0, \\\\",
+   "z": 31.46776762922212
+  },
+  {
+   "text": "a &= b + c \\\\",
+   "z": 24.325427509853288
+  },
+  {
+   "text": "\\begin{align}",
+   "z": 33.679454877593464
+  },
+  {
+   "text": "\\end{align}",
+   "z": 33.45356962124842
+  },
+  {
+   "text": "\\[",
+   "z": -1.91103
+  },
+  {
+   "text": "\\]",
+   "z": -1.91103
+  },
+  {
+   "text": "x^2 + y^2 = r^2",
+   "z": 7.235660335710021
+  },
+  {
+   "text": "The gas velocity can be calculated as",
+   "z": -25.84046842076852
+  },
+  {
+   "text": "where $\\nu = \\alpha c_s^2 / \\Omega$ is the viscosity.",
+   "z": -29.532028836294007
+  },
+  {
+   "text": "user@host:~/dev_projects/mathterm$ npm test",
+   "z": -23.01634134462604
+  },
+  {
+   "text": "➜  mathterm git:(master) ✗ cat notes.md",
+   "z": -51.500208707069845
+  },
+  {
+   "text": "PS C:\\Users\\me> python train.py",
+   "z": -48.364500724582996
+  },
+  {
+   "text": "\t@wc -c $(A) | sed -e \"s|$(A).*$$||\"",
+   "z": -42.625320072259996
+  },
+  {
+   "text": "for f in *.c; do echo $$f; done",
+   "z": -49.79222600598045
+  },
+  {
+   "text": "const displayMathSpans = computeDisplayMathSpans(buf, sourceStartY, sourceEndY);",
+   "z": -45.86821852161648
+  },
+  {
+   "text": "```python",
+   "z": -27.48376633886571
+  },
+  {
+   "text": "```",
+   "z": -24.549053599687316
+  },
+  {
+   "text": "逐项结果：",
+   "z": -5.960555020149482
+  },
+  {
+   "text": "已按相同风格整理：公式 $E=mc^2$ 成立",
+   "z": -26.083303346778123
+  },
+  {
+   "text": "620→",
+   "z": -8.138791883694655
+  },
+  {
+   "text": "396",
+   "z": -1.91103
+  },
+  {
+   "text": "}",
+   "z": -1.91103
+  },
+  {
+   "text": "0.          0.          0.",
+   "z": -12.787648042564754
+  },
+  {
+   "text": "\u001b[0m",
+   "z": -2.3587191578055764
+  },
+  {
+   "text": "naïve café α≤β",
+   "z": -21.18467674177325
+  },
+  {
+   "text": "emoji 😀 and 𝐀 math bold A",
+   "z": -25.22010820382576
+  },
+  {
+   "text": "² squared",
+   "z": -7.412304590349136
+  },
+  {
+   "text": "x = y　",
+   "z": -6.841850576796073
+  },
+  {
+   "text": "    indented code block",
+   "z": -51.24439818610777
+  },
+  {
+   "text": "> $$ \\frac{a}{b} $$",
+   "z": 34.79642315194466
+  },
+  {
+   "text": "# Heading with $x$",
+   "z": -28.139153899882075
+  },
+  {
+   "text": "- F_1 \\Sigma_{m+1}^{n+1} + (1 + F_2) \\Sigma_m^{n+1}",
+   "z": 16.75523877288521
+  },
+  {
+   "text": "\\mathcal{C} = \\left. r^4 \\frac{3}{2} \\right|_{r_c}.",
+   "z": 14.594968570883012
+  },
+  {
+   "text": "",
+   "z": -1.91103
+  },
+  {
+   "text": "   ",
+   "z": 14.933597030747816
+  }
+ ],
+ "sequences": [
+  {
+   "lines": [
+    "The update rule is",
+    "$$",
+    "\\Sigma_{n+1} = \\Sigma_n + \\Delta t\\, F(\\Sigma_n)",
+    "$$",
+    "which is explicit."
+   ],
+   "prompts": [
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "tags": "OBIEO"
+  },
+  {
+   "lines": [
+    "\\frac{\\partial u}{\\partial t} &= \\nu \\nabla^2 u \\\\",
+    "p &= \\rho c^2",
+    "\\end{aligned} $$",
+    "where",
+    "$$",
+    "a = b",
+    "$$"
+   ],
+   "prompts": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "tags": "IIEOBIE"
+  },
+  {
+   "lines": [
+    "Consider",
+    "\\begin{align}",
+    "a &= b \\\\",
+    "c &= d",
+    "\\end{align}",
+    "so that"
+   ],
+   "prompts": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "tags": "OBIIEO"
+  },
+  {
+   "lines": [
+    "user@host:~/proj$ cat notes.md",
+    "$$",
+    "E = mc^2",
+    "$$",
+    "user@host:~/proj$ make",
+    "gcc -O2 -o a a.c"
+   ],
+   "prompts": [
+    true,
+    false,
+    false,
+    false,
+    true,
+    false
+   ],
+   "tags": "OBIEOO"
+  },
+  {
+   "lines": [
+    "```latex",
+    "$$",
+    "not math here",
+    "$$",
+    "```",
+    "After the fence."
+   ],
+   "prompts": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "tags": "OBIEOO"
+  },
+  {
+   "lines": [
+    "公式如下：",
+    "\\[",
+    "\\int_0^1 x\\,dx = \\tfrac12",
+    "\\]",
+    "证毕。"
+   ],
+   "prompts": [
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "tags": "OBIEO"
+  },
+  {
+   "lines": [
+    "costs $$5 and",
+    "",
+    "later revenue $$7"
+   ],
+   "prompts": [
+    false,
+    false,
+    false
+   ],
+   "tags": "OOO"
+  }
+ ]
+}

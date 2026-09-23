@@ -27,6 +27,10 @@ const DEFAULTS = {
   backgroundCommandNotificationMinMs: 10000,
   quitWhenLastTabClosed: false,
   defaultProfile: 'auto',
+  // 'model': trained display-math detector; 'rules': the older $$ pairing.
+  mathBlockDetection: 'model',
+  // Developer option: save each Math Mode view locally for refining the model.
+  captureMathViews: false,
   _copyOnSelectDefaultVersion: 2,
   shortcuts: DEFAULT_SHORTCUTS,
 };
@@ -76,6 +80,8 @@ function mergeIncoming(incoming) {
     ...cleaned,
     shortcuts,
     latexMacros: typeof cleaned.latexMacros === 'string' ? cleaned.latexMacros : DEFAULTS.latexMacros,
+    mathBlockDetection: cleaned.mathBlockDetection === 'rules' ? 'rules' : 'model',
+    captureMathViews: cleaned.captureMathViews === true,
     backgroundCommandNotificationMinMs: Number.isFinite(Number(cleaned.backgroundCommandNotificationMinMs))
       ? Math.max(0, Number(cleaned.backgroundCommandNotificationMinMs))
       : DEFAULTS.backgroundCommandNotificationMinMs,

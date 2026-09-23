@@ -32,7 +32,16 @@ const {
   expandStartForStructure,
   expandEndForWrappedLine
 } = require('./richVirtual');
-const { tryParseDisplayMath, tryParseFencedCodeBlock, tagSpan } = require('./richBlockParse');
+const { tryParseDisplayMath, renderModelDisplayBlock, tryParseFencedCodeBlock, tagSpan } = require('./richBlockParse');
+const { computeModelDisplayMathSpans, modelBlocksForLines } = require('./displayMathBlocks');
+const { saveMathCapture, buildMathCapture } = require('./mathCapture');
+const DISPLAY_MATH_MODEL_FORMAT = require('./displayMathModel.json').format;
+
+// 'model' (default) uses the trained detector in displayMathModel.js; 'rules'
+// keeps the older delimiter-pairing parser.
+function useModelDetection() {
+  return settings.mathBlockDetection !== 'rules';
+}
 
 const SECTION_BUFFER_MAX = 256 * 1024;
 const SECTION_ELAPSED_MAX = 30000;
@@ -62,13 +71,59 @@ function disposeRichSnapshotSource(pane) {
   pane.richSnapshot = null;
 }
 
+// Display-math blocks for this list, keyed by the index of their first line:
+// taken from the whole-source detection the virtual view already ran (keyed by
+// buffer row), or detected here for a list rendered on its own.
+function modelBlocksForRender(textLines, promptLineChecker, tab, opts) {
+  const byIndex = new Map();
+  if (opts && opts.displayMathBlocks) {
+    for (let i = 0; i < textLines.length; i++) {
+      const item = textLines[i];
+      const block = typeof item === 'object' && item.y !== undefined ? opts.displayMathBlocks.get(item.y) : null;
+      if (!block) continue;
+      let end = i;
+      while (end + 1 < textLines.length && textLines[end + 1].y !== undefined
+        && textLines[end + 1].y <= block.endY) end++;
+      byIndex.set(i, { end, block });
+    }
+    return byIndex;
+  }
+  const isPromptIdx = idx => {
+    const item = textLines[idx];
+    return !!(promptLineChecker && typeof item === 'object' && item.y !== undefined
+      && promptLineChecker(tab, item.text || '', item.y));
+  };
+  for (const block of modelBlocksForLines(textLines, isPromptIdx)) {
+    byIndex.set(block.start, { end: block.end, block });
+  }
+  return byIndex;
+}
+
 function renderLinesToContainer(textLines, container, promptLineChecker, tab, opts) {
   let i = 0;
   let foundContent = false;
+  const modelBlocks = useModelDetection()
+    ? modelBlocksForRender(textLines, promptLineChecker, tab, opts)
+    : null;
 
   while (i < textLines.length) {
     const item = textLines[i];
     const text = typeof item === 'string' ? item : (item.text || '');
+
+    // Checked before the blank-line skip: a block the view entered part-way
+    // can start on a blank line inside it.
+    const modelBlock = modelBlocks && modelBlocks.get(i);
+    if (modelBlock) {
+      foundContent = true;
+      const result = renderModelDisplayBlock(textLines, i, modelBlock.end, modelBlock.block, opts);
+      if (result.prefix) container.appendChild(renderRichLine(item, result.prefix, false, opts));
+      container.appendChild(result.element);
+      if (result.suffix) {
+        container.appendChild(renderRichLine(textLines[modelBlock.end], result.suffix, false, opts));
+      }
+      i = result.endIdx;
+      continue;
+    }
 
     if (!text.trim()) { i++; continue; }
 
@@ -90,7 +145,7 @@ function renderLinesToContainer(textLines, container, promptLineChecker, tab, op
       continue;
     }
 
-    const mathResult = tryParseDisplayMath(textLines, i, opts, tab, promptLineChecker);
+    const mathResult = modelBlocks ? null : tryParseDisplayMath(textLines, i, opts, tab, promptLineChecker);
     if (mathResult) {
       container.appendChild(mathResult.element);
       i = mathResult.endIdx;
@@ -268,6 +323,7 @@ function renderRichVirtualWindow(pane, targetY, anchor) {
   const opts = {
     renderToken,
     displayMathSpanStarts: v.displayMathSpanStarts,
+    displayMathBlocks: v.displayMathBlocks,
     fencedCodeSpans: v.fencedCodeSpans,
     fencedCodeSpanStarts: v.fencedCodeSpanStarts
   };
@@ -371,6 +427,7 @@ function displayMathRenderOptsForPane(pane) {
   return v && (v.displayMathSpanStarts || v.fencedCodeSpans)
     ? {
       displayMathSpanStarts: v.displayMathSpanStarts,
+      displayMathBlocks: v.displayMathBlocks,
       fencedCodeSpans: v.fencedCodeSpans,
       fencedCodeSpanStarts: v.fencedCodeSpanStarts
     }
@@ -821,11 +878,31 @@ function showManualRichViewFromSnapshot(pane, captured) {
     buf, sourceStartY, sourceEndY,
     (text, y) => promptChecker(pane, text, y)
   );
-  const displayMathSpans = computeDisplayMathSpans(
-    buf, sourceStartY, sourceEndY,
-    (text, y) => promptChecker(pane, text, y),
-    y => fencedCodeSpans.some(span => span.startY <= y && y <= span.endY)
-  );
+  const isPromptRow = (text, y) => promptChecker(pane, text, y);
+  const isFencedRow = y => fencedCodeSpans.some(span => span.startY <= y && y <= span.endY);
+  const rulesSpans = () => computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isPromptRow, isFencedRow);
+  let displayMathSpans;
+  let displayMathBlocks = null;
+  if (useModelDetection()) {
+    const detected = computeModelDisplayMathSpans(buf, sourceStartY, sourceEndY, isPromptRow, isFencedRow);
+    displayMathSpans = detected.spans;
+    displayMathBlocks = new Map(detected.spans.map(span => [span.startY, span]));
+    if (settings.captureMathViews) {
+      saveMathCapture(buildMathCapture({
+        lines: detected.lines,
+        promptIdx: detected.lines.map((l, i) => (isPromptRow(l.text, l.y) ? i : -1)).filter(i => i >= 0),
+        fencedIdx: detected.lines.map((l, i) => (isFencedRow(l.y) ? i : -1)).filter(i => i >= 0),
+        modelSpans: detected.raw,
+        rulesSpans: rulesSpans(),
+        cols: snapshot.cols,
+        rows: capturedRows,
+        detection: 'model',
+        modelFormat: DISPLAY_MATH_MODEL_FORMAT
+      }));
+    }
+  } else {
+    displayMathSpans = rulesSpans();
+  }
   pane.richVirtual = {
     active: true,
     sourceBuffer: buf,
@@ -849,6 +926,7 @@ function showManualRichViewFromSnapshot(pane, captured) {
     expandedEndY: null,
     displayMathSpans,
     displayMathSpanStarts: new Set(displayMathSpans.map(span => span.startY)),
+    displayMathBlocks,
     fencedCodeSpans,
     fencedCodeSpanStarts: new Set(fencedCodeSpans.map(span => span.startY)),
     topSpacerEl: topSpacer,

@@ -144,6 +144,19 @@ function looksLikeDisplayMath(latex) {
   return LATEX_COMMAND_RE.test(latex) && !SHELL_TOKEN_RE.test(latex);
 }
 
+// Only strong evidence may carry an open block past a prompt row. Prompt
+// tracking can tag document rows after a full-screen program, and a real formula
+// line must survive that; but isLikelyDisplayMathBodyText accepts any line with
+// `_` or `=`, which a genuine prompt showing ~/my_project or a git status of
+// (main=) already has, and an unclosed block then swallowed the next command's
+// output. A LaTeX control word is required instead, and a Windows path such as
+// C:\Users does not count as one.
+const WINDOWS_PATH_RE = /(?:^|[\s(])[A-Za-z]:\\/;
+
+function canOverridePromptBoundary(text) {
+  return looksLikeDisplayMath(text) && !WINDOWS_PATH_RE.test(text);
+}
+
 function hasLikelyDisplayMathCloseAhead(lines, fromIdx, isBoundaryLine, isIgnoredLine) {
   let sawBody = false;
   for (let i = fromIdx + 1; i < lines.length; i++) {
@@ -152,7 +165,7 @@ function hasLikelyDisplayMathCloseAhead(lines, fromIdx, isBoundaryLine, isIgnore
     if (isIgnoredLine && isIgnoredLine(line.y)) return false;
     if (matchDisplayMathClose(text)) return sawBody;
     if (isBoundaryLine && isBoundaryLine(text, line.y)
-        && !isLikelyDisplayMathBodyText(text)) return false;
+        && !canOverridePromptBoundary(text)) return false;
     // isLikelyDisplayMathBodyText rejects `|` and a leading `-`, both ordinary
     // in real formulas, so a plain LaTeX body counts here too.
     if (isLikelyDisplayMathBodyText(text) || looksLikeDisplayMath(text)) sawBody = true;
@@ -233,7 +246,7 @@ function computeDisplayMathSpans(buf, sourceStartY, sourceEndY, isBoundaryLine, 
         continue;
       }
       if (isBoundaryLine && isBoundaryLine(text, line.y)
-          && !isLikelyDisplayMathBodyText(text)) {
+          && !canOverridePromptBoundary(text)) {
         open = null;
         continue;
       }
@@ -384,6 +397,7 @@ module.exports = {
   matchDisplayMathOpen,
   matchDisplayMathClose,
   looksLikeDisplayMath,
+  canOverridePromptBoundary,
   isLikelyCodeFenceBodyText,
   parseFenceLine,
   isClosingFenceLine,

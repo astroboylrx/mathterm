@@ -78,4 +78,58 @@ for (const src of [LOADED, '$$\na = b + c\n$$', '$$  \\frac{a}{b},\n$$',
     'richVirtual spans and richBlockParse must agree on: ' + JSON.stringify(src.slice(0, 40)));
 }
 
+// A real prompt must stop an unclosed block. `head -n` cut a file inside a
+// formula, then the next command ran; prompts showing ~/dev_projects, a `_` in
+// a directory, a git status of (main=) or a PowerShell path used to read as
+// math body and let the block run on through the command output.
+for (const prompt of [
+  'user@host:~/dev_projects/mathterm$ npm test',
+  '(asf) user@host:~/my_runs$ npm test',
+  'user@host ~/proj (main=) $ npm test',
+  'PS C:\\Users\\me\\proj> npm test'
+]) {
+  const lines = [
+    'The update rule is',
+    '$$',
+    '\\Sigma_{n+1} = \\Sigma_n + \\Delta t \\, F(\\Sigma_n)',
+    prompt,
+    'backendLifecycle tests passed',
+    prompt.replace('npm test', 'cat other.md'),
+    '$$',
+    'a = b',
+    '$$'
+  ];
+  const promptRows = new Set([3, 5]);
+  const items = lines.map((text, y) => ({ y, text }));
+  const checker = (_p, _t, y) => promptRows.has(y);
+  captured.length = 0;
+  const blocks = [];
+  let i = 0;
+  while (i < items.length) {
+    const r = tryParseDisplayMath(items, i, null, {}, checker);
+    if (r) { blocks.push([i, r.endIdx - 1]); i = r.endIdx; continue; }
+    i++;
+  }
+  assert.deepStrictEqual(blocks, [[6, 8]], `unclosed block crossed the prompt: ${prompt}`);
+
+  const buf = {
+    getLine: y => (y >= 0 && y < lines.length ? { isWrapped: false, translateToString: () => lines[y] } : null)
+  };
+  assert.deepStrictEqual(
+    computeDisplayMathSpans(buf, 0, lines.length - 1, (_t, y) => promptRows.has(y), null),
+    [{ startY: 6, endY: 8 }],
+    `virtual spans crossed the prompt: ${prompt}`
+  );
+}
+
+// ...while a formula row that prompt tracking tags by mistake still does not
+// break its block (the case the override exists for).
+{
+  const lines = ['$$', '\\rho_{\\rm g}(R,z) =', '\\rho_0 \\left(\\frac{R}{R_p}\\right)^{-9/4}', '$$'];
+  const items = lines.map((text, y) => ({ y, text }));
+  captured.length = 0;
+  const r = tryParseDisplayMath(items, 0, null, {}, (_p, _t, y) => y === 1);
+  assert.ok(r && r.endIdx === 4, 'a falsely tagged formula row must not break the block');
+}
+
 console.log('rich display math tests passed');

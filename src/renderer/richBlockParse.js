@@ -1,9 +1,12 @@
 const { queueKatex } = require('./richKatexQueue');
+const { splitBlockLatex } = require('./displayMathBlocks');
+const { prepareDisplayLatex } = require('./latexRepair');
 const {
   isLikelyDisplayMathBodyText,
   matchDisplayMathOpen,
   matchDisplayMathClose,
   looksLikeDisplayMath,
+  canOverridePromptBoundary,
   isLikelyCodeFenceBodyText,
   parseFenceLine,
   isClosingFenceLine
@@ -28,7 +31,7 @@ function hasDisplayMathCloseAheadInLines(textLines, startIdx, pane, promptLineCh
     if (matchDisplayMathClose(text)) return sawBody;
     if (typeof item === 'object' && item.y !== undefined
         && pane && promptLineChecker && promptLineChecker(pane, text, item.y)
-        && !isLikelyDisplayMathBodyText(text)) {
+        && !canOverridePromptBoundary(text)) {
       return false;
     }
     // isLikelyDisplayMathBodyText rejects `|` and a leading `-`, both ordinary
@@ -90,13 +93,36 @@ function tryParseDisplayMath(textLines, startIdx, opts, pane, promptLineChecker)
     if (!opener.bare && !t.trim()) return null;
     if (typeof item === 'object' && item.y !== undefined
         && pane && promptLineChecker && promptLineChecker(pane, t, item.y)
-        && !isLikelyDisplayMathBodyText(t)) {
+        && !canOverridePromptBoundary(t)) {
       return null;
     }
     mathLines.push(t.trimEnd());
     j++;
   }
   return null;
+}
+
+// A block the display-math model found, spanning textLines[startIdx..endIdx].
+// Unlike tryParseDisplayMath there is no delimiter matching to do: the model
+// already decided where the block runs, including blocks without $$ (a bare
+// \begin{align}) and blocks the view entered or left part-way. Prose sharing
+// the first or last line comes back separately for the caller to render.
+function renderModelDisplayBlock(textLines, startIdx, endIdx, block, opts) {
+  const texts = [];
+  for (let i = startIdx; i <= endIdx; i++) texts.push(_t(textLines[i]));
+  const { prefix, latex, suffix } = splitBlockLatex(texts, block);
+  const el = document.createElement('div');
+  el.className = 'display-math';
+  el.style.textAlign = 'center';
+  el.style.margin = '8px 0';
+  tagSpan(el, textLines, startIdx, endIdx);
+  el.dataset.katexBlock = '1';
+  if (block.partialStart || block.partialEnd) {
+    el.dataset.katexRepair = '1';
+    el.dataset.katexFallback = 'text';
+  }
+  queueKatex(prepareDisplayLatex(latex), el, true, opts);
+  return { element: el, prefix, suffix, endIdx: endIdx + 1 };
 }
 
 function tagSpan(el, textLines, startIdx, endIdx) {
@@ -179,6 +205,7 @@ function tryParseFencedCodeBlock(textLines, startIdx, opts) {
 
 module.exports = {
   tryParseDisplayMath,
+  renderModelDisplayBlock,
   tryParseFencedCodeBlock,
   tagSpan,
   previousMeaningfulTextLine,

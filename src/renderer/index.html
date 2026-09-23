@@ -375,6 +375,17 @@
       margin: 14px 0;
       font-size: 1.3em;
     }
+    /* A block the view cut into that KaTeX still cannot parse after repair:
+       show its source as text rather than a red parse error. */
+    .display-math.display-math-fallback {
+      text-align: left !important;
+      font-size: 1em;
+      font-family: inherit;
+      white-space: pre-wrap;
+      color: var(--fg-dim);
+      border-left: 2px solid var(--border);
+      padding-left: 8px;
+    }
     .latex-pending { color: var(--fg-dim); font-style: italic; }
     .markdown-image-line {
       margin: 10px 0;

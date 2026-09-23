@@ -208,8 +208,11 @@
       <label><span>Background command marker</span><input type="checkbox" id="backgroundCommandMarker"></label>
       <label><span>Background command notifications</span><input type="checkbox" id="backgroundCommandNotifications"></label>
       <label id="quit-last-tab-row"><span>Quit when last tab closes</span><input type="checkbox" id="quitWhenLastTabClosed"></label>
+      <label><span>Display math detection</span><select id="mathBlockDetection"><option value="model">Model</option><option value="rules">Rules (legacy $$ pairing)</option></select></label>
+      <label><span>Save Math Mode views for model training</span><input type="checkbox" id="captureMathViews"></label>
       <label class="field-block"><span>Persistent LaTeX macros</span><textarea id="latexMacros" spellcheck="false" placeholder="\newcommand{\R}{\mathbb{R}}&#10;\newcommand{\vect}[1]{\mathbf{#1}}"></textarea></label>
       <div class="note">Scrollback changes require new panes to take full effect. Persistent macros are loaded from this config and used by all KaTeX renders.</div>
+      <div class="note" id="capture-note">Saved Math Mode views contain the terminal text shown at the time and stay on this machine.</div>
     </section>
     <section id="shortcuts-panel">
       <h2>Keyboard Shortcuts</h2>

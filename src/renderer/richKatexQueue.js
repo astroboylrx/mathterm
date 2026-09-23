@@ -1,4 +1,4 @@
-const { renderKatexInto } = require('./katexRender');
+const { renderKatexInto, renderDisplayBlockInto } = require('./katexRender');
 
 const _katexQueue = [];
 let _katexRaf = 0;
@@ -60,7 +60,14 @@ function _flushKatex() {
     consumed++;
     if (!el.isConnected) continue;
     if (token != null && el.dataset.richRenderToken !== token) continue;
-    renderKatexInto(latex, el, displayMode);
+    if (el.dataset.katexBlock === '1') {
+      renderDisplayBlockInto(latex, el, {
+        repair: el.dataset.katexRepair === '1',
+        fallback: el.dataset.katexFallback || 'error'
+      });
+    } else {
+      renderKatexInto(latex, el, displayMode);
+    }
     delete el.dataset.katexPending;
     rendered++;
   }

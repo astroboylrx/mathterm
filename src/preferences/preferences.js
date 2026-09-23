@@ -110,6 +110,10 @@ function fillForm() {
   $('quit-last-tab-row').style.display = isMac ? 'flex' : 'none';
   $('quitWhenLastTabClosed').checked = !!settings.quitWhenLastTabClosed;
   $('latexMacros').value = settings.latexMacros || '';
+  $('mathBlockDetection').value = settings.mathBlockDetection === 'rules' ? 'rules' : 'model';
+  $('captureMathViews').checked = !!settings.captureMathViews;
+  $('capture-note').textContent = 'Saved Math Mode views contain the terminal text shown at the time and stay '
+    + `on this machine, in ${mt.path.join(mt.path.dirname(SETTINGS_PATH), 'math-captures')}.`;
   $('config-path').textContent = `Config: ${SETTINGS_PATH}. Custom themes: ${mt.path.join(configHome, 'mathterm', 'themes')}.`;
   applyTheme(settings.theme);
   updateThemePreview(settings.theme);
@@ -139,6 +143,8 @@ function collectForm() {
     backgroundCommandNotifications: $('backgroundCommandNotifications').checked,
     quitWhenLastTabClosed: isMac ? $('quitWhenLastTabClosed').checked : false,
     latexMacros: $('latexMacros').value || '',
+    mathBlockDetection: $('mathBlockDetection').value === 'rules' ? 'rules' : 'model',
+    captureMathViews: $('captureMathViews').checked,
   });
 }
 
